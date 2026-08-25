@@ -60,13 +60,13 @@ class SpriteTest(unittest.TestCase):
         for pokemon in sprites.POKEMON.values():
             self.assertGreater(pokemon.scale_factor, 0, pokemon.key)
 
-    def test_imported_pikachu_has_a_walk_cycle(self):
-        pikachu = sprites.POKEMON["pikachu"]
-        frames = pikachu.frames()
-        self.assertEqual(len(frames), 4)
-        # 0/2 는 가만히 선 자세, 1/3 은 각각 다른 발을 든 자세
-        self.assertEqual(frames[0], frames[2])
-        self.assertNotEqual(frames[1], frames[3])
+    def test_imported_sprites_have_a_walk_cycle(self):
+        for key in ("pikachu", "charmander"):
+            frames = sprites.POKEMON[key].frames()
+            self.assertEqual(len(frames), 4, key)
+            # 0/2 는 가만히 선 자세, 1/3 은 각각 다른 발을 든 자세
+            self.assertEqual(frames[0], frames[2], key)
+            self.assertNotEqual(frames[1], frames[3], key)
 
     def test_sprites_have_visible_pixels(self):
         for pokemon in sprites.POKEMON.values():
@@ -209,8 +209,10 @@ class GroundLineTest(unittest.TestCase):
     def test_sprite_scale_follows_the_scale_factor(self):
         app = pt.App(pt.parse_args(["--scale", "3"]))
         try:
-            self.assertEqual(app.sprite_scale(sprites.POKEMON["charmander"]), 3)
+            # 손으로 그린 작은 도트는 그대로, 이미지에서 들여온 촘촘한 도트는 1배로
+            self.assertEqual(app.sprite_scale(sprites.POKEMON["bulbasaur"]), 3)
             self.assertEqual(app.sprite_scale(sprites.POKEMON["pikachu"]), 1)
+            self.assertEqual(app.sprite_scale(sprites.POKEMON["charmander"]), 1)
         finally:
             app.quit()
 

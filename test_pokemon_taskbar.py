@@ -65,7 +65,7 @@ class SpriteTest(unittest.TestCase):
             self.assertGreater(pokemon.scale_factor, 0, pokemon.key)
 
     def test_imported_sprites_have_a_walk_cycle(self):
-        for key in ("pikachu", "charmander"):
+        for key in ("pikachu", "charmander", "squirtle"):
             frames = sprites.POKEMON[key].frames()
             self.assertEqual(len(frames), 4, key)
             # 0/2 는 가만히 선 자세, 1/3 은 각각 다른 발을 든 자세

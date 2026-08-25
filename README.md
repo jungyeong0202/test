@@ -12,6 +12,9 @@
 pikachu    charmander    bulbasaur    squirtle
 ```
 
+피카츄는 45x44 도트에 걷기 4프레임, 나머지는 손으로 그린 작은 도트입니다.
+`tools/import_sprite.py` 로 원하는 그림을 넣으면 누구든 걷게 만들 수 있습니다.
+
 ## 실행 방법
 
 파이썬 3.8 이상이 필요합니다.
@@ -119,10 +122,36 @@ python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 �
 | `csharp/` | 파이썬 없이 도는 C# 판 (`run.bat` 이 빌드까지 해 줍니다) |
 | `dist/PokemonTaskbar.exe` | 바로 실행할 수 있는 빌드 결과물 |
 | `tools/gen_sprites_cs.py` | `sprites.py` 도트 데이터를 `csharp/Sprites.cs` 로 변환 |
+| `tools/import_sprite.py` | 내 도트 그림(png/jpg)을 스프라이트 + 걷기 프레임으로 변환 |
 | `tools/make_icon.py` | 도트로 exe 아이콘(`csharp/pokemon.ico`) 생성 |
 | `tools/build_exe.sh` | 리눅스/맥에서 Mono 로 exe 빌드 |
 
-도트 그림은 이렇게 문자로 정의되어 있어서, 글자만 바꾸면 새로운 포켓몬을 쉽게 추가할 수 있습니다.
+### 내 그림으로 포켓몬 추가하기
+
+가지고 있는 도트 그림(png/jpg)을 그대로 걷게 만들 수 있습니다.
+
+```bash
+pip install Pillow                       # 변환할 때만 필요합니다
+python tools/import_sprite.py 그림.png --key pikachu --name 피카츄 \
+    --colors 12 --preview 확인용.png
+python tools/gen_sprites_cs.py           # C# 판에도 반영
+```
+
+변환기가 알아서 해 주는 일:
+
+1. 몇 배로 확대된 그림인지 계산해 원래 도트 크기로 되돌립니다 (칸 안의 색이 고른 배율을 찾습니다)
+2. 색을 `--colors` 개수로 정리해 팔레트를 만듭니다 (jpg 압축 잡음도 이 단계에서 걸러집니다)
+3. 바깥에서 이어진 배경만 투명 처리합니다 (눈동자 속 흰색처럼 안쪽에 갇힌 밝은 색은 남깁니다)
+4. 맨 아래에서 두 발을 찾아 번갈아 드는 **걷기 4프레임**을 만듭니다
+5. `sprites.py` 의 해당 포켓몬 정의를 통째로 갈아 끼웁니다
+
+기본으로 들어 있는 피카츄가 이 방식으로 만들어졌습니다 (45x44 도트, 12색, 4프레임).
+발이 잘 안 잡히면 `--foot-band`(아래쪽 몇 줄을 발로 볼지), `--foot-rise`(몇 칸 들어 올릴지) 로 조절하세요.
+격자 자동 인식이 틀리면 `--grid`, `--rows` 로 직접 지정하면 됩니다.
+
+### 손으로 그리기
+
+도트 그림은 이렇게 문자로 정의되어 있어서, 글자만 바꿔도 새로운 포켓몬을 만들 수 있습니다.
 
 ```python
 rows=[
@@ -133,6 +162,7 @@ rows=[
 ```
 
 `sprites.py` 의 `POKEMON` 목록에 새 `Pokemon(...)` 을 추가하면 바로 `--pokemon` 으로 부를 수 있습니다.
+도트가 촘촘한 그림은 `scale_factor` 를 작게 주면 (`1 / 3` 처럼) `--scale` 과 무관하게 알맞은 크기로 그려집니다.
 
 ## 테스트
 

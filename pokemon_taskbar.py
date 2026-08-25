@@ -115,12 +115,14 @@ class PokemonPet:
     def __init__(self, app, pokemon):
         self.app = app
         self.pokemon = pokemon
-        self.images = app.get_images(pokemon.key)
+        self.images = app.get_images(pokemon)
+        self.frame_count = len(self.images["right"])
+        self.scale = app.sprite_scale(pokemon)
 
         sample = self.images["right"][0]
         self.width = sample.width()
         self.height = sample.height()
-        self.hop = app.scale  # 걸을 때 위아래로 흔들리는 폭
+        self.hop = self.scale  # 걸을 때 위아래로 흔들리는 폭
 
         self.window = tk.Toplevel(app.root)
         self.window.overrideredirect(True)
@@ -271,17 +273,18 @@ class PokemonPet:
     def draw(self):
         facing = "right" if self.direction > 0 else "left"
         if self.state == "walk":
-            frame = int(self.anim_time / STEP_SEC) % 2
+            frame = int(self.anim_time / STEP_SEC) % self.frame_count
         else:
             frame = 0
         self.canvas.itemconfigure(self.sprite, image=self.images[facing][frame])
-        bounce = self.hop if (self.state == "walk" and frame == 1) else 0
+        # 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
+        bounce = self.hop if (self.state == "walk" and frame % 2 == 1) else 0
         self.canvas.coords(self.sprite, 0, self.hop - bounce)
 
     def place(self):
         y = self.base_y
         if self.jump_time >= 0:
-            y -= int(self.app.scale * 6 * math.sin(math.pi * self.jump_time / 0.45))
+            y -= int(self.scale * 6 * math.sin(math.pi * self.jump_time / 0.45))
         self.window.geometry("+%d+%d" % (int(self.x), y))
 
 
@@ -313,19 +316,24 @@ class App:
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.bind_all("<Escape>", lambda _e: self.quit())
 
-    def get_images(self, key):
+    def sprite_scale(self, pokemon):
+        """스프라이트별 확대 배율. 도트가 촘촘한 그림은 더 작게 그린다."""
+        return max(1, int(round(self.scale * pokemon.scale_factor)))
+
+    def get_images(self, pokemon):
         """방향별 걷기 이미지(캐시)."""
-        if key not in self.image_cache:
-            frames = POKEMON[key].frames()
-            self.image_cache[key] = {
+        if pokemon.key not in self.image_cache:
+            frames = pokemon.frames()
+            scale = self.sprite_scale(pokemon)
+            self.image_cache[pokemon.key] = {
                 "right": [
-                    make_photo(f, self.scale, flip=False, master=self.root) for f in frames
+                    make_photo(f, scale, flip=False, master=self.root) for f in frames
                 ],
                 "left": [
-                    make_photo(f, self.scale, flip=True, master=self.root) for f in frames
+                    make_photo(f, scale, flip=True, master=self.root) for f in frames
                 ],
             }
-        return self.image_cache[key]
+        return self.image_cache[pokemon.key]
 
     def add_pet(self, key):
         self.pets.append(PokemonPet(self, POKEMON[key]))

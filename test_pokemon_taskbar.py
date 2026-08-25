@@ -41,17 +41,32 @@ class SpriteTest(unittest.TestCase):
     def test_frames_are_rectangular_and_match(self):
         for pokemon in sprites.POKEMON.values():
             frames = pokemon.frames()
-            self.assertEqual(len(frames), 2, pokemon.key)
+            self.assertGreaterEqual(len(frames), 2, pokemon.key)
+            self.assertEqual(len(frames) % 2, 0, "%s: 프레임은 짝수여야 걷기가 자연스럽다" % pokemon.key)
             width = len(frames[0][0])
             for frame in frames:
-                self.assertEqual(len(frame), len(pokemon.rows), pokemon.key)
+                self.assertEqual(len(frame), len(pokemon.frame_rows[0]), pokemon.key)
                 for row in frame:
                     self.assertEqual(len(row), width, pokemon.key)
 
     def test_walk_frames_differ(self):
         for pokemon in sprites.POKEMON.values():
-            first, second = pokemon.frames()
-            self.assertNotEqual(first, second, "%s: 걷기 프레임이 동일합니다" % pokemon.key)
+            frames = pokemon.frames()
+            self.assertNotEqual(
+                frames[0], frames[1], "%s: 걷기 프레임이 동일합니다" % pokemon.key
+            )
+
+    def test_scale_factor_is_positive(self):
+        for pokemon in sprites.POKEMON.values():
+            self.assertGreater(pokemon.scale_factor, 0, pokemon.key)
+
+    def test_imported_pikachu_has_a_walk_cycle(self):
+        pikachu = sprites.POKEMON["pikachu"]
+        frames = pikachu.frames()
+        self.assertEqual(len(frames), 4)
+        # 0/2 는 가만히 선 자세, 1/3 은 각각 다른 발을 든 자세
+        self.assertEqual(frames[0], frames[2])
+        self.assertNotEqual(frames[1], frames[3])
 
     def test_sprites_have_visible_pixels(self):
         for pokemon in sprites.POKEMON.values():
@@ -188,6 +203,21 @@ class GroundLineTest(unittest.TestCase):
         app = pt.App(pt.parse_args(["--on-taskbar"]))
         try:
             self.assertEqual(app.ground_y, app.screen_height)
+        finally:
+            app.quit()
+
+    def test_sprite_scale_follows_the_scale_factor(self):
+        app = pt.App(pt.parse_args(["--scale", "3"]))
+        try:
+            self.assertEqual(app.sprite_scale(sprites.POKEMON["charmander"]), 3)
+            self.assertEqual(app.sprite_scale(sprites.POKEMON["pikachu"]), 1)
+        finally:
+            app.quit()
+
+    def test_sprite_scale_never_drops_below_one(self):
+        app = pt.App(pt.parse_args(["--scale", "1"]))
+        try:
+            self.assertGreaterEqual(app.sprite_scale(sprites.POKEMON["pikachu"]), 1)
         finally:
             app.quit()
 

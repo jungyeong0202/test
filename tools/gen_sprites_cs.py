@@ -25,9 +25,9 @@ namespace PokemonTaskbar
     {
         public string Key;
         public string NameKo;
+        public double ScaleFactor;
         public Dictionary<char, string> Palette;
-        public string[] Rows;
-        public Dictionary<int, string> StepRows;
+        public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
     }
 
     public static class Sprites
@@ -64,17 +64,17 @@ def build():
         out.append("            new PokemonSprite\n            {\n")
         out.append("                Key = %s,\n" % cs_string(pokemon.key))
         out.append("                NameKo = %s,\n" % cs_string(pokemon.name_ko))
+        out.append("                ScaleFactor = %r,\n" % float(pokemon.scale_factor))
         out.append("                Palette = new Dictionary<char, string>\n                {\n")
         for char, color in pokemon.palette.items():
             out.append("                    { '%s', %s },\n" % (char, cs_string(color)))
         out.append("                },\n")
-        out.append("                Rows = new string[]\n                {\n")
-        for row in pokemon.rows:
-            out.append("                    %s,\n" % cs_string(row))
-        out.append("                },\n")
-        out.append("                StepRows = new Dictionary<int, string>\n                {\n")
-        for index, row in sorted(pokemon.step_rows.items()):
-            out.append("                    { %d, %s },\n" % (index, cs_string(row)))
+        out.append("                Frames = new string[][]\n                {\n")
+        for frame in pokemon.frame_rows:
+            out.append("                    new string[]\n                    {\n")
+            for row in frame:
+                out.append("                        %s,\n" % cs_string(row))
+            out.append("                    },\n")
         out.append("                },\n")
         out.append("            },\n")
     out.append(FOOTER)

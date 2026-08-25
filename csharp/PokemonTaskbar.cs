@@ -32,23 +32,13 @@ namespace PokemonTaskbar
             return ColorTranslator.FromHtml(hex);
         }
 
-        /// <summary>걷기 두 프레임을 색 배열로 만든다. 빈 칸은 null.</summary>
+        /// <summary>걷기 프레임들을 색 배열로 만든다. 빈 칸은 null.</summary>
         public static List<Color?[][]> Frames(PokemonSprite sprite)
         {
-            List<string[]> variants = new List<string[]>();
-            variants.Add(sprite.Rows);
-
-            string[] stepped = (string[])sprite.Rows.Clone();
-            foreach (KeyValuePair<int, string> pair in sprite.StepRows)
-            {
-                stepped[pair.Key] = pair.Value;
-            }
-            variants.Add(stepped);
-
             int width = 0;
-            foreach (string[] rows in variants)
+            foreach (string[] frame in sprite.Frames)
             {
-                foreach (string row in rows)
+                foreach (string row in frame)
                 {
                     if (row.Length > width)
                     {
@@ -58,7 +48,7 @@ namespace PokemonTaskbar
             }
 
             List<Color?[][]> frames = new List<Color?[][]>();
-            foreach (string[] rows in variants)
+            foreach (string[] rows in sprite.Frames)
             {
                 Color?[][] grid = new Color?[rows.Length][];
                 for (int y = 0; y < rows.Length; y++)
@@ -154,6 +144,8 @@ namespace PokemonTaskbar
         private readonly int spriteWidth;
         private readonly int spriteHeight;
         private readonly int hop;
+        private readonly int frameCount;
+        private readonly int scale;
         private readonly int maxX;
         private readonly int baseY;
         private readonly double speed;
@@ -171,7 +163,9 @@ namespace PokemonTaskbar
             this.random = world.Random;
 
             List<Color?[][]> frames = SpriteFactory.Frames(sprite);
-            int scale = world.Options.Scale;
+            this.frameCount = frames.Count;
+            int scale = Math.Max(1, (int)Math.Round(world.Options.Scale * sprite.ScaleFactor));
+            this.scale = scale;
             this.images = new Bitmap[2][];
             this.images[0] = new Bitmap[frames.Count];
             this.images[1] = new Bitmap[frames.Count];
@@ -235,8 +229,9 @@ namespace PokemonTaskbar
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            int frame = this.walking ? (int)(this.animTime / StepSeconds) % 2 : 0;
-            int bounce = (this.walking && frame == 1) ? this.hop : 0;
+            int frame = this.walking ? (int)(this.animTime / StepSeconds) % this.frameCount : 0;
+            // 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
+            int bounce = (this.walking && frame % 2 == 1) ? this.hop : 0;
             Bitmap image = this.images[this.direction > 0 ? 0 : 1][frame];
             e.Graphics.DrawImageUnscaled(image, 0, this.hop - bounce);
         }
@@ -339,7 +334,7 @@ namespace PokemonTaskbar
             int y = this.baseY;
             if (this.jumpTime >= 0)
             {
-                double height = this.hop * 6 * Math.Sin(Math.PI * this.jumpTime / JumpSeconds);
+                double height = this.scale * 6 * Math.Sin(Math.PI * this.jumpTime / JumpSeconds);
                 y -= (int)height;
             }
             this.Location = new Point((int)this.x, y);

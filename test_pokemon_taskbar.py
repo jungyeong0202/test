@@ -56,6 +56,10 @@ class SpriteTest(unittest.TestCase):
                 frames[0], frames[1], "%s: 걷기 프레임이 동일합니다" % pokemon.key
             )
 
+    def test_facing_is_declared(self):
+        for pokemon in sprites.POKEMON.values():
+            self.assertIn(pokemon.facing, ("left", "right"), pokemon.key)
+
     def test_scale_factor_is_positive(self):
         for pokemon in sprites.POKEMON.values():
             self.assertGreater(pokemon.scale_factor, 0, pokemon.key)
@@ -99,6 +103,30 @@ class ArgumentTest(unittest.TestCase):
     def test_scale_must_be_positive(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             pt.parse_args(["--scale", "0"])
+
+
+@needs_display
+class FacingTest(unittest.TestCase):
+    """이동 방향과 그림이 보는 방향 맞추기."""
+
+    def test_left_facing_art_flips_when_walking_right(self):
+        pikachu = sprites.POKEMON["pikachu"]
+        self.assertEqual(pikachu.facing, "left")
+        self.assertTrue(pt.flip_for(pikachu, moving_right=True))
+        self.assertFalse(pt.flip_for(pikachu, moving_right=False))
+
+    def test_right_facing_art_flips_when_walking_left(self):
+        bulbasaur = sprites.POKEMON["bulbasaur"]
+        self.assertEqual(bulbasaur.facing, "right")
+        self.assertFalse(pt.flip_for(bulbasaur, moving_right=True))
+        self.assertTrue(pt.flip_for(bulbasaur, moving_right=False))
+
+    def test_every_sprite_faces_its_way(self):
+        for pokemon in sprites.POKEMON.values():
+            for moving_right in (True, False):
+                flipped = pt.flip_for(pokemon, moving_right)
+                looks_right = (pokemon.facing == "right") != flipped
+                self.assertEqual(looks_right, moving_right, pokemon.key)
 
 
 @needs_display

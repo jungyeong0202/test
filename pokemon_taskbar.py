@@ -83,6 +83,15 @@ def setup_transparency(window, system):
     return None
 
 
+def flip_for(pokemon, moving_right):
+    """이동 방향에 맞춰 그림을 좌우로 뒤집어야 하는지.
+
+    원본이 보고 있는 방향과 가려는 방향이 다를 때만 뒤집는다.
+    """
+    faces_right = pokemon.facing == "right"
+    return faces_right != moving_right
+
+
 def make_photo(grid, scale, flip=False, master=None):
     """색상 그리드를 tkinter 이미지로 만든다(투명 픽셀은 비워 둔다).
 
@@ -327,10 +336,12 @@ class App:
             scale = self.sprite_scale(pokemon)
             self.image_cache[pokemon.key] = {
                 "right": [
-                    make_photo(f, scale, flip=False, master=self.root) for f in frames
+                    make_photo(f, scale, flip=flip_for(pokemon, True), master=self.root)
+                    for f in frames
                 ],
                 "left": [
-                    make_photo(f, scale, flip=True, master=self.root) for f in frames
+                    make_photo(f, scale, flip=flip_for(pokemon, False), master=self.root)
+                    for f in frames
                 ],
             }
         return self.image_cache[pokemon.key]

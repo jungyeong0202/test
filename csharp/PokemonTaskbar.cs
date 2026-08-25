@@ -169,10 +169,12 @@ namespace PokemonTaskbar
             this.images = new Bitmap[2][];
             this.images[0] = new Bitmap[frames.Count];
             this.images[1] = new Bitmap[frames.Count];
+            // images[0] 은 오른쪽으로 갈 때, images[1] 은 왼쪽으로 갈 때 쓴다.
+            // 원본이 보고 있는 방향과 가려는 방향이 다를 때만 뒤집는다.
             for (int i = 0; i < frames.Count; i++)
             {
-                this.images[0][i] = SpriteFactory.Render(frames[i], scale, false);
-                this.images[1][i] = SpriteFactory.Render(frames[i], scale, true);
+                this.images[0][i] = SpriteFactory.Render(frames[i], scale, !sprite.FacesRight);
+                this.images[1][i] = SpriteFactory.Render(frames[i], scale, sprite.FacesRight);
             }
 
             this.spriteWidth = this.images[0][0].Width;

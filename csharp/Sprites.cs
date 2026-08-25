@@ -10,6 +10,7 @@ namespace PokemonTaskbar
         public string Key;
         public string NameKo;
         public double ScaleFactor;
+        public bool FacesRight;   // 원본 그림이 오른쪽을 보고 있는지
         public Dictionary<char, string> Palette;
         public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
     }
@@ -23,6 +24,7 @@ namespace PokemonTaskbar
                 Key = "pikachu",
                 NameKo = "피카츄",
                 ScaleFactor = 0.3333333333333333,
+                FacesRight = false,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#feba11" },
@@ -217,6 +219,7 @@ namespace PokemonTaskbar
                 Key = "charmander",
                 NameKo = "파이리",
                 ScaleFactor = 0.3333333333333333,
+                FacesRight = false,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#fc9443" },
@@ -423,6 +426,7 @@ namespace PokemonTaskbar
                 Key = "bulbasaur",
                 NameKo = "이상해씨",
                 ScaleFactor = 1.0,
+                FacesRight = true,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#2b2b2b" },
@@ -479,6 +483,7 @@ namespace PokemonTaskbar
                 Key = "squirtle",
                 NameKo = "꼬부기",
                 ScaleFactor = 1.0,
+                FacesRight = true,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#2b2b2b" },

@@ -416,7 +416,7 @@ def to_rows(cells, palette_map):
     return rows
 
 
-def build_block(key, name, palette, frames, scale_factor, bounce=True):
+def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="right"):
     constant = key.upper()
     out = ["%s = Pokemon(" % constant]
     out.append('    key="%s",' % key)
@@ -424,6 +424,8 @@ def build_block(key, name, palette, frames, scale_factor, bounce=True):
     out.append("    scale_factor=%s," % scale_factor)
     if not bounce:
         out.append("    bounce=False,")
+    if facing != "right":
+        out.append('    facing="%s",' % facing)
     out.append("    palette={")
     for char, color in palette:
         out.append('        "%s": "#%02x%02x%02x",' % (char, color[0], color[1], color[2]))
@@ -481,6 +483,8 @@ def main():
                         help="움직일 부위 사각형. 여러 번 쓸 수 있다")
     parser.add_argument("--motion", action="append", default=[], metavar="이름:dx,dy;dx,dy",
                         help="부위별 프레임 이동량. 이름 body 는 나머지 전부")
+    parser.add_argument("--facing", choices=["left", "right"], default="right",
+                        help="원본 그림이 보고 있는 방향 (기본 right)")
     parser.add_argument("--no-bounce", action="store_true",
                         help="프로그램이 주는 위아래 흔들림을 끄고 프레임에 담긴 움직임만 쓴다")
     parser.add_argument("--preview", default="", help="확인용 png 경로")
@@ -562,6 +566,7 @@ def main():
         [to_rows(frame, palette_map) for frame in frames],
         args.scale_factor,
         bounce=not args.no_bounce,
+        facing=args.facing,
     )
     if args.dry_run:
         print(block)

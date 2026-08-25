@@ -22,7 +22,7 @@ class Pokemon:
     """
 
     def __init__(self, key, name_ko, palette, rows=None, step_rows=None,
-                 frame_rows=None, scale_factor=1.0, bounce=True):
+                 frame_rows=None, scale_factor=1.0, bounce=True, facing="right"):
         self.key = key
         self.name_ko = name_ko
         self.palette = palette
@@ -31,6 +31,10 @@ class Pokemon:
         # 프로그램이 홀수 프레임마다 살짝 띄워 주는 흔들림을 쓸지 여부.
         # 프레임 안에 이미 몸통 움직임이 그려져 있으면 끈다.
         self.bounce = bounce
+        # 원본 그림이 어느 쪽을 보고 있는지. 이동 방향과 다르면 좌우로 뒤집는다.
+        if facing not in ("left", "right"):
+            raise ValueError("%s: facing 은 'left' 또는 'right' 여야 합니다" % key)
+        self.facing = facing
 
         if frame_rows:
             self.frame_rows = [list(frame) for frame in frame_rows]
@@ -84,6 +88,7 @@ PIKACHU = Pokemon(
     key="pikachu",
     name_ko="피카츄",
     scale_factor=1 / 3,
+    facing="left",
     palette={
         "K": "#feba11",
         "Y": "#feed43",
@@ -274,6 +279,7 @@ CHARMANDER = Pokemon(
     key="charmander",
     name_ko="파이리",
     scale_factor=1 / 3,
+    facing="left",
     palette={
         "K": "#fc9443",
         "Y": "#d95339",

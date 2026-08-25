@@ -19,11 +19,10 @@ pikachu    charmander    bulbasaur    squirtle
 python pokemon_taskbar.py
 ```
 
-윈도우에서 검은 콘솔 창 없이 띄우고 싶다면 `run.bat`을 더블클릭하거나:
+윈도우에서는 `run.bat`을 더블클릭하면 콘솔 창 없이 실행됩니다.
+(파이썬이 PATH에 없어도 `py` 런처와 기본 설치 경로를 자동으로 찾습니다.)
 
-```bat
-pythonw pokemon_taskbar.py
-```
+실행이 안 되거나 창이 안 뜨면 `run_debug.bat`을 실행하세요. 콘솔 창에 오류가 그대로 남습니다.
 
 리눅스에서 `ModuleNotFoundError: No module named 'tkinter'` 가 나오면 tkinter를 설치하세요.
 
@@ -75,6 +74,7 @@ python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 �
 | `pokemon_taskbar.py` | 창 생성, 이동/애니메이션, 마우스 조작 등 프로그램 본체 |
 | `sprites.py` | 도트 그림 데이터 (문자 그리드 + 색 팔레트). tkinter에 의존하지 않음 |
 | `test_pokemon_taskbar.py` | 스프라이트 데이터와 이동 로직 테스트 |
+| `run.bat` / `run_debug.bat` | 윈도우용 실행 스크립트 (일반 실행 / 오류 확인용) |
 
 도트 그림은 이렇게 문자로 정의되어 있어서, 글자만 바꾸면 새로운 포켓몬을 쉽게 추가할 수 있습니다.
 
@@ -95,6 +95,40 @@ python -m unittest test_pokemon_taskbar -v
 ```
 
 화면(디스플레이)이 없는 환경에서는 GUI가 필요한 테스트는 자동으로 건너뜁니다.
+
+## 문제 해결 (윈도우)
+
+**`'pythonw'을(를) 찾을 수 없습니다` 또는 `'python'은(는) 내부 또는 외부 명령이 아닙니다`**
+
+파이썬이 없거나, 설치할 때 PATH에 등록하지 않은 경우입니다. cmd를 열고 확인해 보세요.
+
+```bat
+py --version
+python --version
+```
+
+둘 다 실패하면 [python.org](https://www.python.org/downloads/) 에서 파이썬 3을 설치하되,
+설치 첫 화면의 **"Add python.exe to PATH"** 를 반드시 체크하세요.
+이미 설치돼 있다면 `run.bat` 이 `py` 런처와 아래 경로들을 자동으로 찾아 줍니다.
+
+- `%LOCALAPPDATA%\Programs\Python\Python3xx\`
+- `C:\Program Files\Python3xx\`
+- `C:\Python3xx\`
+
+**창이 잠깐 떴다가 바로 사라짐 / 아무 반응이 없음**
+
+`run_debug.bat` 으로 실행하면 콘솔에 오류 메시지가 남습니다.
+`ModuleNotFoundError: No module named 'tkinter'` 가 보이면 파이썬 설치 프로그램을 다시 실행해
+**Modify → "tcl/tk and IDLE"** 를 켜 주세요.
+
+**Microsoft Store 버전 파이썬**
+
+Store 버전은 `python` 을 입력하면 스토어 페이지만 열리는 경우가 있습니다.
+이때는 python.org 설치본을 쓰는 편이 확실합니다.
+
+**포켓몬이 작업 표시줄에 가려질 때**
+
+`--offset` 으로 조금 띄우면 됩니다. 예: `run.bat --offset 45`
 
 ## 참고
 

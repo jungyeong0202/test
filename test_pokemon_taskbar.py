@@ -130,6 +130,20 @@ class FacingTest(unittest.TestCase):
 
 
 @needs_display
+class SpriteListTest(unittest.TestCase):
+    """--list 는 어느 빌드를 쓰는지 확인하는 용도이므로 실제 크기를 보여야 한다."""
+
+    def test_list_shows_size_and_frames(self):
+        lines = pt.sprite_list()
+        self.assertEqual(len(lines), len(sprites.POKEMON))
+        for line, pokemon in zip(lines, sprites.POKEMON.values()):
+            frames = pokemon.frames()
+            self.assertIn(pokemon.key, line)
+            self.assertIn("%dx%d" % (len(frames[0][0]), len(frames[0])), line)
+            self.assertIn("%d프레임" % len(frames), line)
+
+
+@needs_display
 class ImageTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

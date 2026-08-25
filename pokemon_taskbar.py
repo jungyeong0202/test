@@ -388,6 +388,19 @@ class App:
         self.root.mainloop()
 
 
+def sprite_list():
+    """어떤 도트가 들어 있는지 한 줄씩. 어느 빌드를 쓰는지 확인할 때 쓴다."""
+    lines = []
+    for pokemon in POKEMON.values():
+        frames = pokemon.frames()
+        lines.append(
+            "%-12s %-6s %2dx%-2d  %d프레임  %s 보는 그림"
+            % (pokemon.key, pokemon.name_ko, len(frames[0][0]), len(frames[0]),
+               len(frames), "오른쪽" if pokemon.facing == "right" else "왼쪽")
+        )
+    return lines
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="화면 하단바 위를 포켓몬이 돌아다니는 프로그램",
@@ -446,8 +459,8 @@ def main(argv=None):
     validate_all()
     args = parse_args(argv)
     if args.list:
-        for pokemon in POKEMON.values():
-            print("%-12s %s" % (pokemon.key, pokemon.name_ko))
+        for line in sprite_list():
+            print(line)
         return 0
     try:
         App(args).run()

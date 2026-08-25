@@ -545,10 +545,16 @@ namespace PokemonTaskbar
 
             if (options.ShowList)
             {
+                // 어떤 도트가 들어 있는지 보여 준다. 어느 빌드를 쓰는지 확인할 때 쓴다.
                 string list = "";
                 foreach (PokemonSprite sprite in Sprites.All)
                 {
-                    list += sprite.Key.PadRight(12) + sprite.NameKo + "\n";
+                    List<Color?[][]> frames = SpriteFactory.Frames(sprite);
+                    list += string.Format(
+                        "{0}  {1}  {2}x{3}  {4}프레임  {5} 보는 그림\n",
+                        sprite.Key.PadRight(12), sprite.NameKo,
+                        frames[0][0].Length, frames[0].Length, frames.Count,
+                        sprite.FacesRight ? "오른쪽" : "왼쪽");
                 }
                 MessageBox.Show(list, "하단바 포켓몬 - 목록");
                 return 0;

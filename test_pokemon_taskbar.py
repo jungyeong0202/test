@@ -65,7 +65,7 @@ class SpriteTest(unittest.TestCase):
             self.assertGreater(pokemon.scale_factor, 0, pokemon.key)
 
     def test_imported_sprites_have_a_walk_cycle(self):
-        for key in ("pikachu", "charmander", "squirtle"):
+        for key in ("pikachu", "charmander", "squirtle", "bulbasaur"):
             frames = sprites.POKEMON[key].frames()
             self.assertEqual(len(frames), 4, key)
             # 0/2 는 가만히 선 자세, 1/3 은 각각 다른 발을 든 자세
@@ -116,10 +116,12 @@ class FacingTest(unittest.TestCase):
         self.assertFalse(pt.flip_for(pikachu, moving_right=False))
 
     def test_right_facing_art_flips_when_walking_left(self):
-        bulbasaur = sprites.POKEMON["bulbasaur"]
-        self.assertEqual(bulbasaur.facing, "right")
-        self.assertFalse(pt.flip_for(bulbasaur, moving_right=True))
-        self.assertTrue(pt.flip_for(bulbasaur, moving_right=False))
+        plain = sprites.Pokemon(
+            "test", "테스트", {"K": "#000000"}, rows=["KK", "KK"], step_rows={0: "K."}
+        )
+        self.assertEqual(plain.facing, "right")
+        self.assertFalse(pt.flip_for(plain, moving_right=True))
+        self.assertTrue(pt.flip_for(plain, moving_right=False))
 
     def test_every_sprite_faces_its_way(self):
         for pokemon in sprites.POKEMON.values():
@@ -251,10 +253,14 @@ class GroundLineTest(unittest.TestCase):
     def test_sprite_scale_follows_the_scale_factor(self):
         app = pt.App(pt.parse_args(["--scale", "3"]))
         try:
-            # 손으로 그린 작은 도트는 그대로, 이미지에서 들여온 촘촘한 도트는 1배로
-            self.assertEqual(app.sprite_scale(sprites.POKEMON["bulbasaur"]), 3)
-            self.assertEqual(app.sprite_scale(sprites.POKEMON["pikachu"]), 1)
-            self.assertEqual(app.sprite_scale(sprites.POKEMON["charmander"]), 1)
+            # 이미지에서 들여온 촘촘한 도트는 1배로 그린다
+            for key in ("pikachu", "charmander", "squirtle", "bulbasaur"):
+                self.assertEqual(app.sprite_scale(sprites.POKEMON[key]), 1, key)
+            # 배율을 따로 주지 않은 스프라이트는 --scale 을 그대로 쓴다
+            plain = sprites.Pokemon(
+                "test", "테스트", {"K": "#000000"}, rows=["KK", "KK"], step_rows={0: "K."}
+            )
+            self.assertEqual(app.sprite_scale(plain), 3)
         finally:
             app.quit()
 

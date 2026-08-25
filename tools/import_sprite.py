@@ -114,21 +114,30 @@ def guess_cell_size(image, box, is_background):
     return cell
 
 
-def lattice_noise(image, x0, y0, cell, columns, rows):
-    """(x0, y0) 에서 cell 간격으로 격자를 놓았을 때 칸 안 색의 흐트러짐."""
+def lattice_noise(image, x0, y0, cell, columns, rows, stride=2, samples=3):
+    """(x0, y0) 에서 cell 간격으로 격자를 놓았을 때 칸 안 색의 흐트러짐.
+
+    칸마다 몇 점만 찍어 보는 방식이라 빠르다. 격자가 도트 경계와 맞으면
+    한 칸은 거의 단색이라 값이 0 에 가깝다.
+    """
     pixels = image.load()
     width, height = image.size
+    if samples > 1:
+        spots = [0.25 + 0.5 * i / (samples - 1) for i in range(samples)]
+    else:
+        spots = [0.5]
+
     total = 0.0
     counted = 0
-    for gy in range(rows):
-        for gx in range(columns):
-            left = x0 + gx * cell
-            top = y0 + gy * cell
+    for gy in range(0, rows, stride):
+        for gx in range(0, columns, stride):
             low = [255, 255, 255]
             high = [0, 0, 0]
             seen = 0
-            for y in range(int(top + cell * 0.2), int(top + cell * 0.8) + 1):
-                for x in range(int(left + cell * 0.2), int(left + cell * 0.8) + 1):
+            for fy in spots:
+                y = int(y0 + (gy + fy) * cell)
+                for fx in spots:
+                    x = int(x0 + (gx + fx) * cell)
                     if not (0 <= x < width and 0 <= y < height):
                         continue
                     color = pixels[x, y]
@@ -162,31 +171,62 @@ def align_lattice(image, box, cell):
     return best[1], best[2], columns, rows
 
 
+def refine_cell(image, box, cell):
+    """칸 크기를 내용 폭/높이의 정확한 약수로 맞춘다.
+
+    추정값이 조금만 어긋나도 칸이 쌓이면서 밀려(드리프트) 오른쪽 끝에서는
+    도트 경계를 반 칸씩 넘어가 색이 뒤섞인다. 후보 중 가장 깔끔한 값을 고른다.
+    """
+    x0, y0, x1, y1 = box
+    spans = (x1 - x0 + 1, y1 - y0 + 1)
+
+    candidates = set()
+    for span in spans:
+        count = round(span / cell)
+        for delta in (-1, 0, 1):
+            if count + delta >= 4:
+                candidates.add(span / (count + delta))
+
+    best = None
+    for candidate in sorted(candidates):
+        start_x, start_y, columns, rows = align_lattice(image, box, candidate)
+        noise = lattice_noise(image, start_x, start_y, candidate, columns, rows)
+        if best is None or noise < best[0]:
+            best = (noise, candidate)
+    return best[1]
+
+
 def sample_grid(image, start, cell, columns, rows):
-    """각 칸의 가운데만 평균 내어 색을 정한다(압축 잡음 회피)."""
+    """각 칸을 면적 평균해 대표색을 정한다.
+
+    가운데 몇 점만 찍는 방식은 격자가 조금만 밀려도 경계색을 물어 와 얼룩이
+    생긴다. 칸 전체를 평균하면 흐릿하게 확대된 그림에서도 안쪽 색이 이긴다.
+    """
     pixels = image.load()
     width, height = image.size
     x0, y0 = start
 
     grid = []
     for gy in range(rows):
+        top = y0 + gy * cell
         line = []
         for gx in range(columns):
             left = x0 + gx * cell
-            top = y0 + gy * cell
             reds = greens = blues = count = 0
-            for y in range(int(top + cell * 0.25), int(top + cell * 0.75) + 1):
-                for x in range(int(left + cell * 0.25), int(left + cell * 0.75) + 1):
-                    if 0 <= x < width and 0 <= y < height:
-                        red, green, blue = pixels[x, y][:3]
-                        reds += red
-                        greens += green
-                        blues += blue
-                        count += 1
-            if not count:
-                line.append((255, 255, 255))
-            else:
-                line.append((reds // count, greens // count, blues // count))
+            for y in range(int(round(top)), int(round(top + cell))):
+                if not 0 <= y < height:
+                    continue
+                for x in range(int(round(left)), int(round(left + cell))):
+                    if not 0 <= x < width:
+                        continue
+                    red, green, blue = pixels[x, y][:3]
+                    reds += red
+                    greens += green
+                    blues += blue
+                    count += 1
+            line.append(
+                (reds // count, greens // count, blues // count) if count else (255, 255, 255)
+            )
         grid.append(line)
     return grid
 
@@ -501,7 +541,7 @@ def main():
     if args.grid:
         cell = (x1 - x0 + 1) / args.grid
     else:
-        cell = guess_cell_size(image, box, is_background)
+        cell = refine_cell(image, box, guess_cell_size(image, box, is_background))
     start_x, start_y, columns, rows = align_lattice(image, box, cell)
     if args.grid:
         columns = args.grid

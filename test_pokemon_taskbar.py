@@ -384,6 +384,32 @@ class DragTest(unittest.TestCase):
         self.assertLessEqual(self.pet.x, self.pet.max_x)
         self.assertLessEqual(self.pet.lift, self.pet.base_y)
 
+    def test_drag_stays_above_the_ground_even_off_screen(self):
+        """--offset 을 크게 줘 바닥이 화면 위로 올라가도 lift 는 음수가 되지 않는다."""
+        app = pt.App(pt.parse_args(["--offset", "5000"]))
+        try:
+            pet = app.pets[0]
+            self.assertLess(pet.base_y, 0)          # 바닥이 화면 밖으로 밀려난 상태
+            pet.on_press(FakeMouse(100, 100))
+            pet.on_drag(FakeMouse(400, 50))
+            self.assertGreaterEqual(pet.lift, 0.0)
+            pet.on_release(FakeMouse(400, 50))
+            for _ in range(60):
+                pet.tick()
+            self.assertEqual(pet.lift, 0.0)
+        finally:
+            app.quit()
+
+    def test_events_after_removal_are_ignored(self):
+        """보내 준 뒤에 뒤늦게 도착한 마우스 이벤트가 예외를 내지 않아야 한다."""
+        pet = self.pet
+        pet.on_press(FakeMouse(100, pet.base_y))
+        self.app.remove_pet(pet)
+        pet.on_drag(FakeMouse(300, 200))     # 늦게 도착한 이벤트
+        pet.on_release(FakeMouse(300, 200))
+        pet.on_press(FakeMouse(300, 200))
+        self.assertEqual(pet.state, "gone")
+
     def test_pet_keeps_walking_after_being_dropped(self):
         self._grab()
         self.pet.on_drag(FakeMouse(300, self.pet.base_y - 30))

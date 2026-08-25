@@ -215,6 +215,8 @@ class PokemonPet:
     # --- 조작 -----------------------------------------------------------
     def on_press(self, event):
         """누른 순간. 이 자리를 기억해 두고 끌기를 시작한다."""
+        if self.state == "gone":
+            return
         # 테두리 없는 창은 기본적으로 포커스를 받지 않아, 클릭했을 때만 키 입력을 받게 한다.
         try:
             self.window.focus_force()
@@ -231,20 +233,23 @@ class PokemonPet:
 
     def on_drag(self, event):
         """누른 채로 움직이면 포켓몬이 손을 따라온다."""
-        if not self.dragging:
+        if not self.dragging or self.state == "gone":
             return
         if (abs(event.x_root - self.drag_start[0]) > DRAG_SLACK
                 or abs(event.y_root - self.drag_start[1]) > DRAG_SLACK):
             self.drag_moved = True
 
         offset_x, offset_y = self.drag_offset
+        # 바닥(0)과 화면 위쪽 사이로 제한한다. --offset 을 크게 줘서 바닥이
+        # 화면 위로 올라가 버린 경우에도 음수가 되지 않도록 천장을 0 이상으로 둔다.
+        ceiling = max(0.0, float(self.base_y))
         self.x = min(max(0, event.x_root - offset_x), self.max_x)
-        self.lift = min(max(0.0, self.base_y - (event.y_root - offset_y)), float(self.base_y))
+        self.lift = min(max(0.0, self.base_y - (event.y_root - offset_y)), ceiling)
         self.place()
 
     def on_release(self, _event):
         """놓으면 떨어진다. 거의 움직이지 않았으면 그냥 클릭으로 보고 폴짝 뛴다."""
-        if not self.dragging:
+        if not self.dragging or self.state == "gone":
             return
         self.dragging = False
         self.vertical_speed = JUMP_SPEED if not self.drag_moved else 0.0
@@ -286,6 +291,9 @@ class PokemonPet:
 
         if self.dragging:
             # 손에 들려 있는 동안에는 스스로 움직이지 않는다.
+            # 다만 다른 창에 가리지 않도록 맨 앞 주장은 계속한다.
+            if self.ticks % TOPMOST_TICKS == 0:
+                self.raise_above_all()
             self.draw()
             self.after_id = self.window.after(TICK_MS, self.tick)
             return

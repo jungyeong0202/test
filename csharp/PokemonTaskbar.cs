@@ -268,7 +268,7 @@ namespace PokemonTaskbar
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left)
+            if (e.Button == MouseButtons.Left && !this.IsDisposed)
             {
                 // 누른 자리를 기억해 두고 끌기를 시작한다.
                 this.dragging = true;
@@ -284,7 +284,7 @@ namespace PokemonTaskbar
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            if (this.dragging)
+            if (this.dragging && !this.IsDisposed)
             {
                 Point now = Control.MousePosition;
                 if (Math.Abs(now.X - this.dragStart.X) > DragSlack
@@ -293,9 +293,12 @@ namespace PokemonTaskbar
                     this.dragMoved = true;
                 }
 
+                // 바닥(0)과 화면 위쪽 사이로 제한한다. --offset 을 크게 줘서 바닥이
+                // 화면 위로 올라가 버린 경우에도 음수가 되지 않도록 천장을 0 이상으로 둔다.
+                double ceiling = Math.Max(0.0, (double)this.baseY);
                 this.x = Math.Min(Math.Max(0, now.X - this.dragOffset.X), this.maxX);
                 double height = this.baseY - (now.Y - this.dragOffset.Y);
-                this.lift = Math.Min(Math.Max(0.0, height), (double)this.baseY);
+                this.lift = Math.Min(Math.Max(0.0, height), ceiling);
                 this.MoveToPlace();
             }
             base.OnMouseMove(e);
@@ -320,6 +323,11 @@ namespace PokemonTaskbar
             if (this.dragging)
             {
                 // 손에 들려 있는 동안에는 스스로 움직이지 않는다.
+                // 다만 다른 창에 가리지 않도록 맨 앞 주장은 계속한다.
+                if (this.ticks % TopmostTicks == 0)
+                {
+                    this.RaiseAboveAll();
+                }
                 this.Invalidate();
                 return;
             }

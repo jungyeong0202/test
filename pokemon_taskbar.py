@@ -111,6 +111,7 @@ class PokemonPet:
         self.anim_time = 0.0
         self.jump_time = -1.0
         self.ticks = 0
+        self.after_id = None
 
         self.menu = tk.Menu(self.window, tearoff=0)
         self.menu.add_command(label="포켓몬 추가", command=app.add_random_pet)
@@ -124,7 +125,7 @@ class PokemonPet:
         self.canvas.bind("<Button-2>", self.on_menu)  # macOS 오른쪽 클릭
 
         self.place()
-        self.window.after(TICK_MS, self.tick)
+        self.after_id = self.window.after(TICK_MS, self.tick)
 
     # --- 조작 -----------------------------------------------------------
     def on_click(self, _event):
@@ -146,8 +147,18 @@ class PokemonPet:
         self.app.remove_pet(self)
 
     def destroy(self):
+        """예약된 콜백까지 정리하고 창을 닫는다."""
         self.state = "gone"
-        self.window.destroy()
+        if self.after_id is not None:
+            try:
+                self.window.after_cancel(self.after_id)
+            except tk.TclError:
+                pass
+            self.after_id = None
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
 
     # --- 움직임 ---------------------------------------------------------
     def set_state(self, state):
@@ -193,7 +204,7 @@ class PokemonPet:
 
         self.draw()
         self.place()
-        self.window.after(TICK_MS, self.tick)
+        self.after_id = self.window.after(TICK_MS, self.tick)
 
     def draw(self):
         facing = "right" if self.direction > 0 else "left"
@@ -227,6 +238,8 @@ class App:
         self.screen_height = self.root.winfo_screenheight()
         self.image_cache = {}
         self.pets = []
+        self.quitting = False
+        self.heartbeat_id = None
 
         for key in args.species:
             self.add_pet(key)
@@ -258,16 +271,29 @@ class App:
             self.quit()
 
     def quit(self):
+        """모든 펫을 정리하고 프로그램을 끝낸다. 여러 번 불러도 안전하다."""
+        if self.quitting:
+            return
+        self.quitting = True
         for pet in list(self.pets):
-            pet.state = "gone"
+            pet.destroy()
         self.pets.clear()
-        self.root.quit()
-        self.root.destroy()
+        if self.heartbeat_id is not None:
+            try:
+                self.root.after_cancel(self.heartbeat_id)
+            except tk.TclError:
+                pass
+            self.heartbeat_id = None
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     def run(self):
         # Ctrl+C 로도 종료할 수 있게 주기적으로 인터프리터에 제어를 넘긴다.
         def heartbeat():
-            self.root.after(200, heartbeat)
+            self.heartbeat_id = self.root.after(200, heartbeat)
 
         heartbeat()
         self.root.mainloop()

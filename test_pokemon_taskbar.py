@@ -168,6 +168,41 @@ class PetMovementTest(unittest.TestCase):
         self.assertEqual(len(self.app.pets), 1)
 
 
+@needs_display
+class LifecycleTest(unittest.TestCase):
+    """종료 경로에서 예외나 오류 출력이 없어야 한다."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args(["--count", "2"]))
+
+    def tearDown(self):
+        self.app.quit()
+
+    def test_quit_can_be_called_twice(self):
+        self.app.quit()
+        self.app.quit()  # 메뉴에서 두 번 눌러도 예외가 없어야 한다
+
+    def test_destroy_cancels_the_pending_timer(self):
+        pet = self.app.pets[0]
+        self.assertIsNotNone(pet.after_id)
+        self.app.remove_pet(pet)
+        self.assertIsNone(pet.after_id)
+        self.assertEqual(pet.state, "gone")
+
+    def test_quit_destroys_every_pet(self):
+        pets = list(self.app.pets)
+        self.app.quit()
+        self.assertEqual(self.app.pets, [])
+        for pet in pets:
+            self.assertIsNone(pet.after_id)
+
+    def test_tick_after_destroy_does_nothing(self):
+        pet = self.app.pets[0]
+        self.app.remove_pet(pet)
+        pet.tick()  # 이미 예약돼 있던 콜백이 뒤늦게 불려도 조용히 끝나야 한다
+        self.assertIsNone(pet.after_id)
+
+
 class GeneratedCSharpTest(unittest.TestCase):
     """C# 판 도트 데이터가 sprites.py 와 어긋나지 않았는지 확인한다."""
 

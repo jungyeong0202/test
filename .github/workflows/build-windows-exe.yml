@@ -1,0 +1,39 @@
+name: build-windows-exe
+
+# 실제 윈도우에서 .NET Framework 컴파일러로 exe 를 빌드해 첨부한다.
+# Actions 탭 -> 최신 실행 -> Artifacts 에서 PokemonTaskbar.exe 를 내려받을 수 있다.
+on:
+  push:
+    paths:
+      - "csharp/**"
+      - ".github/workflows/build-windows-exe.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build PokemonTaskbar.exe
+        shell: cmd
+        run: |
+          set "CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if not exist "%CSC%" set "CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+          "%CSC%" /nologo /target:winexe /optimize+ /win32icon:csharp\pokemon.ico ^
+            /out:PokemonTaskbar.exe ^
+            /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+            csharp\PokemonTaskbar.cs csharp\Sprites.cs
+
+      - name: Check that it is a Windows GUI assembly
+        shell: pwsh
+        run: |
+          $exe = Get-Item PokemonTaskbar.exe
+          "size: $($exe.Length) bytes"
+          [System.Reflection.AssemblyName]::GetAssemblyName($exe.FullName) | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PokemonTaskbar-exe
+          path: PokemonTaskbar.exe
+          if-no-files-found: error

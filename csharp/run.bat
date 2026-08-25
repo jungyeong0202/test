@@ -13,7 +13,7 @@ if not defined CSC if exist "%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe
 if not defined CSC goto :no_csc
 
 echo Building PokemonTaskbar.exe ...
-"%CSC%" /nologo /target:winexe /optimize+ /out:"PokemonTaskbar.new.exe" ^
+"%CSC%" /nologo /target:winexe /optimize+ /win32icon:pokemon.ico /out:"PokemonTaskbar.new.exe" ^
     /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
     PokemonTaskbar.cs Sprites.cs
 if errorlevel 1 goto :build_failed

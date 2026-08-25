@@ -30,12 +30,29 @@ python pokemon_taskbar.py
 sudo apt install python3-tk      # 데비안 / 우분투 계열
 ```
 
-## 파이썬 없이 실행하기 (윈도우)
+## exe 하나로 실행하기 (윈도우, 설치 불필요)
 
-파이썬을 설치하기 싫다면 `csharp` 폴더의 C# 판을 쓰세요.
-윈도우에 기본으로 들어 있는 .NET Framework 컴파일러(`csc.exe`)로 빌드하므로 **설치할 것이 하나도 없습니다.**
+`dist\PokemonTaskbar.exe` 를 받아서 **더블클릭하면 끝입니다.** 파이썬도, 별도 런타임 설치도 필요 없습니다.
+(윈도우 10 / 11 에 기본 포함된 .NET Framework 4 로 동작합니다.)
 
-1. `csharp\run.bat` 더블클릭 (첫 실행 때 1~2초 빌드 후 바로 실행됩니다)
+```bat
+PokemonTaskbar.exe                    :: 피카츄 한 마리
+PokemonTaskbar.exe --count 3 --scale 4
+PokemonTaskbar.exe -p squirtle --offset 45
+```
+
+> 처음 실행할 때 "Windows의 PC 보호" 파란 창이 뜰 수 있습니다. 서명되지 않은 exe 라서 그렇습니다.
+> **추가 정보 → 실행** 을 누르면 됩니다. 찜찜하면 아래처럼 직접 빌드해서 쓰세요.
+
+exe 는 GitHub Actions 에서도 자동으로 빌드됩니다.
+저장소의 **Actions** 탭 → 최신 `build-windows-exe` 실행 → **Artifacts** 에서 내려받을 수 있습니다.
+
+## 직접 빌드해서 실행하기 (윈도우)
+
+`csharp` 폴더의 C# 소스를 직접 빌드할 수도 있습니다.
+윈도우에 기본으로 들어 있는 .NET Framework 컴파일러(`csc.exe`)를 쓰므로 **역시 설치할 것이 없습니다.**
+
+1. `csharp\run.bat` 더블클릭 (1~2초 빌드 후 바로 실행됩니다)
 2. 그 다음부터는 만들어진 `csharp\PokemonTaskbar.exe` 를 직접 실행해도 됩니다
 
 ```bat
@@ -98,7 +115,10 @@ python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 �
 | `test_pokemon_taskbar.py` | 스프라이트 데이터와 이동 로직 테스트 |
 | `run.bat` / `run_debug.bat` | 윈도우용 실행 스크립트 (일반 실행 / 오류 확인용) |
 | `csharp/` | 파이썬 없이 도는 C# 판 (`run.bat` 이 빌드까지 해 줍니다) |
+| `dist/PokemonTaskbar.exe` | 바로 실행할 수 있는 빌드 결과물 |
 | `tools/gen_sprites_cs.py` | `sprites.py` 도트 데이터를 `csharp/Sprites.cs` 로 변환 |
+| `tools/make_icon.py` | 도트로 exe 아이콘(`csharp/pokemon.ico`) 생성 |
+| `tools/build_exe.sh` | 리눅스/맥에서 Mono 로 exe 빌드 |
 
 도트 그림은 이렇게 문자로 정의되어 있어서, 글자만 바꾸면 새로운 포켓몬을 쉽게 추가할 수 있습니다.
 
@@ -145,7 +165,7 @@ python --version
 `ModuleNotFoundError: No module named 'tkinter'` 가 보이면 파이썬 설치 프로그램을 다시 실행해
 **Modify → "tcl/tk and IDLE"** 를 켜 주세요.
 
-**아예 파이썬을 안 쓰고 싶다면** 위의 [파이썬 없이 실행하기](#파이썬-없이-실행하기-윈도우) 를 보세요.
+**아예 파이썬을 안 쓰고 싶다면** 위의 [exe 하나로 실행하기](#exe-하나로-실행하기-윈도우-설치-불필요) 를 보세요.
 
 **Microsoft Store 버전 파이썬**
 

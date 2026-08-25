@@ -45,30 +45,90 @@ def content_box(image, is_background):
     return columns[0], rows[0], columns[-1], rows[-1]
 
 
-def cell_noise(image, box, columns, rows):
-    """격자를 columns x rows 로 나눴을 때 각 칸 안의 색이 얼마나 고른지.
+def color_runs(image, box, is_background):
+    """같은 색이 몇 픽셀씩 이어지는지 모은다. 도트 한 칸의 크기를 재기 위한 것."""
+    pixels = image.load()
+    x0, y0, x1, y1 = box
+    lengths = {}
 
-    진짜 도트 경계와 맞아떨어지면 한 칸은 거의 단색이라 값이 0 에 가깝다.
+    def add(run):
+        if run >= 4:
+            lengths[run] = lengths.get(run, 0) + 1
+
+    def key(color):
+        return (color[0] // 40, color[1] // 40, color[2] // 40)
+
+    for y in range(y0, y1 + 1, 3):
+        x = x0
+        while x <= x1:
+            current = key(pixels[x, y])
+            start = x
+            while x <= x1 and key(pixels[x, y]) == current:
+                x += 1
+            add(x - start)
+    for x in range(x0, x1 + 1, 3):
+        y = y0
+        while y <= y1:
+            current = key(pixels[x, y])
+            start = y
+            while y <= y1 and key(pixels[x, y]) == current:
+                y += 1
+            add(y - start)
+    return lengths
+
+
+def guess_cell_size(image, box, is_background):
+    """도트 한 칸이 몇 픽셀인지 추정한다.
+
+    픽셀아트는 같은 색이 '한 칸의 정수배'만큼 이어진다. 그래서 이어진 길이의
+    분포에서 가장 잘 들어맞는 기본 단위를 찾으면 된다.
     """
+    lengths = color_runs(image, box, is_background)
+    if not lengths:
+        raise SystemExit("도트 격자를 알아내지 못했습니다. --grid 로 지정하세요.")
+
+    x0, y0, x1, y1 = box
+    longest = max(x1 - x0 + 1, y1 - y0 + 1)
+
+    best = None
+    candidate = 4.0
+    while candidate <= 64.0:
+        score = 0.0
+        for run, count in lengths.items():
+            multiple = run / candidate
+            nearest_multiple = round(multiple)
+            if nearest_multiple < 1:
+                continue
+            error = abs(multiple - nearest_multiple)
+            # 오차가 작을수록, 자주 나온 길이일수록 점수가 높다.
+            score += count * max(0.0, 1.0 - error * 4.0)
+        # 같은 점수라면 큰 칸(=원래 도트 크기)을 고른다.
+        score *= candidate ** 0.5
+        if best is None or score > best[0]:
+            best = (score, candidate)
+        candidate += 0.05
+
+    cell = best[1]
+    if longest / cell < 6:
+        raise SystemExit("칸 크기 추정이 이상합니다(%.2f). --grid 로 지정하세요." % cell)
+    return cell
+
+
+def lattice_noise(image, x0, y0, cell, columns, rows):
+    """(x0, y0) 에서 cell 간격으로 격자를 놓았을 때 칸 안 색의 흐트러짐."""
     pixels = image.load()
     width, height = image.size
-    x0, y0, x1, y1 = box
-    step_x = (x1 - x0 + 1) / columns
-    step_y = (y1 - y0 + 1) / rows
-    if step_x < 2 or step_y < 2:
-        return None
-
     total = 0.0
     counted = 0
     for gy in range(rows):
         for gx in range(columns):
-            left = x0 + gx * step_x
-            top = y0 + gy * step_y
+            left = x0 + gx * cell
+            top = y0 + gy * cell
             low = [255, 255, 255]
             high = [0, 0, 0]
             seen = 0
-            for y in range(int(top + step_y * 0.25), int(top + step_y * 0.75) + 1):
-                for x in range(int(left + step_x * 0.25), int(left + step_x * 0.75) + 1):
+            for y in range(int(top + cell * 0.2), int(top + cell * 0.8) + 1):
+                for x in range(int(left + cell * 0.2), int(left + cell * 0.8) + 1):
                     if not (0 <= x < width and 0 <= y < height):
                         continue
                     color = pixels[x, y]
@@ -79,52 +139,44 @@ def cell_noise(image, box, columns, rows):
             if seen > 1:
                 total += max(high[c] - low[c] for c in range(3))
                 counted += 1
-    return total / counted if counted else None
+    return total / counted if counted else 1e9
 
 
-def guess_cells(image, box, horizontal, limit=80):
-    """도트 개수를 추정한다.
+def align_lattice(image, box, cell):
+    """격자의 시작 위치(위상)를 찾아 도트 경계에 딱 맞춘다.
 
-    칸 안이 충분히 고르게 되는 가장 작은 칸 수를 고른다. 배수(2배, 3배)도
-    똑같이 고르지만, 원래 도트 크기를 원하므로 가장 작은 값을 쓴다.
+    내용 상자의 왼쪽 위에서 그냥 시작하면 압축 잡음 때문에 조금씩 밀려서
+    외곽선 색이 번진다. 한 칸 범위 안에서 가장 깔끔한 위치를 고른다.
     """
-    scores = {}
-    for cells in range(8, limit + 1):
-        noise = (
-            cell_noise(image, box, cells, cells)
-            if horizontal is None
-            else (
-                cell_noise(image, box, cells, horizontal)
-                if horizontal
-                else None
-            )
-        )
-        if noise is not None:
-            scores[cells] = noise
-    if not scores:
-        raise SystemExit("도트 격자를 알아내지 못했습니다. --grid 로 직접 지정하세요.")
-    best = min(scores.values())
-    threshold = max(best * 1.6, best + 4.0)
-    return min(cells for cells, noise in scores.items() if noise <= threshold)
+    x0, y0, x1, y1 = box
+    columns = max(1, int(round((x1 - x0 + 1) / cell)))
+    rows = max(1, int(round((y1 - y0 + 1) / cell)))
+    step = max(1, int(cell / 8))
+
+    best = None
+    for dy in range(-int(cell // 2), int(cell // 2) + 1, step):
+        for dx in range(-int(cell // 2), int(cell // 2) + 1, step):
+            noise = lattice_noise(image, x0 + dx, y0 + dy, cell, columns, rows)
+            if best is None or noise < best[0]:
+                best = (noise, x0 + dx, y0 + dy)
+    return best[1], best[2], columns, rows
 
 
-def sample_grid(image, box, columns, rows):
+def sample_grid(image, start, cell, columns, rows):
     """각 칸의 가운데만 평균 내어 색을 정한다(압축 잡음 회피)."""
     pixels = image.load()
     width, height = image.size
-    x0, y0, x1, y1 = box
-    step_x = (x1 - x0 + 1) / columns
-    step_y = (y1 - y0 + 1) / rows
+    x0, y0 = start
 
     grid = []
     for gy in range(rows):
         line = []
         for gx in range(columns):
-            left = x0 + gx * step_x
-            top = y0 + gy * step_y
+            left = x0 + gx * cell
+            top = y0 + gy * cell
             reds = greens = blues = count = 0
-            for y in range(int(top + step_y * 0.3), int(top + step_y * 0.7) + 1):
-                for x in range(int(left + step_x * 0.3), int(left + step_x * 0.7) + 1):
+            for y in range(int(top + cell * 0.25), int(top + cell * 0.75) + 1):
+                for x in range(int(left + cell * 0.25), int(left + cell * 0.75) + 1):
                     if 0 <= x < width and 0 <= y < height:
                         red, green, blue = pixels[x, y][:3]
                         reds += red
@@ -270,6 +322,91 @@ def walk_frames(cells, band, rise):
     ]
 
 
+def parse_part(text):
+    """'이름:x0,y0,x1,y1' 형식을 (이름, 사각형) 으로."""
+    name, _, numbers = text.partition(":")
+    values = [int(v) for v in numbers.split(",")]
+    if len(values) != 4:
+        raise SystemExit("--part 형식은 이름:x0,y0,x1,y1 입니다: %s" % text)
+    return name, tuple(values)
+
+
+def parse_motion(text):
+    """'이름:dx,dy;dx,dy;...' 형식을 (이름, [(dx,dy), ...]) 으로."""
+    name, _, steps = text.partition(":")
+    offsets = []
+    for step in steps.split(";"):
+        dx, _, dy = step.partition(",")
+        offsets.append((int(dx), int(dy)))
+    return name, offsets
+
+
+def part_frames(cells, parts, motions):
+    """부위마다 프레임별로 조금씩 움직여 걷기 동작을 만든다.
+
+    parts 는 [(이름, (x0, y0, x1, y1)), ...] 순서대로 검사하며, 어느 사각형에도
+    들어가지 않는 픽셀은 'body' 로 묶인다. motions 는 부위별 프레임 이동량이다.
+    """
+    rows = len(cells)
+    columns = len(cells[0])
+    count = max(len(offsets) for offsets in motions.values())
+
+    def part_of(x, y):
+        for name, (x0, y0, x1, y1) in parts:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return name
+        return "body"
+
+    def offset(name, index):
+        steps = motions.get(name)
+        if not steps:
+            return 0, 0
+        return steps[index % len(steps)]
+
+    everything = [offset(name, i) for name in list(motions) + ["body"] for i in range(count)]
+    pad_left = max(0, -min(dx for dx, _ in everything))
+    pad_right = max(0, max(dx for dx, _ in everything))
+    pad_top = max(0, -min(dy for _, dy in everything))
+    pad_bottom = max(0, max(dy for _, dy in everything))
+
+    frames = []
+    for index in range(count):
+        grid = [
+            [None] * (columns + pad_left + pad_right)
+            for _ in range(rows + pad_top + pad_bottom)
+        ]
+        for y in range(rows):
+            for x in range(columns):
+                color = cells[y][x]
+                if color is None:
+                    continue
+                dx, dy = offset(part_of(x, y), index)
+                grid[y + dy + pad_top][x + dx + pad_left] = color
+        frames.append(grid)
+    return trim_frames(frames)
+
+
+def trim_frames(frames):
+    """모든 프레임에서 공통으로 비어 있는 가장자리를 잘라낸다(정렬 유지)."""
+    rows = len(frames[0])
+    columns = len(frames[0][0])
+    used_rows = [
+        y for y in range(rows)
+        if any(frame[y][x] is not None for frame in frames for x in range(columns))
+    ]
+    used_columns = [
+        x for x in range(columns)
+        if any(frame[y][x] is not None for frame in frames for y in range(rows))
+    ]
+    return [
+        [
+            [frame[y][x] for x in range(used_columns[0], used_columns[-1] + 1)]
+            for y in range(used_rows[0], used_rows[-1] + 1)
+        ]
+        for frame in frames
+    ]
+
+
 # --- 5단계: sprites.py 에 써넣기 -----------------------------------------
 def to_rows(cells, palette_map):
     rows = []
@@ -279,12 +416,14 @@ def to_rows(cells, palette_map):
     return rows
 
 
-def build_block(key, name, palette, frames, scale_factor):
+def build_block(key, name, palette, frames, scale_factor, bounce=True):
     constant = key.upper()
     out = ["%s = Pokemon(" % constant]
     out.append('    key="%s",' % key)
     out.append('    name_ko="%s",' % name)
     out.append("    scale_factor=%s," % scale_factor)
+    if not bounce:
+        out.append("    bounce=False,")
     out.append("    palette={")
     for char, color in palette:
         out.append('        "%s": "#%02x%02x%02x",' % (char, color[0], color[1], color[2]))
@@ -338,6 +477,12 @@ def main():
                         help="--scale 에 곱할 배율 (기본 '1 / 3')")
     parser.add_argument("--foot-band", type=int, default=2, help="발로 볼 아래쪽 줄 수")
     parser.add_argument("--foot-rise", type=int, default=1, help="발을 들어 올릴 칸 수")
+    parser.add_argument("--part", action="append", default=[], metavar="이름:x0,y0,x1,y1",
+                        help="움직일 부위 사각형. 여러 번 쓸 수 있다")
+    parser.add_argument("--motion", action="append", default=[], metavar="이름:dx,dy;dx,dy",
+                        help="부위별 프레임 이동량. 이름 body 는 나머지 전부")
+    parser.add_argument("--no-bounce", action="store_true",
+                        help="프로그램이 주는 위아래 흔들림을 끄고 프레임에 담긴 움직임만 쓴다")
     parser.add_argument("--preview", default="", help="확인용 png 경로")
     parser.add_argument("--dry-run", action="store_true", help="파일을 고치지 않는다")
     args = parser.parse_args()
@@ -349,19 +494,18 @@ def main():
 
     box = content_box(image, is_background)
     x0, y0, x1, y1 = box
-    if args.grid and args.rows:
-        columns, rows = args.grid, args.rows
+    if args.grid:
+        cell = (x1 - x0 + 1) / args.grid
     else:
-        # 도트는 정사각형이므로 가로세로를 같은 칸 수로 놓고 한 번에 찾는다.
-        square = guess_cells(image, box, None)
-        span_x = x1 - x0 + 1
-        span_y = y1 - y0 + 1
-        cell = max(span_x, span_y) / square
-        columns = args.grid or max(1, int(round(span_x / cell)))
-        rows = args.rows or max(1, int(round(span_y / cell)))
-    print("도트 격자: %d x %d 칸" % (columns, rows))
+        cell = guess_cell_size(image, box, is_background)
+    start_x, start_y, columns, rows = align_lattice(image, box, cell)
+    if args.grid:
+        columns = args.grid
+    if args.rows:
+        rows = args.rows
+    print("도트 격자: %d x %d 칸 (칸 크기 %.2f)" % (columns, rows, cell))
 
-    grid = sample_grid(image, box, columns, rows)
+    grid = sample_grid(image, (start_x, start_y), cell, columns, rows)
     outside = clear_background(grid, is_background)
 
     inside_colors = [
@@ -400,8 +544,14 @@ def main():
     palette = [(PALETTE_CHARS[i], color) for i, (color, _) in enumerate(ordered)]
     palette_map = {color: char for char, color in palette}
 
-    frames = walk_frames(cells, args.foot_band, args.foot_rise)
-    print("걷기 프레임: %d 장" % len(frames))
+    if args.part or args.motion:
+        parts = [parse_part(text) for text in args.part]
+        motions = dict(parse_motion(text) for text in args.motion)
+        frames = part_frames(cells, parts, motions)
+        print("부위 %d 곳을 움직여 프레임 %d 장" % (len(parts), len(frames)))
+    else:
+        frames = walk_frames(cells, args.foot_band, args.foot_rise)
+        print("걷기 프레임: %d 장" % len(frames))
 
     if args.preview:
         save_preview(frames, args.preview)
@@ -411,6 +561,7 @@ def main():
         args.key, args.name, palette,
         [to_rows(frame, palette_map) for frame in frames],
         args.scale_factor,
+        bounce=not args.no_bounce,
     )
     if args.dry_run:
         print(block)

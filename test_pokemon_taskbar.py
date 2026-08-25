@@ -8,6 +8,8 @@ GUI(디스플레이)가 없는 환경에서는 화면이 필요한 테스트만 
 
 import contextlib
 import io
+import importlib.util
+import os
 import time
 import unittest
 from unittest import mock
@@ -164,6 +166,27 @@ class PetMovementTest(unittest.TestCase):
         self.app.remove_pet(pet)
         self.assertNotIn(pet, self.app.pets)
         self.assertEqual(len(self.app.pets), 1)
+
+
+class GeneratedCSharpTest(unittest.TestCase):
+    """C# 판 도트 데이터가 sprites.py 와 어긋나지 않았는지 확인한다."""
+
+    def test_sprites_cs_is_up_to_date(self):
+        root = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location(
+            "gen_sprites_cs", os.path.join(root, "tools", "gen_sprites_cs.py")
+        )
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+
+        with open(os.path.join(root, "csharp", "Sprites.cs"), encoding="utf-8-sig") as handle:
+            current = handle.read()
+
+        self.assertEqual(
+            current.replace("\r\n", "\n"),
+            generator.build(),
+            "csharp/Sprites.cs 가 오래됐습니다. python tools/gen_sprites_cs.py 를 실행하세요.",
+        )
 
 
 if __name__ == "__main__":

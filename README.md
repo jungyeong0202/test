@@ -30,6 +30,28 @@ python pokemon_taskbar.py
 sudo apt install python3-tk      # 데비안 / 우분투 계열
 ```
 
+## 파이썬 없이 실행하기 (윈도우)
+
+파이썬을 설치하기 싫다면 `csharp` 폴더의 C# 판을 쓰세요.
+윈도우에 기본으로 들어 있는 .NET Framework 컴파일러(`csc.exe`)로 빌드하므로 **설치할 것이 하나도 없습니다.**
+
+1. `csharp\run.bat` 더블클릭 (첫 실행 때 1~2초 빌드 후 바로 실행됩니다)
+2. 그 다음부터는 만들어진 `csharp\PokemonTaskbar.exe` 를 직접 실행해도 됩니다
+
+```bat
+csharp\run.bat --count 3 --scale 4
+csharp\PokemonTaskbar.exe -p squirtle --offset 45
+```
+
+옵션은 파이썬 판과 동일합니다. 도트 그림도 같은 데이터(`sprites.py`)에서 생성하므로 결과가 똑같습니다.
+`sprites.py` 를 고쳤다면 아래 명령으로 C# 쪽 데이터를 다시 만들어 주세요.
+
+```bash
+python tools/gen_sprites_cs.py
+```
+
+> C# 판은 창을 활성화하지 않도록 만들어져 있어 `Esc` 종료가 없습니다. 우클릭 메뉴의 **전부 종료**를 쓰세요.
+
 ## 조작법
 
 | 동작 | 결과 |
@@ -75,6 +97,8 @@ python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 �
 | `sprites.py` | 도트 그림 데이터 (문자 그리드 + 색 팔레트). tkinter에 의존하지 않음 |
 | `test_pokemon_taskbar.py` | 스프라이트 데이터와 이동 로직 테스트 |
 | `run.bat` / `run_debug.bat` | 윈도우용 실행 스크립트 (일반 실행 / 오류 확인용) |
+| `csharp/` | 파이썬 없이 도는 C# 판 (`run.bat` 이 빌드까지 해 줍니다) |
+| `tools/gen_sprites_cs.py` | `sprites.py` 도트 데이터를 `csharp/Sprites.cs` 로 변환 |
 
 도트 그림은 이렇게 문자로 정의되어 있어서, 글자만 바꾸면 새로운 포켓몬을 쉽게 추가할 수 있습니다.
 
@@ -120,6 +144,8 @@ python --version
 `run_debug.bat` 으로 실행하면 콘솔에 오류 메시지가 남습니다.
 `ModuleNotFoundError: No module named 'tkinter'` 가 보이면 파이썬 설치 프로그램을 다시 실행해
 **Modify → "tcl/tk and IDLE"** 를 켜 주세요.
+
+**아예 파이썬을 안 쓰고 싶다면** 위의 [파이썬 없이 실행하기](#파이썬-없이-실행하기-윈도우) 를 보세요.
 
 **Microsoft Store 버전 파이썬**
 

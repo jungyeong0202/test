@@ -1,0 +1,102 @@
+# 하단바 포켓몬 (Pokémon Taskbar Pet)
+
+화면 맨 아래(작업 표시줄) 위를 포켓몬이 어슬렁어슬렁 돌아다니는 아주 간단한 데스크톱 펫입니다.
+
+- 파이썬 **표준 라이브러리만** 사용합니다 (tkinter). 설치할 패키지가 없습니다.
+- 도트 그림을 코드로 직접 그리기 때문에 **이미지 파일이나 인터넷 연결이 필요 없습니다.**
+- 테두리 없는 항상-맨-앞 창이라 다른 창을 가리지 않고 화면 아래를 걸어 다닙니다.
+
+```
+피카츄        파이리        이상해씨       꼬부기
+pikachu    charmander    bulbasaur    squirtle
+```
+
+## 실행 방법
+
+파이썬 3.8 이상이 필요합니다.
+
+```bash
+python pokemon_taskbar.py
+```
+
+윈도우에서 검은 콘솔 창 없이 띄우고 싶다면 `run.bat`을 더블클릭하거나:
+
+```bat
+pythonw pokemon_taskbar.py
+```
+
+리눅스에서 `ModuleNotFoundError: No module named 'tkinter'` 가 나오면 tkinter를 설치하세요.
+
+```bash
+sudo apt install python3-tk      # 데비안 / 우분투 계열
+```
+
+## 조작법
+
+| 동작 | 결과 |
+| --- | --- |
+| 포켓몬을 왼쪽 클릭 | 폴짝 뛴다 |
+| 포켓몬을 오른쪽 클릭 | 메뉴 (포켓몬 추가 / 보내주기 / 전부 종료) |
+| 포켓몬을 클릭한 뒤 `Esc` 키 | 종료 |
+| 터미널에서 `Ctrl+C` | 종료 |
+
+## 옵션
+
+```bash
+python pokemon_taskbar.py --list                 # 사용 가능한 포켓몬 목록
+python pokemon_taskbar.py -p squirtle            # 꼬부기 한 마리
+python pokemon_taskbar.py -p pikachu -p charmander   # 두 마리 같이
+python pokemon_taskbar.py --count 5              # 무작위로 5마리
+python pokemon_taskbar.py --scale 4 --speed 90   # 더 크고 빠르게
+python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 올려놓기
+```
+
+| 옵션 | 설명 | 기본값 |
+| --- | --- | --- |
+| `-p`, `--pokemon` | 등장시킬 포켓몬 (여러 번 사용 가능) | `pikachu` |
+| `-c`, `--count` | 마리 수 | `1` |
+| `-s`, `--scale` | 도트 확대 배율 | `3` |
+| `--speed` | 이동 속도 (초당 픽셀) | `55` |
+| `--offset` | 화면 맨 아래에서 띄울 높이(px) | `0` |
+| `--bg` | 투명 창을 못 쓰는 환경에서 쓸 배경색 | `#1e1e1e` |
+
+## 운영체제별 참고
+
+| OS | 배경 투명 | 비고 |
+| --- | --- | --- |
+| 윈도우 | ✅ (`-transparentcolor`) | 배경이 완전히 투명하고, 포켓몬 바깥쪽 클릭은 아래 창으로 그대로 전달됩니다. |
+| macOS | ✅ (`-transparent`) | 처음 실행할 때 화면 접근 권한을 물어볼 수 있습니다. |
+| 리눅스 | ⚠️ 창 관리자에 따라 다름 | 투명이 안 되면 `--bg` 로 작업 표시줄과 비슷한 색을 지정하세요. 예: `--bg "#2d2d2d"` |
+
+## 구성
+
+| 파일 | 내용 |
+| --- | --- |
+| `pokemon_taskbar.py` | 창 생성, 이동/애니메이션, 마우스 조작 등 프로그램 본체 |
+| `sprites.py` | 도트 그림 데이터 (문자 그리드 + 색 팔레트). tkinter에 의존하지 않음 |
+| `test_pokemon_taskbar.py` | 스프라이트 데이터와 이동 로직 테스트 |
+
+도트 그림은 이렇게 문자로 정의되어 있어서, 글자만 바꾸면 새로운 포켓몬을 쉽게 추가할 수 있습니다.
+
+```python
+rows=[
+    "......KK...KK",     # K = 외곽선, Y = 노란 몸,
+    ".....KKBK.KBKK",    # R = 볼,     W = 눈 반사광 ...
+    ...
+]
+```
+
+`sprites.py` 의 `POKEMON` 목록에 새 `Pokemon(...)` 을 추가하면 바로 `--pokemon` 으로 부를 수 있습니다.
+
+## 테스트
+
+```bash
+python -m unittest test_pokemon_taskbar -v
+```
+
+화면(디스플레이)이 없는 환경에서는 GUI가 필요한 테스트는 자동으로 건너뜁니다.
+
+## 참고
+
+포켓몬은 닌텐도 / 크리쳐스 / 게임프리크의 상표입니다. 이 저장소의 도트 그림은 공식 리소스를 사용하지 않고
+직접 그린 오마주이며, 개인적인 용도로만 사용하세요.

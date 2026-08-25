@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import ctypes
 import platform
 import random
 import sys
@@ -27,7 +28,42 @@ from sprites import POKEMON, validate_all
 
 TICK_MS = 40           # 화면 갱신 주기
 STEP_SEC = 0.16        # 걷기 프레임 교체 주기
+TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
 COLOR_KEY = "#ff00ff"  # 투명 처리에 쓰는 색(윈도우 전용)
+
+SPI_GETWORKAREA = 0x0030
+HWND_TOPMOST = -1
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOACTIVATE = 0x0010
+
+
+def work_area_bottom(fallback):
+    """작업 표시줄을 제외한 바탕화면 영역의 아래쪽 y 좌표.
+
+    윈도우에서는 작업 표시줄 바로 위 선을 돌려주므로, 포켓몬이 표시줄을
+    가리지 않고 그 위에 올라선다. 알아낼 수 없으면 fallback(화면 맨 아래).
+    """
+    if platform.system() != "Windows":
+        return fallback
+    try:
+        class Rect(ctypes.Structure):
+            _fields_ = [
+                ("left", ctypes.c_long),
+                ("top", ctypes.c_long),
+                ("right", ctypes.c_long),
+                ("bottom", ctypes.c_long),
+            ]
+
+        rect = Rect()
+        ok = ctypes.windll.user32.SystemParametersInfoW(
+            SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+        )
+        if ok and 0 < rect.bottom <= fallback:
+            return int(rect.bottom)
+    except Exception:
+        pass
+    return fallback
 
 
 def setup_transparency(window, system):
@@ -47,11 +83,15 @@ def setup_transparency(window, system):
     return None
 
 
-def make_photo(grid, scale, flip=False):
-    """색상 그리드를 tkinter 이미지로 만든다(투명 픽셀은 비워 둔다)."""
+def make_photo(grid, scale, flip=False, master=None):
+    """색상 그리드를 tkinter 이미지로 만든다(투명 픽셀은 비워 둔다).
+
+    master 를 넘기면 그 인터프리터에 이미지를 만든다. 여러 개의 Tk 를 동시에
+    쓰더라도 이미지가 엉키지 않는다.
+    """
     height = len(grid)
     width = len(grid[0])
-    photo = tk.PhotoImage(width=width * scale, height=height * scale)
+    photo = tk.PhotoImage(master=master, width=width * scale, height=height * scale)
     for y, row in enumerate(grid):
         cells = row[::-1] if flip else row
         x = 0
@@ -102,7 +142,7 @@ class PokemonPet:
         )
 
         self.max_x = max(0, app.screen_width - self.width)
-        self.base_y = app.screen_height - (self.height + self.hop) - app.offset
+        self.base_y = app.ground_y - (self.height + self.hop) - app.offset
         self.x = random.uniform(0, self.max_x)
         self.direction = random.choice((-1, 1))
         self.speed = app.speed * random.uniform(0.85, 1.15)
@@ -195,16 +235,38 @@ class PokemonPet:
             if self.jump_time > 0.45:
                 self.jump_time = -1.0
 
-        # 다른 창을 클릭해도 계속 맨 앞에 남도록 주기적으로 다시 올린다.
-        if self.ticks % 75 == 0:
-            try:
-                self.window.wm_attributes("-topmost", True)
-            except tk.TclError:
-                pass
+        # 다른 창을 클릭해도 항상 맨 앞에 남도록 자주 다시 주장한다.
+        if self.ticks % TOPMOST_TICKS == 0:
+            self.raise_above_all()
 
         self.draw()
         self.place()
         self.after_id = self.window.after(TICK_MS, self.tick)
+
+    def raise_above_all(self):
+        """포커스를 빼앗지 않으면서 창을 최상위로 올린다."""
+        if self.app.system == "Windows":
+            try:
+                hwnd = int(self.window.wm_frame(), 16)
+                user32 = ctypes.windll.user32
+                user32.SetWindowPos.argtypes = [
+                    ctypes.c_void_p, ctypes.c_void_p,
+                    ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                    ctypes.c_uint,
+                ]
+                user32.SetWindowPos(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_void_p(HWND_TOPMOST),
+                    0, 0, 0, 0,
+                    SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
+                )
+                return
+            except Exception:
+                pass
+        try:
+            self.window.wm_attributes("-topmost", True)
+        except tk.TclError:
+            pass
 
     def draw(self):
         facing = "right" if self.direction > 0 else "left"
@@ -236,6 +298,10 @@ class App:
         self.background = args.bg
         self.screen_width = self.root.winfo_screenwidth()
         self.screen_height = self.root.winfo_screenheight()
+        # 기본값은 작업 표시줄 "위"에 올라서기. --on-taskbar 면 표시줄 위를 걷는다.
+        self.ground_y = (
+            self.screen_height if args.on_taskbar else work_area_bottom(self.screen_height)
+        )
         self.image_cache = {}
         self.pets = []
         self.quitting = False
@@ -252,8 +318,12 @@ class App:
         if key not in self.image_cache:
             frames = POKEMON[key].frames()
             self.image_cache[key] = {
-                "right": [make_photo(f, self.scale, flip=False) for f in frames],
-                "left": [make_photo(f, self.scale, flip=True) for f in frames],
+                "right": [
+                    make_photo(f, self.scale, flip=False, master=self.root) for f in frames
+                ],
+                "left": [
+                    make_photo(f, self.scale, flip=True, master=self.root) for f in frames
+                ],
             }
         return self.image_cache[key]
 
@@ -318,7 +388,12 @@ def parse_args(argv=None):
         "--speed", type=float, default=55.0, help="이동 속도(초당 픽셀, 기본 55)"
     )
     parser.add_argument(
-        "--offset", type=int, default=0, help="화면 맨 아래에서 띄울 높이(px, 기본 0)"
+        "--offset", type=int, default=0, help="바닥에서 더 띄울 높이(px, 기본 0)"
+    )
+    parser.add_argument(
+        "--on-taskbar",
+        action="store_true",
+        help="작업 표시줄 위에 올라서지 않고, 표시줄 위를 그대로 걸어 다닌다",
     )
     parser.add_argument(
         "--bg",

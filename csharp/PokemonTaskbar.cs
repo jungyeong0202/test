@@ -18,6 +18,7 @@ namespace PokemonTaskbar
         public int Scale = 3;
         public double Speed = 55.0;
         public int Offset = 0;
+        public bool OnTaskbar = false;
         public bool ShowList = false;
         public bool ShowHelp = false;
         public string Error = null;
@@ -136,6 +137,16 @@ namespace PokemonTaskbar
         private const int TickMs = 40;
         private const double StepSeconds = 0.16;
         private const double JumpSeconds = 0.45;
+        private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter,
+            int x, int y, int width, int height, uint flags);
+
+        private static readonly IntPtr HwndTopmost = new IntPtr(-1);
+        private const uint SwpNoSize = 0x0001;
+        private const uint SwpNoMove = 0x0002;
+        private const uint SwpNoActivate = 0x0010;
 
         private readonly Bitmap[][] images;   // [0] 오른쪽, [1] 왼쪽
         private readonly Timer timer;
@@ -185,8 +196,12 @@ namespace PokemonTaskbar
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
             Rectangle screen = Screen.PrimaryScreen.Bounds;
+            // 기본값은 작업 표시줄 "위"에 올라서기. 작업 영역의 아래쪽 선이 곧 표시줄의 윗변이다.
+            int ground = world.Options.OnTaskbar
+                ? screen.Bottom
+                : Screen.PrimaryScreen.WorkingArea.Bottom;
             this.maxX = Math.Max(0, screen.Width - this.spriteWidth);
-            this.baseY = screen.Bottom - (this.spriteHeight + this.hop) - world.Options.Offset;
+            this.baseY = ground - (this.spriteHeight + this.hop) - world.Options.Offset;
             this.x = this.random.NextDouble() * this.maxX;
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
             this.speed = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
@@ -283,14 +298,40 @@ namespace PokemonTaskbar
                 }
             }
 
-            // 다른 창을 띄워도 계속 맨 앞에 남도록 가끔 다시 올린다.
-            if (this.ticks % 75 == 0)
+            // 다른 창을 클릭해도 항상 맨 앞에 남도록 자주 다시 주장한다.
+            if (this.ticks % TopmostTicks == 0)
             {
-                this.TopMost = true;
+                this.RaiseAboveAll();
             }
 
             this.MoveToPlace();
             this.Invalidate();
+        }
+
+        /// <summary>포커스를 빼앗지 않으면서 창을 최상위로 올린다.</summary>
+        private void RaiseAboveAll()
+        {
+            if (!this.IsHandleCreated || this.IsDisposed)
+            {
+                return;
+            }
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                try
+                {
+                    SetWindowPos(this.Handle, HwndTopmost, 0, 0, 0, 0,
+                        SwpNoSize | SwpNoMove | SwpNoActivate);
+                    return;
+                }
+                catch (DllNotFoundException)
+                {
+                    // 윈도우가 아닌 환경. 아래로 넘어간다.
+                }
+                catch (EntryPointNotFoundException)
+                {
+                }
+            }
+            this.TopMost = true;
         }
 
         private void MoveToPlace()
@@ -397,7 +438,8 @@ namespace PokemonTaskbar
             "  -c, --count <수>       마리 수 (기본 1)\n" +
             "  -s, --scale <배율>     도트 확대 배율 (기본 3)\n" +
             "      --speed <속도>     이동 속도, 초당 픽셀 (기본 55)\n" +
-            "      --offset <픽셀>    화면 맨 아래에서 띄울 높이 (기본 0)\n" +
+            "      --offset <픽셀>    바닥에서 더 띄울 높이 (기본 0)\n" +
+            "      --on-taskbar       작업 표시줄 위에 올라서지 않고 표시줄 위를 걷는다\n" +
             "      --list             포켓몬 목록 보기\n\n" +
             "포켓몬을 왼쪽 클릭하면 점프하고, 오른쪽 클릭하면 메뉴가 열립니다.";
 
@@ -456,6 +498,9 @@ namespace PokemonTaskbar
                             options.Error = "--offset 은 숫자여야 합니다.";
                             return options;
                         }
+                        break;
+                    case "--on-taskbar":
+                        options.OnTaskbar = true;
                         break;
                     case "--list":
                         options.ShowList = true;
@@ -519,6 +564,10 @@ namespace PokemonTaskbar
             catch (EntryPointNotFoundException)
             {
                 // 아주 오래된 윈도우에서는 없을 수 있다. 무시해도 동작한다.
+            }
+            catch (DllNotFoundException)
+            {
+                // 윈도우가 아닌 환경(Mono 등).
             }
 
             Application.EnableVisualStyles();

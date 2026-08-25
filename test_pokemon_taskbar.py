@@ -69,6 +69,10 @@ class ArgumentTest(unittest.TestCase):
         args = pt.parse_args(["--count", "4"])
         self.assertEqual(len(args.species), 4)
 
+    def test_on_taskbar_is_off_by_default(self):
+        self.assertFalse(pt.parse_args([]).on_taskbar)
+        self.assertTrue(pt.parse_args(["--on-taskbar"]).on_taskbar)
+
     def test_named_pokemon_is_kept(self):
         args = pt.parse_args(["-p", "squirtle", "-p", "bulbasaur"])
         self.assertEqual(args.species[:2], ["squirtle", "bulbasaur"])
@@ -130,9 +134,9 @@ class PetMovementTest(unittest.TestCase):
                 self.app.root.update()
                 time.sleep(0.01)
 
-    def test_pet_sits_on_the_bottom_of_the_screen(self):
+    def test_pet_stands_on_the_ground_line(self):
         pet = self.app.pets[0]
-        expected = self.app.screen_height - (pet.height + pet.hop)
+        expected = self.app.ground_y - (pet.height + pet.hop)
         self.assertEqual(pet.base_y, expected)
 
     def test_pet_walks_and_stays_on_screen(self):
@@ -166,6 +170,46 @@ class PetMovementTest(unittest.TestCase):
         self.app.remove_pet(pet)
         self.assertNotIn(pet, self.app.pets)
         self.assertEqual(len(self.app.pets), 1)
+
+
+@needs_display
+@needs_display
+class GroundLineTest(unittest.TestCase):
+    """포켓몬이 서 있을 바닥 높이 계산."""
+
+    def test_work_area_falls_back_to_the_screen_bottom(self):
+        # 윈도우가 아니면 작업 영역을 알 수 없으므로 화면 맨 아래를 쓴다.
+        self.assertEqual(pt.work_area_bottom(1080), 1080)
+
+    def test_work_area_never_exceeds_the_screen(self):
+        self.assertLessEqual(pt.work_area_bottom(1080), 1080)
+
+    def test_on_taskbar_uses_the_screen_bottom(self):
+        app = pt.App(pt.parse_args(["--on-taskbar"]))
+        try:
+            self.assertEqual(app.ground_y, app.screen_height)
+        finally:
+            app.quit()
+
+    def test_default_ground_is_at_or_above_the_screen_bottom(self):
+        app = pt.App(pt.parse_args([]))
+        try:
+            self.assertLessEqual(app.ground_y, app.screen_height)
+        finally:
+            app.quit()
+
+    def test_offset_lifts_the_pet(self):
+        plain = pt.App(pt.parse_args([]))
+        try:
+            base = plain.pets[0].base_y
+        finally:
+            plain.quit()
+
+        lifted = pt.App(pt.parse_args(["--offset", "40"]))
+        try:
+            self.assertEqual(base - 40, lifted.pets[0].base_y)
+        finally:
+            lifted.quit()
 
 
 @needs_display

@@ -15,7 +15,7 @@ namespace PokemonTaskbar
     {
         public List<string> Species = new List<string>();
         public int Count = 1;
-        public int Scale = 3;
+        public double Scale = 4.5;
         public double Speed = 55.0;
         public int Offset = 0;
         public bool OnTaskbar = false;
@@ -66,50 +66,70 @@ namespace PokemonTaskbar
             return frames;
         }
 
-        /// <summary>색 배열을 확대해 비트맵으로 그린다. flip 이면 좌우로 뒤집는다.</summary>
-        public static Bitmap Render(Color?[][] grid, int scale, bool flip)
+        /// <summary>색 배열을 확대해 비트맵으로 그린다. flip 이면 좌우로 뒤집는다.
+        ///
+        /// scale 은 도트 하나가 차지할 화면 픽셀 수이며 소수여도 된다. 1.5 면
+        /// 2픽셀과 1픽셀이 번갈아 나오도록 가장 가까운 도트를 찍는다.</summary>
+        public static Bitmap Render(Color?[][] grid, double scale, bool flip)
         {
             int height = grid.Length;
             int width = grid[0].Length;
-            Bitmap bitmap = new Bitmap(width * scale, height * scale, PixelFormat.Format32bppArgb);
+            // 가로세로에 같은 반올림 규칙을 써야 비율이 그대로 유지된다.
+            // (Math.Round 는 .5 를 짝수로 보내므로 축마다 결과가 달라질 수 있다.)
+            int outWidth = Math.Max(1, (int)Math.Floor(width * scale + 0.5));
+            int outHeight = Math.Max(1, (int)Math.Floor(height * scale + 0.5));
+            Bitmap bitmap = new Bitmap(outWidth, outHeight, PixelFormat.Format32bppArgb);
 
             using (Graphics graphics = Graphics.FromImage(bitmap))
             {
                 graphics.Clear(Color.Transparent);
                 Dictionary<int, SolidBrush> brushes = new Dictionary<int, SolidBrush>();
 
-                for (int y = 0; y < height; y++)
+                int outY = 0;
+                while (outY < outHeight)
                 {
-                    int x = 0;
-                    while (x < width)
+                    int y = Math.Min(height - 1, outY * height / outHeight);
+                    int endY = outY;
+                    while (endY < outHeight && Math.Min(height - 1, endY * height / outHeight) == y)
                     {
-                        Color? color = grid[y][flip ? width - 1 - x : x];
-                        if (color == null)
-                        {
-                            x++;
-                            continue;
-                        }
+                        endY++;
+                    }
+                    int band = endY - outY;
 
-                        int end = x;
-                        while (end < width)
+                    int outX = 0;
+                    while (outX < outWidth)
+                    {
+                        int x = Math.Min(width - 1, outX * width / outWidth);
+                        Color? color = grid[y][flip ? width - 1 - x : x];
+
+                        int endX = outX;
+                        while (endX < outWidth)
                         {
-                            Color? next = grid[y][flip ? width - 1 - end : end];
-                            if (next == null || next.Value.ToArgb() != color.Value.ToArgb())
+                            int nextX = Math.Min(width - 1, endX * width / outWidth);
+                            Color? next = grid[y][flip ? width - 1 - nextX : nextX];
+                            if (next == null != (color == null))
                             {
                                 break;
                             }
-                            end++;
+                            if (next != null && next.Value.ToArgb() != color.Value.ToArgb())
+                            {
+                                break;
+                            }
+                            endX++;
                         }
 
-                        int argb = color.Value.ToArgb();
-                        if (!brushes.ContainsKey(argb))
+                        if (color != null)
                         {
-                            brushes[argb] = new SolidBrush(color.Value);
+                            int argb = color.Value.ToArgb();
+                            if (!brushes.ContainsKey(argb))
+                            {
+                                brushes[argb] = new SolidBrush(color.Value);
+                            }
+                            graphics.FillRectangle(brushes[argb], outX, outY, endX - outX, band);
                         }
-                        graphics.FillRectangle(
-                            brushes[argb], x * scale, y * scale, (end - x) * scale, scale);
-                        x = end;
+                        outX = endX;
                     }
+                    outY = endY;
                 }
 
                 foreach (SolidBrush brush in brushes.Values)
@@ -128,6 +148,7 @@ namespace PokemonTaskbar
         private const double StepSeconds = 0.16;
         private const double JumpSeconds = 0.45;
         private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
+        private const double MinSpriteScale = 0.5;  // 도트 하나가 이보다 작아지지는 않는다
 
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter,
@@ -145,7 +166,7 @@ namespace PokemonTaskbar
         private readonly int spriteHeight;
         private readonly int hop;
         private readonly int frameCount;
-        private readonly int scale;
+        private readonly double scale;
         private readonly int maxX;
         private readonly int baseY;
         private readonly double speed;
@@ -164,7 +185,7 @@ namespace PokemonTaskbar
 
             List<Color?[][]> frames = SpriteFactory.Frames(sprite);
             this.frameCount = frames.Count;
-            int scale = Math.Max(1, (int)Math.Round(world.Options.Scale * sprite.ScaleFactor));
+            double scale = Math.Max(MinSpriteScale, world.Options.Scale * sprite.ScaleFactor);
             this.scale = scale;
             this.images = new Bitmap[2][];
             this.images[0] = new Bitmap[frames.Count];
@@ -179,7 +200,7 @@ namespace PokemonTaskbar
 
             this.spriteWidth = this.images[0][0].Width;
             this.spriteHeight = this.images[0][0].Height;
-            this.hop = scale;
+            this.hop = Math.Max(1, (int)Math.Round(scale));
 
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
@@ -433,7 +454,7 @@ namespace PokemonTaskbar
             "하단바 포켓몬\n\n" +
             "  -p, --pokemon <이름>   등장시킬 포켓몬 (여러 번 사용 가능)\n" +
             "  -c, --count <수>       마리 수 (기본 1)\n" +
-            "  -s, --scale <배율>     도트 확대 배율 (기본 3)\n" +
+            "  -s, --scale <배율>     크기 배율 (기본 4.5, 3 이면 예전 크기)\n" +
             "      --speed <속도>     이동 속도, 초당 픽셀 (기본 55)\n" +
             "      --offset <픽셀>    바닥에서 더 띄울 높이 (기본 0)\n" +
             "      --on-taskbar       작업 표시줄 위에 올라서지 않고 표시줄 위를 걷는다\n" +
@@ -476,9 +497,9 @@ namespace PokemonTaskbar
                         break;
                     case "-s":
                     case "--scale":
-                        if (!int.TryParse(argv[++i], out options.Scale) || options.Scale < 1)
+                        if (!double.TryParse(argv[++i], out options.Scale) || options.Scale <= 0)
                         {
-                            options.Error = "--scale 은 1 이상의 숫자여야 합니다.";
+                            options.Error = "--scale 은 0보다 큰 숫자여야 합니다.";
                             return options;
                         }
                         break;

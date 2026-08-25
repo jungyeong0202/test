@@ -13,7 +13,8 @@
 pikachu    charmander    bulbasaur    squirtle
 ```
 
-네 마리 모두 그림에서 들여온 도트에 걷기 4프레임입니다 (35~38 도트, 화면상 35~43px).
+네 마리 모두 그림에서 들여온 도트에 걷기 4프레임입니다 (35~38 도트, 화면상 50~63px).
+도트 하나를 1.5픽셀로 그리므로, `--scale 3` 을 주면 도트 그대로(작게), `--scale 6` 이면 두 배가 됩니다.
 `tools/import_sprite.py` 로 원하는 그림을 넣으면 누구든 걷게 만들 수 있습니다.
 
 ## 실행 방법
@@ -42,7 +43,7 @@ sudo apt install python3-tk      # 데비안 / 우분투 계열
 
 ```bat
 PokemonTaskbar.exe                    :: 피카츄 한 마리
-PokemonTaskbar.exe --count 3 --scale 4
+PokemonTaskbar.exe --count 3 --scale 6
 PokemonTaskbar.exe -p squirtle --offset 45
 ```
 
@@ -61,7 +62,7 @@ exe 는 GitHub Actions 에서도 자동으로 빌드됩니다.
 2. 그 다음부터는 만들어진 `csharp\PokemonTaskbar.exe` 를 직접 실행해도 됩니다
 
 ```bat
-csharp\run.bat --count 3 --scale 4
+csharp\run.bat --count 3 --scale 6
 csharp\PokemonTaskbar.exe -p squirtle --offset 45
 ```
 
@@ -90,7 +91,7 @@ python pokemon_taskbar.py --list                 # 사용 가능한 포켓몬 �
 python pokemon_taskbar.py -p squirtle            # 꼬부기 한 마리
 python pokemon_taskbar.py -p pikachu -p charmander   # 두 마리 같이
 python pokemon_taskbar.py --count 5              # 무작위로 5마리
-python pokemon_taskbar.py --scale 4 --speed 90   # 더 크고 빠르게
+python pokemon_taskbar.py --scale 6 --speed 90   # 더 크고 빠르게
 python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 올려놓기
 ```
 
@@ -98,7 +99,7 @@ python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 �
 | --- | --- | --- |
 | `-p`, `--pokemon` | 등장시킬 포켓몬 (여러 번 사용 가능) | `pikachu` |
 | `-c`, `--count` | 마리 수 | `1` |
-| `-s`, `--scale` | 도트 확대 배율 | `3` |
+| `-s`, `--scale` | 크기 배율 (`3` 이면 예전 크기, `6` 이면 두 배) | `4.5` |
 | `--speed` | 이동 속도 (초당 픽셀) | `55` |
 | `--offset` | 바닥에서 더 띄울 높이(px) | `0` |
 | `--on-taskbar` | 작업 표시줄 위에 올라서지 않고 표시줄 위를 걸어 다님 | 꺼짐 |

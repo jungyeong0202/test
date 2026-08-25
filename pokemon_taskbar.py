@@ -26,6 +26,7 @@ import tkinter as tk
 
 from sprites import POKEMON, validate_all
 
+MIN_SPRITE_SCALE = 0.5  # 도트 하나가 이보다 작아지지는 않는다
 TICK_MS = 40           # 화면 갱신 주기
 STEP_SEC = 0.16        # 걷기 프레임 교체 주기
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
@@ -95,26 +96,49 @@ def flip_for(pokemon, moving_right):
 def make_photo(grid, scale, flip=False, master=None):
     """색상 그리드를 tkinter 이미지로 만든다(투명 픽셀은 비워 둔다).
 
+    scale 은 도트 하나가 화면에서 차지할 픽셀 수이며 소수여도 된다.
+    1.5 면 2픽셀과 1픽셀이 번갈아 나오는 식으로, 화면 픽셀마다 가장 가까운
+    도트를 찍는다(최근접 이웃).
+
     master 를 넘기면 그 인터프리터에 이미지를 만든다. 여러 개의 Tk 를 동시에
     쓰더라도 이미지가 엉키지 않는다.
     """
     height = len(grid)
     width = len(grid[0])
-    photo = tk.PhotoImage(master=master, width=width * scale, height=height * scale)
-    for y, row in enumerate(grid):
+    # 가로세로에 같은 반올림 규칙을 써야 비율이 그대로 유지된다.
+    # (파이썬 round 는 .5 를 짝수로 보내므로 축마다 결과가 달라질 수 있다.)
+    out_width = max(1, int(width * scale + 0.5))
+    out_height = max(1, int(height * scale + 0.5))
+    photo = tk.PhotoImage(master=master, width=out_width, height=out_height)
+
+    def source_x(out_x):
+        return min(width - 1, out_x * width // out_width)
+
+    def source_y(out_y):
+        return min(height - 1, out_y * height // out_height)
+
+    out_y = 0
+    while out_y < out_height:
+        y = source_y(out_y)
+        # 같은 도트 줄을 가리키는 화면 줄들을 한 번에 그린다.
+        end_y = out_y
+        while end_y < out_height and source_y(end_y) == y:
+            end_y += 1
+        band = end_y - out_y
+
+        row = grid[y]
         cells = row[::-1] if flip else row
-        x = 0
-        while x < width:
-            color = cells[x]
-            if color is None:
-                x += 1
-                continue
-            end = x
-            while end < width and cells[end] == color:
-                end += 1
-            line = "{" + " ".join([color] * ((end - x) * scale)) + "}"
-            photo.put(" ".join([line] * scale), to=(x * scale, y * scale))
-            x = end
+        out_x = 0
+        while out_x < out_width:
+            color = cells[source_x(out_x)]
+            end_x = out_x
+            while end_x < out_width and cells[source_x(end_x)] == color:
+                end_x += 1
+            if color is not None:
+                line = "{" + " ".join([color] * (end_x - out_x)) + "}"
+                photo.put(" ".join([line] * band), to=(out_x, out_y))
+            out_x = end_x
+        out_y = end_y
     return photo
 
 
@@ -131,7 +155,7 @@ class PokemonPet:
         sample = self.images["right"][0]
         self.width = sample.width()
         self.height = sample.height()
-        self.hop = self.scale  # 걸을 때 위아래로 흔들리는 폭
+        self.hop = max(1, int(round(self.scale)))  # 걸을 때 위아래로 흔들리는 폭
 
         self.window = tk.Toplevel(app.root)
         self.window.overrideredirect(True)
@@ -326,8 +350,12 @@ class App:
         self.root.bind_all("<Escape>", lambda _e: self.quit())
 
     def sprite_scale(self, pokemon):
-        """스프라이트별 확대 배율. 도트가 촘촘한 그림은 더 작게 그린다."""
-        return max(1, int(round(self.scale * pokemon.scale_factor)))
+        """스프라이트별 확대 배율(도트 하나가 차지할 화면 픽셀 수).
+
+        도트가 촘촘한 그림은 scale_factor 를 작게 잡아 더 작게 그린다.
+        정수가 아니어도 되며, 1.5 처럼 딱 떨어지는 값일수록 도트가 고르게 보인다.
+        """
+        return max(MIN_SPRITE_SCALE, self.scale * pokemon.scale_factor)
 
     def get_images(self, pokemon):
         """방향별 걷기 이미지(캐시)."""
@@ -415,7 +443,10 @@ def parse_args(argv=None):
         help="등장시킬 포켓몬 (%s). 여러 번 쓸 수 있다." % ", ".join(POKEMON),
     )
     parser.add_argument("-c", "--count", type=int, default=1, help="마리 수 (기본 1)")
-    parser.add_argument("-s", "--scale", type=int, default=3, help="도트 확대 배율 (기본 3)")
+    parser.add_argument(
+        "-s", "--scale", type=float, default=4.5,
+        help="크기 배율 (기본 4.5. 3 을 주면 예전 크기, 6 이면 두 배)",
+    )
     parser.add_argument(
         "--speed", type=float, default=55.0, help="이동 속도(초당 픽셀, 기본 55)"
     )
@@ -435,8 +466,8 @@ def parse_args(argv=None):
     parser.add_argument("--list", action="store_true", help="사용 가능한 포켓몬 목록 출력")
     args = parser.parse_args(argv)
 
-    if args.scale < 1:
-        parser.error("--scale 은 1 이상이어야 합니다")
+    if args.scale <= 0:
+        parser.error("--scale 은 0보다 커야 합니다")
     if args.count < 1:
         parser.error("--count 는 1 이상이어야 합니다")
 

@@ -80,6 +80,14 @@ class SpriteTest(unittest.TestCase):
 
 @needs_display
 class ArgumentTest(unittest.TestCase):
+    def test_default_scale_draws_at_one_and_a_half(self):
+        app = pt.App(pt.parse_args([]))
+        try:
+            for pokemon in sprites.POKEMON.values():
+                self.assertAlmostEqual(app.sprite_scale(pokemon), 1.5, places=6, msg=pokemon.key)
+        finally:
+            app.quit()
+
     def test_default_is_one_pikachu(self):
         args = pt.parse_args([])
         self.assertEqual(args.species, ["pikachu"])
@@ -155,6 +163,19 @@ class ImageTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.root.destroy()
+
+    def test_fractional_scale_keeps_the_shape(self):
+        """1.5 배처럼 소수로 키워도 가로세로 비율이 1픽셀 넘게 틀어지지 않아야 한다."""
+        for pokemon in sprites.POKEMON.values():
+            grid = pokemon.frames()[0]
+            width = len(grid[0])
+            height = len(grid)
+            photo = pt.make_photo(grid, 1.5)
+            self.assertEqual(photo.width(), int(width * 1.5 + 0.5), pokemon.key)
+            self.assertEqual(photo.height(), int(height * 1.5 + 0.5), pokemon.key)
+            # 비율이 틀어진 정도를 픽셀로 환산하면 1픽셀 미만이어야 한다
+            expected_height = photo.width() * height / width
+            self.assertLess(abs(photo.height() - expected_height), 1.0, pokemon.key)
 
     def test_photo_size_matches_scale(self):
         grid = sprites.POKEMON["pikachu"].frames()[0]
@@ -255,7 +276,7 @@ class GroundLineTest(unittest.TestCase):
         try:
             # 이미지에서 들여온 촘촘한 도트는 1배로 그린다
             for key in ("pikachu", "charmander", "squirtle", "bulbasaur"):
-                self.assertEqual(app.sprite_scale(sprites.POKEMON[key]), 1, key)
+                self.assertAlmostEqual(app.sprite_scale(sprites.POKEMON[key]), 1, places=6)
             # 배율을 따로 주지 않은 스프라이트는 --scale 을 그대로 쓴다
             plain = sprites.Pokemon(
                 "test", "테스트", {"K": "#000000"}, rows=["KK", "KK"], step_rows={0: "K."}
@@ -264,10 +285,16 @@ class GroundLineTest(unittest.TestCase):
         finally:
             app.quit()
 
-    def test_sprite_scale_never_drops_below_one(self):
-        app = pt.App(pt.parse_args(["--scale", "1"]))
+    def test_sprite_scale_never_collapses(self):
+        """아주 작은 배율을 줘도 도트가 사라지지는 않아야 한다."""
+        app = pt.App(pt.parse_args(["--scale", "0.1"]))
         try:
-            self.assertGreaterEqual(app.sprite_scale(sprites.POKEMON["pikachu"]), 1)
+            for pokemon in sprites.POKEMON.values():
+                scale = app.sprite_scale(pokemon)
+                self.assertGreaterEqual(scale, pt.MIN_SPRITE_SCALE, pokemon.key)
+                photo = pt.make_photo(pokemon.frames()[0], scale, master=app.root)
+                self.assertGreaterEqual(photo.width(), 1, pokemon.key)
+                self.assertGreaterEqual(photo.height(), 1, pokemon.key)
         finally:
             app.quit()
 

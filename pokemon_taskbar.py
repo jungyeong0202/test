@@ -10,14 +10,14 @@
     python pokemon_taskbar.py --count 3 --scale 4 --speed 70
 
 마우스 조작:
-    왼쪽 클릭  - 포켓몬이 폴짝 뛴다
-    오른쪽 클릭 - 메뉴(추가 / 보내주기 / 종료)
+    왼쪽 클릭   - 포켓몬이 폴짝 뛴다
+    누른 채 끌기 - 원하는 자리로 옮긴다 (놓으면 바닥으로 떨어진다)
+    오른쪽 클릭  - 메뉴(추가 / 보내주기 / 종료)
 """
 
 from __future__ import annotations
 
 import argparse
-import math
 import ctypes
 import platform
 import random
@@ -27,6 +27,9 @@ import tkinter as tk
 from sprites import POKEMON, validate_all
 
 MIN_SPRITE_SCALE = 0.5  # 도트 하나가 이보다 작아지지는 않는다
+GRAVITY = 900.0        # 떨어지는 가속도(초당 픽셀^2)
+JUMP_SPEED = 200.0     # 클릭했을 때 튀어오르는 속도(초당 픽셀)
+DRAG_SLACK = 4         # 이보다 많이 움직이면 클릭이 아니라 끌기로 본다
 TICK_MS = 40           # 화면 갱신 주기
 STEP_SEC = 0.16        # 걷기 프레임 교체 주기
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
@@ -184,7 +187,12 @@ class PokemonPet:
         self.state = "walk"
         self.state_left = 0.0
         self.anim_time = 0.0
-        self.jump_time = -1.0
+        self.lift = 0.0        # 바닥에서 떠 있는 높이(px)
+        self.vertical_speed = 0.0
+        self.dragging = False
+        self.drag_offset = (0, 0)
+        self.drag_start = (0, 0)
+        self.drag_moved = False
         self.ticks = 0
         self.after_id = None
 
@@ -195,7 +203,9 @@ class PokemonPet:
         self.menu.add_command(label="전부 종료", command=app.quit)
 
         self.window.bind("<Escape>", lambda _e: app.quit())
-        self.canvas.bind("<Button-1>", self.on_click)
+        self.canvas.bind("<Button-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<Button-3>", self.on_menu)
         self.canvas.bind("<Button-2>", self.on_menu)  # macOS 오른쪽 클릭
 
@@ -203,14 +213,41 @@ class PokemonPet:
         self.after_id = self.window.after(TICK_MS, self.tick)
 
     # --- 조작 -----------------------------------------------------------
-    def on_click(self, _event):
+    def on_press(self, event):
+        """누른 순간. 이 자리를 기억해 두고 끌기를 시작한다."""
         # 테두리 없는 창은 기본적으로 포커스를 받지 않아, 클릭했을 때만 키 입력을 받게 한다.
         try:
             self.window.focus_force()
         except tk.TclError:
             pass
-        if self.jump_time < 0:
-            self.jump_time = 0.0
+        self.dragging = True
+        self.drag_moved = False
+        self.drag_start = (event.x_root, event.y_root)
+        self.drag_offset = (
+            event.x_root - int(self.x),
+            event.y_root - (self.base_y - int(self.lift)),
+        )
+        self.vertical_speed = 0.0
+
+    def on_drag(self, event):
+        """누른 채로 움직이면 포켓몬이 손을 따라온다."""
+        if not self.dragging:
+            return
+        if (abs(event.x_root - self.drag_start[0]) > DRAG_SLACK
+                or abs(event.y_root - self.drag_start[1]) > DRAG_SLACK):
+            self.drag_moved = True
+
+        offset_x, offset_y = self.drag_offset
+        self.x = min(max(0, event.x_root - offset_x), self.max_x)
+        self.lift = min(max(0.0, self.base_y - (event.y_root - offset_y)), float(self.base_y))
+        self.place()
+
+    def on_release(self, _event):
+        """놓으면 떨어진다. 거의 움직이지 않았으면 그냥 클릭으로 보고 폴짝 뛴다."""
+        if not self.dragging:
+            return
+        self.dragging = False
+        self.vertical_speed = JUMP_SPEED if not self.drag_moved else 0.0
 
     def on_menu(self, event):
         try:
@@ -247,6 +284,12 @@ class PokemonPet:
         dt = TICK_MS / 1000.0
         self.ticks += 1
 
+        if self.dragging:
+            # 손에 들려 있는 동안에는 스스로 움직이지 않는다.
+            self.draw()
+            self.after_id = self.window.after(TICK_MS, self.tick)
+            return
+
         if self.state == "walk":
             self.anim_time += dt
             self.x += self.direction * self.speed * dt
@@ -265,10 +308,13 @@ class PokemonPet:
             if self.state_left <= 0:
                 self.set_state("walk")
 
-        if self.jump_time >= 0:
-            self.jump_time += dt
-            if self.jump_time > 0.45:
-                self.jump_time = -1.0
+        # 떠 있으면 중력으로 끌어내린다.
+        if self.lift > 0 or self.vertical_speed != 0:
+            self.vertical_speed -= GRAVITY * dt
+            self.lift += self.vertical_speed * dt
+            if self.lift <= 0:
+                self.lift = 0.0
+                self.vertical_speed = 0.0
 
         # 다른 창을 클릭해도 항상 맨 앞에 남도록 자주 다시 주장한다.
         if self.ticks % TOPMOST_TICKS == 0:
@@ -305,7 +351,9 @@ class PokemonPet:
 
     def draw(self):
         facing = "right" if self.direction > 0 else "left"
-        if self.state == "walk":
+        if self.dragging:
+            frame = 0
+        elif self.state == "walk":
             frame = int(self.anim_time / STEP_SEC) % self.frame_count
         else:
             frame = 0
@@ -315,9 +363,7 @@ class PokemonPet:
         self.canvas.coords(self.sprite, 0, self.hop - bounce)
 
     def place(self):
-        y = self.base_y
-        if self.jump_time >= 0:
-            y -= int(self.scale * 6 * math.sin(math.pi * self.jump_time / 0.45))
+        y = self.base_y - int(self.lift)
         self.window.geometry("+%d+%d" % (int(self.x), y))
 
 

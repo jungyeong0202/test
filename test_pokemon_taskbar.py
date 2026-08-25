@@ -319,6 +319,84 @@ class GroundLineTest(unittest.TestCase):
             lifted.quit()
 
 
+class FakeMouse:
+    """마우스 이벤트 흉내. 화면 좌표만 있으면 된다."""
+
+    def __init__(self, x, y):
+        self.x_root = x
+        self.y_root = y
+
+
+@needs_display
+class DragTest(unittest.TestCase):
+    """클릭한 채로 끌어서 옮기기."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args([]))
+        self.pet = self.app.pets[0]
+        self.pet.x = 100
+        self.pet.place()
+
+    def tearDown(self):
+        self.app.quit()
+
+    def _grab(self, x=None, y=None):
+        x = 100 if x is None else x
+        y = self.pet.base_y if y is None else y
+        self.pet.on_press(FakeMouse(x, y))
+
+    def test_drag_moves_the_pet(self):
+        self._grab()
+        self.pet.on_drag(FakeMouse(300, self.pet.base_y - 120))
+        self.assertEqual(int(self.pet.x), 300)
+        self.assertAlmostEqual(self.pet.lift, 120, delta=1)
+
+    def test_pet_does_not_walk_while_held(self):
+        self._grab()
+        self.pet.on_drag(FakeMouse(300, self.pet.base_y - 50))
+        before = self.pet.x
+        for _ in range(20):
+            self.pet.tick()
+        self.assertEqual(self.pet.x, before)
+
+    def test_dropped_pet_falls_back_to_the_ground(self):
+        self._grab()
+        self.pet.on_drag(FakeMouse(300, self.pet.base_y - 150))
+        self.pet.on_release(FakeMouse(300, self.pet.base_y - 150))
+        self.assertGreater(self.pet.lift, 0)
+        for _ in range(100):          # 4초면 충분히 떨어진다
+            self.pet.tick()
+        self.assertEqual(self.pet.lift, 0.0)
+
+    def test_short_click_still_jumps(self):
+        self._grab()
+        self.pet.on_release(FakeMouse(100, self.pet.base_y))
+        self.assertGreater(self.pet.vertical_speed, 0)
+        self.pet.tick()
+        self.assertGreater(self.pet.lift, 0)
+
+    def test_drag_stays_on_screen(self):
+        self._grab()
+        self.pet.on_drag(FakeMouse(-500, self.pet.base_y + 500))
+        self.assertGreaterEqual(self.pet.x, 0)
+        self.assertGreaterEqual(self.pet.lift, 0)
+        self.pet.on_drag(FakeMouse(99999, -99999))
+        self.assertLessEqual(self.pet.x, self.pet.max_x)
+        self.assertLessEqual(self.pet.lift, self.pet.base_y)
+
+    def test_pet_keeps_walking_after_being_dropped(self):
+        self._grab()
+        self.pet.on_drag(FakeMouse(300, self.pet.base_y - 30))
+        self.pet.on_release(FakeMouse(300, self.pet.base_y - 30))
+        self.pet.state = "walk"
+        start = self.pet.x
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            for _ in range(40):
+                self.pet.tick()
+        self.assertEqual(self.pet.lift, 0.0)
+        self.assertNotAlmostEqual(self.pet.x, start, places=1)
+
+
 @needs_display
 class LifecycleTest(unittest.TestCase):
     """종료 경로에서 예외나 오류 출력이 없어야 한다."""

@@ -146,7 +146,9 @@ namespace PokemonTaskbar
     {
         private const int TickMs = 40;
         private const double StepSeconds = 0.16;
-        private const double JumpSeconds = 0.45;
+        private const double Gravity = 900.0;      // 떨어지는 가속도(초당 픽셀^2)
+        private const double JumpSpeed = 200.0;    // 클릭했을 때 튀어오르는 속도
+        private const int DragSlack = 4;           // 이보다 많이 움직이면 끌기로 본다
         private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
         private const double MinSpriteScale = 0.5;  // 도트 하나가 이보다 작아지지는 않는다
 
@@ -166,7 +168,6 @@ namespace PokemonTaskbar
         private readonly int spriteHeight;
         private readonly int hop;
         private readonly int frameCount;
-        private readonly double scale;
         private readonly int maxX;
         private readonly int baseY;
         private readonly double speed;
@@ -176,7 +177,12 @@ namespace PokemonTaskbar
         private bool walking = true;
         private double idleLeft;
         private double animTime;
-        private double jumpTime = -1.0;
+        private double lift;               // 바닥에서 떠 있는 높이(px)
+        private double verticalSpeed;
+        private bool dragging;
+        private Point dragOffset;
+        private Point dragStart;
+        private bool dragMoved;
         private int ticks;
 
         public PetForm(PetWorld world, PokemonSprite sprite)
@@ -186,7 +192,6 @@ namespace PokemonTaskbar
             List<Color?[][]> frames = SpriteFactory.Frames(sprite);
             this.frameCount = frames.Count;
             double scale = Math.Max(MinSpriteScale, world.Options.Scale * sprite.ScaleFactor);
-            this.scale = scale;
             this.images = new Bitmap[2][];
             this.images[0] = new Bitmap[frames.Count];
             this.images[1] = new Bitmap[frames.Count];
@@ -252,7 +257,9 @@ namespace PokemonTaskbar
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            int frame = this.walking ? (int)(this.animTime / StepSeconds) % this.frameCount : 0;
+            int frame = (this.walking && !this.dragging)
+                ? (int)(this.animTime / StepSeconds) % this.frameCount
+                : 0;
             // 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
             int bounce = (this.walking && frame % 2 == 1) ? this.hop : 0;
             Bitmap image = this.images[this.direction > 0 ? 0 : 1][frame];
@@ -261,17 +268,61 @@ namespace PokemonTaskbar
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && this.jumpTime < 0)
+            if (e.Button == MouseButtons.Left)
             {
-                this.jumpTime = 0.0;
+                // 누른 자리를 기억해 두고 끌기를 시작한다.
+                this.dragging = true;
+                this.dragMoved = false;
+                this.dragStart = Control.MousePosition;
+                this.dragOffset = new Point(
+                    Control.MousePosition.X - (int)this.x,
+                    Control.MousePosition.Y - (this.baseY - (int)this.lift));
+                this.verticalSpeed = 0.0;
             }
             base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            if (this.dragging)
+            {
+                Point now = Control.MousePosition;
+                if (Math.Abs(now.X - this.dragStart.X) > DragSlack
+                    || Math.Abs(now.Y - this.dragStart.Y) > DragSlack)
+                {
+                    this.dragMoved = true;
+                }
+
+                this.x = Math.Min(Math.Max(0, now.X - this.dragOffset.X), this.maxX);
+                double height = this.baseY - (now.Y - this.dragOffset.Y);
+                this.lift = Math.Min(Math.Max(0.0, height), (double)this.baseY);
+                this.MoveToPlace();
+            }
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && this.dragging)
+            {
+                // 놓으면 떨어진다. 거의 움직이지 않았으면 클릭으로 보고 폴짝 뛴다.
+                this.dragging = false;
+                this.verticalSpeed = this.dragMoved ? 0.0 : JumpSpeed;
+            }
+            base.OnMouseUp(e);
         }
 
         private void OnTick(object sender, EventArgs e)
         {
             double dt = TickMs / 1000.0;
             this.ticks++;
+
+            if (this.dragging)
+            {
+                // 손에 들려 있는 동안에는 스스로 움직이지 않는다.
+                this.Invalidate();
+                return;
+            }
 
             if (this.walking)
             {
@@ -307,12 +358,15 @@ namespace PokemonTaskbar
                 }
             }
 
-            if (this.jumpTime >= 0)
+            // 떠 있으면 중력으로 끌어내린다.
+            if (this.lift > 0 || this.verticalSpeed != 0)
             {
-                this.jumpTime += dt;
-                if (this.jumpTime > JumpSeconds)
+                this.verticalSpeed -= Gravity * dt;
+                this.lift += this.verticalSpeed * dt;
+                if (this.lift <= 0)
                 {
-                    this.jumpTime = -1.0;
+                    this.lift = 0.0;
+                    this.verticalSpeed = 0.0;
                 }
             }
 
@@ -354,13 +408,7 @@ namespace PokemonTaskbar
 
         private void MoveToPlace()
         {
-            int y = this.baseY;
-            if (this.jumpTime >= 0)
-            {
-                double height = this.scale * 6 * Math.Sin(Math.PI * this.jumpTime / JumpSeconds);
-                y -= (int)height;
-            }
-            this.Location = new Point((int)this.x, y);
+            this.Location = new Point((int)this.x, this.baseY - (int)this.lift);
         }
 
         protected override void Dispose(bool disposing)
@@ -459,7 +507,9 @@ namespace PokemonTaskbar
             "      --offset <픽셀>    바닥에서 더 띄울 높이 (기본 0)\n" +
             "      --on-taskbar       작업 표시줄 위에 올라서지 않고 표시줄 위를 걷는다\n" +
             "      --list             포켓몬 목록 보기\n\n" +
-            "포켓몬을 왼쪽 클릭하면 점프하고, 오른쪽 클릭하면 메뉴가 열립니다.";
+            "포켓몬을 왼쪽 클릭하면 점프합니다.\n" +
+            "누른 채로 끌면 원하는 자리로 옮길 수 있고, 놓으면 바닥으로 떨어집니다.\n" +
+            "오른쪽 클릭하면 메뉴가 열립니다.";
 
         public static Options Parse(string[] argv)
         {

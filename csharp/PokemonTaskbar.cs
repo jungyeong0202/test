@@ -337,6 +337,28 @@ namespace PokemonTaskbar
         private const double HopRestMax = 0.45;
         private const double HopBoost = 2.0;       // 공중에서만 나아가므로 걷기보다 빠르게
         private const double HopTurnChance = 0.12; // 착지할 때마다 이 확률로 방향을 바꾼다
+        private const double EffectGravity = 260.0;   // 먼지가 떨어지는 가속도
+        private const double DustLife = 0.40;
+        private const double EmoteLife = 0.90;
+        private const double LandDustSpeed = 60.0;    // 이보다 세게 떨어져야 먼지가 인다
+        private const double NapChance = 0.18;        // 멈춰 설 때 이 확률로 낮잠
+        private const double ZzzEvery = 1.1;
+
+        // 효과에 쓰는 아주 작은 도트 그림
+        private static readonly int[,] HeartDots = {
+            {1,0},{2,0},{4,0},{5,0},
+            {0,1},{1,1},{2,1},{3,1},{4,1},{5,1},{6,1},
+            {0,2},{1,2},{2,2},{3,2},{4,2},{5,2},{6,2},
+            {1,3},{2,3},{3,3},{4,3},{5,3},
+            {2,4},{3,4},{4,4},
+            {3,5},
+        };
+        private static readonly int[,] ZzzDots = {
+            {0,0},{1,0},{2,0},{3,0},
+            {2,1},
+            {1,2},
+            {0,3},{1,3},{2,3},{3,3},
+        };
         private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
         private const double MinSpriteScale = 0.5;  // 도트 하나가 이보다 작아지지는 않는다
 
@@ -349,6 +371,18 @@ namespace PokemonTaskbar
         private const uint SwpNoMove = 0x0002;
         private const uint SwpNoActivate = 0x0010;
 
+        private class Effect
+        {
+            public string Kind;
+            public double X;
+            public double Y;
+            public double SpeedX;
+            public double SpeedY;
+            public double Life;
+            public Color Tint;
+        }
+
+        private readonly List<Effect> effects = new List<Effect>();
         private readonly PetWorld world;
         private readonly Bitmap[][] images;   // [0] 오른쪽, [1] 왼쪽
         private readonly Timer timer;
@@ -356,6 +390,13 @@ namespace PokemonTaskbar
         private readonly int spriteWidth;
         private readonly int spriteHeight;
         private readonly int hop;
+        private readonly int dot;
+        private readonly int marginX;
+        private readonly int marginTop;
+        private readonly int windowWidth;
+        private readonly int windowHeight;
+        private bool napping;
+        private double zzzTimer;
         private readonly int frameCount;
         private readonly int maxX;
         private readonly int baseY;
@@ -402,6 +443,12 @@ namespace PokemonTaskbar
             this.spriteWidth = this.images[0][0].Width;
             this.spriteHeight = this.images[0][0].Height;
             this.hop = Math.Max(1, (int)Math.Round(scale));
+            // 먼지나 하트가 몸 밖으로 튀어나갈 자리를 창에 미리 마련해 둔다.
+            this.dot = Math.Max(1, (int)Math.Round(scale));
+            this.marginX = this.dot * 7;
+            this.marginTop = this.dot * 9;
+            this.windowWidth = this.spriteWidth + this.marginX * 2;
+            this.windowHeight = this.spriteHeight + this.hop + this.marginTop;
             this.hops = sprite.Hops;
             // 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
             this.bouncePixels = sprite.Bounce ? this.hop : 0;
@@ -412,7 +459,7 @@ namespace PokemonTaskbar
             this.StartPosition = FormStartPosition.Manual;
             this.BackColor = Color.Magenta;
             this.TransparencyKey = Color.Magenta;
-            this.ClientSize = new Size(this.spriteWidth, this.spriteHeight + this.hop);
+            this.ClientSize = new Size(this.windowWidth, this.windowHeight);
             this.Text = sprite.NameKo;
             this.SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
@@ -421,8 +468,8 @@ namespace PokemonTaskbar
             int ground = world.Options.OnTaskbar
                 ? screen.Bottom
                 : Screen.PrimaryScreen.WorkingArea.Bottom;
-            this.maxX = Math.Max(0, screen.Width - this.spriteWidth);
-            this.baseY = ground - (this.spriteHeight + this.hop) - world.Options.Offset;
+            this.maxX = Math.Max(0, screen.Width - this.windowWidth);
+            this.baseY = ground - this.windowHeight - world.Options.Offset;
             this.x = this.random.NextDouble() * this.maxX;
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
             this.speedValue = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
@@ -536,7 +583,8 @@ namespace PokemonTaskbar
             bool walkingNow = !this.hops && this.walking && !this.dragging;
             int bounce = (walkingNow && frame % 2 == 1) ? this.bouncePixels : 0;
             Bitmap image = this.images[this.direction > 0 ? 0 : 1][frame];
-            e.Graphics.DrawImageUnscaled(image, 0, this.hop - bounce);
+            e.Graphics.DrawImageUnscaled(image, this.marginX, this.marginTop + this.hop - bounce);
+            this.PaintEffects(e.Graphics);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -583,7 +631,15 @@ namespace PokemonTaskbar
             {
                 // 놓으면 떨어진다. 거의 움직이지 않았으면 클릭으로 보고 폴짝 뛴다.
                 this.dragging = false;
-                this.verticalSpeed = this.dragMoved ? 0.0 : JumpSpeed;
+                if (this.dragMoved)
+                {
+                    this.verticalSpeed = 0.0;
+                }
+                else
+                {
+                    this.verticalSpeed = JumpSpeed;
+                    this.SpawnEmote("heart");
+                }
             }
             base.OnMouseUp(e);
         }
@@ -635,7 +691,17 @@ namespace PokemonTaskbar
                 if (this.random.NextDouble() < 0.005)
                 {
                     this.walking = false;
-                    this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                    if (this.random.NextDouble() < NapChance)
+                    {
+                        // 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
+                        this.idleLeft = 4.0 + this.random.NextDouble() * 5.0;
+                        this.napping = true;
+                        this.zzzTimer = 0.35;
+                    }
+                    else
+                    {
+                        this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                    }
                 }
             }
             else
@@ -644,6 +710,7 @@ namespace PokemonTaskbar
                 if (this.idleLeft <= 0)
                 {
                     this.walking = true;
+                    this.napping = false;
                 }
             }
 
@@ -654,8 +721,24 @@ namespace PokemonTaskbar
                 this.lift += this.verticalSpeed * dt;
                 if (this.lift <= 0)
                 {
+                    // 세게 떨어졌으면 발밑에 먼지가 인다.
+                    if (-this.verticalSpeed >= LandDustSpeed)
+                    {
+                        this.SpawnDust();
+                    }
                     this.lift = 0.0;
                     this.verticalSpeed = 0.0;
+                }
+            }
+
+            this.UpdateEffects(dt);
+            if (this.napping)
+            {
+                this.zzzTimer -= dt;
+                if (this.zzzTimer <= 0)
+                {
+                    this.zzzTimer = ZzzEvery;
+                    this.SpawnEmote("zzz");
                 }
             }
 
@@ -683,6 +766,100 @@ namespace PokemonTaskbar
         public void SetSpeed(double speed)
         {
             this.speedValue = speed * (0.85 + this.random.NextDouble() * 0.3);
+        }
+
+        // --- 효과 ------------------------------------------------------
+
+        /// <summary>착지할 때 발밑에서 먼지가 인다.</summary>
+        private void SpawnDust()
+        {
+            double feetX = this.marginX + this.spriteWidth / 2.0;
+            double feetY = this.marginTop + this.hop + this.spriteHeight;
+            for (int index = 0; index < 6; index++)
+            {
+                int side = index % 2 == 0 ? -1 : 1;
+                double spread = 0.4 + this.random.NextDouble() * 0.9;
+                Effect dust = new Effect();
+                dust.Kind = "dust";
+                dust.X = feetX + side * this.spriteWidth * 0.18 * spread;
+                dust.Y = feetY - this.dot;
+                dust.SpeedX = side * (30 + this.random.NextDouble() * 55);
+                dust.SpeedY = -(20 + this.random.NextDouble() * 45);
+                dust.Life = DustLife * (0.7 + this.random.NextDouble() * 0.6);
+                dust.Tint = index % 2 == 1
+                    ? Color.FromArgb(242, 242, 242)
+                    : Color.FromArgb(192, 192, 192);
+                this.effects.Add(dust);
+            }
+        }
+
+        /// <summary>머리 위로 하트나 Zzz 를 띄운다.</summary>
+        private void SpawnEmote(string kind)
+        {
+            Effect emote = new Effect();
+            emote.Kind = kind;
+            emote.X = this.marginX + this.spriteWidth * (0.55 + this.random.NextDouble() * 0.2);
+            emote.Y = this.marginTop;
+            emote.SpeedX = 8 + this.random.NextDouble() * 10;
+            emote.SpeedY = -28.0;
+            emote.Life = EmoteLife;
+            emote.Tint = kind == "heart"
+                ? Color.FromArgb(255, 95, 131)
+                : Color.FromArgb(255, 255, 255);
+            this.effects.Add(emote);
+        }
+
+        private void UpdateEffects(double dt)
+        {
+            for (int index = this.effects.Count - 1; index >= 0; index--)
+            {
+                Effect effect = this.effects[index];
+                effect.Life -= dt;
+                if (effect.Life <= 0)
+                {
+                    this.effects.RemoveAt(index);
+                    continue;
+                }
+                effect.X += effect.SpeedX * dt;
+                effect.Y += effect.SpeedY * dt;
+                if (effect.Kind == "dust")
+                {
+                    effect.SpeedY += EffectGravity * dt;
+                }
+            }
+        }
+
+        /// <summary>효과를 사각형으로 찍는다.</summary>
+        private void PaintEffects(Graphics graphics)
+        {
+            foreach (Effect effect in this.effects)
+            {
+                using (SolidBrush brush = new SolidBrush(effect.Tint))
+                {
+                    if (effect.Kind == "dust")
+                    {
+                        // 사라질수록 작아진다
+                        int size = Math.Max(1, (int)(this.dot * (0.6 + 0.8 * effect.Life / DustLife)));
+                        graphics.FillRectangle(brush, (int)effect.X, (int)effect.Y, size, size);
+                        continue;
+                    }
+
+                    // 절반쯤 남으면 깜빡이며 사라진다
+                    if (effect.Life < EmoteLife * 0.35 && (int)(effect.Life * 20) % 2 == 0)
+                    {
+                        continue;
+                    }
+                    int[,] dots = effect.Kind == "heart" ? HeartDots : ZzzDots;
+                    for (int row = 0; row < dots.GetLength(0); row++)
+                    {
+                        graphics.FillRectangle(
+                            brush,
+                            (int)effect.X + dots[row, 0] * this.dot,
+                            (int)effect.Y + dots[row, 1] * this.dot,
+                            this.dot, this.dot);
+                    }
+                }
+            }
         }
 
         /// <summary>메타몽처럼 폴짝폴짝 뛰어서 이동한다.

@@ -39,6 +39,29 @@ HOP_REST = (0.10, 0.45)  # 다음 점프까지 쉬는 시간
 HOP_BOOST = 2.0        # 공중에서만 나아가므로 걷기보다 빠르게
 HOP_TURN_CHANCE = 0.12  # 착지할 때마다 이 확률로 방향을 바꾼다
 SIZE_CHOICES = (("작게", 3.0), ("보통", 4.5), ("크게", 6.0), ("아주 크게", 9.0))
+EFFECT_GRAVITY = 260.0   # 먼지가 떨어지는 가속도
+DUST_LIFE = 0.40         # 먼지가 사라지기까지
+EMOTE_LIFE = 0.90        # 하트/Zzz 가 떠올랐다 사라지기까지
+LAND_DUST_SPEED = 60.0   # 이 속도보다 세게 떨어져야 먼지가 인다
+NAP_CHANCE = 0.18        # 멈춰 설 때 이 확률로 길게 낮잠을 잔다
+NAP_SECONDS = (4.0, 9.0)
+ZZZ_EVERY = 1.1          # 낮잠 중 Zzz 를 올려 보내는 간격
+
+# 효과에 쓰는 아주 작은 도트 그림
+HEART_DOTS = (
+    (1, 0), (2, 0), (4, 0), (5, 0),
+    (0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1),
+    (0, 2), (1, 2), (2, 2), (3, 2), (4, 2), (5, 2), (6, 2),
+    (1, 3), (2, 3), (3, 3), (4, 3), (5, 3),
+    (2, 4), (3, 4), (4, 4),
+    (3, 5),
+)
+ZZZ_DOTS = (
+    (0, 0), (1, 0), (2, 0), (3, 0),
+    (2, 1),
+    (1, 2),
+    (0, 3), (1, 3), (2, 3), (3, 3),
+)
 SPEED_CHOICES = (("느리게", 30.0), ("보통", 55.0), ("빠르게", 95.0))
 TICK_MS = 40           # 화면 갱신 주기
 STEP_SEC = 0.16        # 걷기 프레임 교체 주기
@@ -217,6 +240,13 @@ class PokemonPet:
         self.width = sample.width()
         self.height = sample.height()
         self.hop = max(1, int(round(self.scale)))  # 걸을 때 위아래로 흔들리는 폭
+        # 먼지나 하트가 몸 밖으로 튀어나갈 자리를 창에 미리 마련해 둔다.
+        self.dot = max(1, int(round(self.scale)))
+        self.margin_x = self.dot * 7
+        self.margin_top = self.dot * 9
+        self.window_width = self.width + self.margin_x * 2
+        self.window_height = self.height + self.hop + self.margin_top
+        self.effects = []
 
         self.window = tk.Toplevel(app.root)
         self.window.overrideredirect(True)
@@ -226,19 +256,20 @@ class PokemonPet:
 
         self.canvas = tk.Canvas(
             self.window,
-            width=self.width,
-            height=self.height + self.hop,
+            width=self.window_width,
+            height=self.window_height,
             bg=background,
             highlightthickness=0,
             bd=0,
         )
         self.canvas.pack()
         self.sprite = self.canvas.create_image(
-            0, self.hop, anchor="nw", image=self.images["right"][0]
+            self.margin_x, self.margin_top + self.hop, anchor="nw",
+            image=self.images["right"][0],
         )
 
-        self.max_x = max(0, app.screen_width - self.width)
-        self.base_y = app.ground_y - (self.height + self.hop) - app.offset
+        self.max_x = max(0, app.screen_width - self.window_width)
+        self.base_y = app.ground_y - self.window_height - app.offset
         self.x = random.uniform(0, self.max_x)
         self.direction = random.choice((-1, 1))
         self.speed = app.speed * random.uniform(0.85, 1.15)
@@ -247,6 +278,8 @@ class PokemonPet:
         self.state_left = 0.0
         self.hop_state = "rest"
         self.hop_timer = random.uniform(*HOP_REST)
+        self.napping = False
+        self.zzz_timer = 0.0
         # 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
         self.bounce_px = self.hop if pokemon.bounce else 0
         self.anim_time = 0.0
@@ -359,7 +392,11 @@ class PokemonPet:
         if not self.dragging or self.state == "gone":
             return
         self.dragging = False
-        self.vertical_speed = JUMP_SPEED if not self.drag_moved else 0.0
+        if self.drag_moved:
+            self.vertical_speed = 0.0
+        else:
+            self.vertical_speed = JUMP_SPEED
+            self.spawn_emote("heart")
 
     def on_menu(self, event):
         try:
@@ -387,8 +424,15 @@ class PokemonPet:
     # --- 움직임 ---------------------------------------------------------
     def set_state(self, state):
         self.state = state
+        self.napping = False
         if state == "idle":
-            self.state_left = random.uniform(0.8, 3.0)
+            if random.random() < NAP_CHANCE:
+                # 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
+                self.state_left = random.uniform(*NAP_SECONDS)
+                self.napping = True
+                self.zzz_timer = 0.35
+            else:
+                self.state_left = random.uniform(0.8, 3.0)
 
     def tick(self):
         if self.state == "gone":
@@ -432,8 +476,18 @@ class PokemonPet:
             self.vertical_speed -= GRAVITY * dt
             self.lift += self.vertical_speed * dt
             if self.lift <= 0:
+                # 세게 떨어졌으면 발밑에 먼지가 인다.
+                if -self.vertical_speed >= LAND_DUST_SPEED:
+                    self.spawn_dust()
                 self.lift = 0.0
                 self.vertical_speed = 0.0
+
+        self.update_effects(dt)
+        if self.napping:
+            self.zzz_timer -= dt
+            if self.zzz_timer <= 0:
+                self.zzz_timer = ZZZ_EVERY
+                self.spawn_emote("zzz")
 
         # 다른 창을 클릭해도 항상 맨 앞에 남도록 자주 다시 주장한다.
         if self.ticks % TOPMOST_TICKS == 0:
@@ -442,6 +496,75 @@ class PokemonPet:
         self.draw()
         self.place()
         self.after_id = self.window.after(TICK_MS, self.tick)
+
+    # --- 효과 ------------------------------------------------------------
+    def spawn_dust(self):
+        """착지할 때 발밑에서 먼지가 인다."""
+        feet_x = self.margin_x + self.width / 2.0
+        feet_y = self.margin_top + self.hop + self.height
+        for index in range(6):
+            side = -1 if index % 2 == 0 else 1
+            spread = 0.4 + random.random() * 0.9
+            self.effects.append({
+                "kind": "dust",
+                "x": feet_x + side * self.width * 0.18 * spread,
+                "y": feet_y - self.dot,
+                "vx": side * (30 + random.random() * 55),
+                "vy": -(20 + random.random() * 45),
+                "life": DUST_LIFE * (0.7 + random.random() * 0.6),
+                "color": "#f2f2f2" if index % 2 else "#c0c0c0",
+            })
+
+    def spawn_emote(self, kind):
+        """머리 위로 하트나 Zzz 를 띄운다."""
+        self.effects.append({
+            "kind": kind,
+            "x": self.margin_x + self.width * (0.55 + random.random() * 0.2),
+            "y": float(self.margin_top),
+            "vx": 8 + random.random() * 10,
+            "vy": -28.0,
+            "life": EMOTE_LIFE,
+            "color": "#ff5f83" if kind == "heart" else "#ffffff",
+        })
+
+    def update_effects(self, dt):
+        alive = []
+        for effect in self.effects:
+            effect["life"] -= dt
+            if effect["life"] <= 0:
+                continue
+            effect["x"] += effect["vx"] * dt
+            effect["y"] += effect["vy"] * dt
+            if effect["kind"] == "dust":
+                effect["vy"] += EFFECT_GRAVITY * dt
+            alive.append(effect)
+        self.effects = alive
+
+    def draw_effects(self):
+        """효과를 캔버스에 사각형으로 찍는다. 매 프레임 지우고 다시 그린다."""
+        self.canvas.delete("effect")
+        for effect in self.effects:
+            dot = self.dot
+            if effect["kind"] == "dust":
+                # 사라질수록 작아진다
+                size = max(1, int(dot * (0.6 + 0.8 * effect["life"] / DUST_LIFE)))
+                self.canvas.create_rectangle(
+                    effect["x"], effect["y"], effect["x"] + size, effect["y"] + size,
+                    fill=effect["color"], outline="", tags="effect",
+                )
+                continue
+
+            dots = HEART_DOTS if effect["kind"] == "heart" else ZZZ_DOTS
+            # 절반쯤 남으면 깜빡이며 사라진다
+            if effect["life"] < EMOTE_LIFE * 0.35 and int(effect["life"] * 20) % 2 == 0:
+                continue
+            for offset_x, offset_y in dots:
+                left = effect["x"] + offset_x * dot
+                top = effect["y"] + offset_y * dot
+                self.canvas.create_rectangle(
+                    left, top, left + dot, top + dot,
+                    fill=effect["color"], outline="", tags="effect",
+                )
 
     def hop_step(self, dt):
         """메타몽처럼 폴짝폴짝 뛰어서 이동한다.
@@ -531,7 +654,8 @@ class PokemonPet:
         # 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
         walking = self.move == "walk" and self.state == "walk"
         bounce = self.bounce_px if (walking and frame % 2 == 1) else 0
-        self.canvas.coords(self.sprite, 0, self.hop - bounce)
+        self.canvas.coords(self.sprite, self.margin_x, self.margin_top + self.hop - bounce)
+        self.draw_effects()
 
     def place(self):
         y = self.base_y - int(self.lift)

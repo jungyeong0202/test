@@ -280,9 +280,9 @@ class PetMovementTest(unittest.TestCase):
                 time.sleep(0.01)
 
     def test_pet_stands_on_the_ground_line(self):
+        # 창에는 효과가 튀어나갈 여백이 있으므로 창 높이 기준으로 바닥을 잡는다.
         pet = self.app.pets[0]
-        expected = self.app.ground_y - (pet.height + pet.hop)
-        self.assertEqual(pet.base_y, expected)
+        self.assertEqual(pet.base_y, self.app.ground_y - pet.window_height)
 
     def test_pet_walks_and_stays_on_screen(self):
         pet = self.app.pets[0]
@@ -561,6 +561,75 @@ class DragTest(unittest.TestCase):
                 self.pet.tick()
         self.assertEqual(self.pet.lift, 0.0)
         self.assertNotAlmostEqual(self.pet.x, start, places=1)
+
+
+@needs_display
+class EffectTest(unittest.TestCase):
+    """착지 먼지 / 클릭 하트 / 낮잠 Zzz."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args(["-p", "pikachu"]))
+        self.pet = self.app.pets[0]
+
+    def tearDown(self):
+        self.app.quit()
+
+    def _kinds(self):
+        return [effect["kind"] for effect in self.pet.effects]
+
+    def test_click_pops_a_heart(self):
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.pet.on_release(FakeMouse(100, self.pet.base_y))
+        self.assertIn("heart", self._kinds())
+
+    def test_dragging_does_not_pop_a_heart(self):
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.pet.on_drag(FakeMouse(300, self.pet.base_y - 100))
+        self.pet.on_release(FakeMouse(300, self.pet.base_y - 100))
+        self.assertNotIn("heart", self._kinds())
+
+    def test_landing_kicks_up_dust(self):
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.pet.on_release(FakeMouse(100, self.pet.base_y))     # 폴짝
+        seen = False
+        for _ in range(30):
+            self.pet.tick()
+            if "dust" in self._kinds():
+                seen = True
+                break
+        self.assertTrue(seen, "착지했는데 먼지가 일지 않는다")
+
+    def test_gentle_landing_makes_no_dust(self):
+        # 아주 살짝 떠 있다가 내려오는 정도로는 먼지가 일지 않아야 한다.
+        self.pet.lift = 1.0
+        self.pet.vertical_speed = 0.0
+        for _ in range(10):
+            self.pet.tick()
+        self.assertNotIn("dust", self._kinds())
+
+    def test_nap_sends_up_zzz(self):
+        self.pet.set_state("idle")
+        self.pet.napping = True
+        self.pet.state_left = 6.0
+        self.pet.zzz_timer = 0.05
+        for _ in range(10):
+            self.pet.tick()
+        self.assertIn("zzz", self._kinds())
+
+    def test_effects_fade_away(self):
+        self.pet.spawn_dust()
+        self.pet.spawn_emote("heart")
+        self.assertGreater(len(self.pet.effects), 0)
+        for _ in range(60):          # 2.4초면 전부 사라진다
+            self.pet.tick()
+        self.assertEqual(self.pet.effects, [])
+
+    def test_window_has_room_for_effects(self):
+        pet = self.pet
+        self.assertGreater(pet.window_width, pet.width)
+        self.assertGreater(pet.window_height, pet.height + pet.hop)
+        # 발끝은 여전히 바닥에 닿아 있어야 한다
+        self.assertEqual(pet.base_y, self.app.ground_y - pet.window_height)
 
 
 @needs_display

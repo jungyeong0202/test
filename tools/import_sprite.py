@@ -668,6 +668,8 @@ def main():
                         help="눈 위치. 주면 눈 감은 자세를 만든다. 여러 번 쓸 수 있다")
     parser.add_argument("--hop", type=int, default=0, metavar="칸",
                         help="다리 없이 폴짝 뛰는 포켓몬. 웅크림/늘어남 폭(도트 수)")
+    parser.add_argument("--float", dest="floats", action="store_true",
+                        help="바닥을 딛지 않고 공중에 떠다닌다")
     parser.add_argument("--facing", choices=["left", "right"], default="right",
                         help="원본 그림이 보고 있는 방향 (기본 right)")
     parser.add_argument("--no-bounce", action="store_true",
@@ -783,9 +785,9 @@ def main():
         args.key, args.name, palette,
         [to_rows(frame, palette_map) for frame in frames],
         args.scale_factor,
-        bounce=not args.no_bounce and not args.hop,
+        bounce=not args.no_bounce and not args.hop and not args.floats,
         facing=args.facing,
-        move="hop" if args.hop else "walk",
+        move="hop" if args.hop else ("float" if args.floats else "walk"),
         poses={name: to_rows(grid, palette_map) for name, grid in poses.items()},
     )
     if args.dry_run:

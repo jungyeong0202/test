@@ -114,6 +114,18 @@ class SpriteTest(unittest.TestCase):
                 for row in frame:
                     self.assertEqual(len(row), width, pokemon.key)
 
+    def test_floating_sprites_have_a_cycle(self):
+        """떠다니는 포켓몬은 돌려 볼 프레임이 여러 장 있어야 한다."""
+        floating = [p for p in sprites.POKEMON.values() if p.move == "float"]
+        self.assertTrue(floating, "떠다니는 포켓몬이 하나는 있어야 합니다")
+        for pokemon in floating:
+            self.assertGreaterEqual(len(pokemon.frames()), 2, pokemon.key)
+            self.assertFalse(pokemon.bounce, "%s: 프레임이 흔들림을 담당한다" % pokemon.key)
+
+    def test_move_mode_is_known(self):
+        for pokemon in sprites.POKEMON.values():
+            self.assertIn(pokemon.move, ("walk", "hop", "float"), pokemon.key)
+
     def test_walk_frames_differ(self):
         for pokemon in sprites.POKEMON.values():
             frames = pokemon.frames()
@@ -467,6 +479,91 @@ class HopTest(unittest.TestCase):
                 landed = True
                 break
         self.assertTrue(landed, "놓았는데 착지하지 않는다")
+
+
+@needs_display
+class FloatTest(unittest.TestCase):
+    """뮤처럼 공중에 떠다니는 이동."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args(["-p", "mew"]))
+        self.pet = self.app.pets[0]
+
+    def tearDown(self):
+        self.app.quit()
+
+    def _run(self, seconds):
+        for _ in range(int(seconds / (pt.TICK_MS / 1000.0))):
+            self.pet.tick()
+
+    def test_mew_is_a_floater(self):
+        self.assertEqual(sprites.POKEMON["mew"].move, "float")
+        self.assertEqual(self.pet.move, "float")
+
+    def test_it_starts_in_the_air(self):
+        self.assertGreater(self.pet.lift, 0.0, "처음부터 떠 있어야 한다")
+
+    def test_it_never_touches_the_ground(self):
+        lowest = self.pet.lift
+        for _ in range(600):                      # 24초
+            self.pet.tick()
+            lowest = min(lowest, self.pet.lift)
+        self.assertGreater(lowest, 0.0, "바닥에 내려앉았다")
+
+    def test_it_stays_on_screen(self):
+        for _ in range(600):
+            self.pet.tick()
+            self.assertGreaterEqual(self.pet.lift, 0.0)
+            self.assertLessEqual(self.pet.lift, self.pet.base_y)
+            self.assertGreaterEqual(self.pet.x, 0)
+            self.assertLessEqual(self.pet.x, self.pet.max_x)
+
+    def test_it_bobs_up_and_down(self):
+        heights = []
+        for _ in range(int(pt.FLOAT_BOB_SEC / (pt.TICK_MS / 1000.0)) + 4):
+            self.pet.tick()
+            heights.append(self.pet.lift)
+        self.assertGreater(max(heights) - min(heights), 1.0, "살랑거리지 않는다")
+
+    def test_it_drifts_sideways(self):
+        start = self.pet.x
+        self._run(6.0)
+        self.assertNotAlmostEqual(self.pet.x, start, places=1)
+
+    def test_it_does_not_fall_when_dropped(self):
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.pet.on_drag(FakeMouse(300, self.pet.base_y - 200))
+        self.assertGreater(self.pet.lift, 150)
+        self.pet.on_release(FakeMouse(300, self.pet.base_y - 200))
+        for _ in range(50):                       # 2초
+            self.pet.tick()
+        self.assertGreater(self.pet.lift, 0.0, "놓았더니 떨어졌다")
+
+    def test_it_returns_to_its_hover_band(self):
+        # 아주 높이 올려놓아도 스스로 제자리 높이로 내려온다.
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.pet.on_drag(FakeMouse(100, 0))
+        self.pet.on_release(FakeMouse(100, 0))
+        self.pet.drag_moved = True
+        high = self.pet.lift
+        self._run(12.0)
+        self.assertLess(self.pet.lift, high, "제 높이로 돌아오지 않는다")
+
+    def test_it_is_not_permanently_stretched(self):
+        # 늘 공중에 있다고 해서 계속 '늘어남' 자세가 되면 안 된다.
+        self.pet.blinking = 0.0
+        self.pet.napping = False
+        self.assertIsNone(self.pet.choose_pose())
+
+    def test_floater_does_not_use_the_walk_bounce(self):
+        self.assertEqual(self.pet.bounce_px, 0)
+
+    def test_frames_cycle_while_floating(self):
+        seen = set()
+        for _ in range(int(4 * pt.FLOAT_STEP_SEC / (pt.TICK_MS / 1000.0)) + 8):
+            self.pet.tick()
+            seen.add(int(self.pet.anim_time / pt.FLOAT_STEP_SEC) % self.pet.frame_count)
+        self.assertGreater(len(seen), 1, "프레임이 넘어가지 않는다")
 
 
 @needs_display

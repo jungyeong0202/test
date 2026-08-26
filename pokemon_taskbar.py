@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import math
 import os
 import platform
 import random
@@ -38,6 +39,18 @@ HOP_LAND_SEC = 0.10    # 착지하고 납작해져 있는 시간
 HOP_REST = (0.10, 0.45)  # 다음 점프까지 쉬는 시간
 HOP_BOOST = 2.0        # 공중에서만 나아가므로 걷기보다 빠르게
 HOP_TURN_CHANCE = 0.12  # 착지할 때마다 이 확률로 방향을 바꾼다
+
+# 공중에 떠다니는 포켓몬(뮤). 바닥을 딛지 않는다.
+FLOAT_HEIGHT = (26.0, 120.0)   # 바닥에서 떠 있는 높이 범위(px)
+FLOAT_RETARGET = (1.6, 4.5)    # 이 간격으로 떠 있을 높이를 새로 고른다
+FLOAT_EASE = 1.6               # 새 높이로 옮겨 가는 빠르기
+FLOAT_BOB_SEC = 2.2            # 위아래로 살랑거리는 한 주기(초)
+FLOAT_BOB_DOTS = 1.5           # 살랑거리는 폭(도트 단위)
+FLOAT_SPEED = 0.7              # 걷는 포켓몬보다 느긋하게 흘러 다닌다
+FLOAT_STEP_SEC = 0.30          # 프레임 넘기는 간격
+FLOAT_TURN_CHANCE = 0.003      # 틱마다 이 확률로 방향을 바꾼다
+FLOAT_STOP_CHANCE = 0.004      # 틱마다 이 확률로 잠깐 멈춘다
+FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라간다
 SIZE_CHOICES = (("작게", 3.0), ("보통", 4.5), ("크게", 6.0), ("아주 크게", 9.0))
 EFFECT_GRAVITY = 260.0   # 먼지가 떨어지는 가속도
 DUST_LIFE = 0.40         # 먼지가 사라지기까지
@@ -286,6 +299,10 @@ class PokemonPet:
         self.state_left = 0.0
         self.hop_state = "rest"
         self.hop_timer = random.uniform(*HOP_REST)
+        self.float_base = self.pick_float_height()
+        self.float_target = self.float_base
+        self.float_timer = random.uniform(*FLOAT_RETARGET)
+        self.float_phase = random.uniform(0.0, FLOAT_BOB_SEC)
         self.napping = False
         self.zzz_timer = 0.0
         self.blink_timer = random.uniform(*BLINK_EVERY)
@@ -296,7 +313,8 @@ class PokemonPet:
         # 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
         self.bounce_px = self.hop if pokemon.bounce else 0
         self.anim_time = 0.0
-        self.lift = 0.0        # 바닥에서 떠 있는 높이(px)
+        # 바닥에서 떠 있는 높이(px). 떠다니는 포켓몬은 처음부터 공중에 있다.
+        self.lift = self.float_base if self.move == "float" else 0.0
         self.vertical_speed = 0.0
         self.dragging = False
         self.drag_offset = (0, 0)
@@ -395,7 +413,7 @@ class PokemonPet:
         offset_x, offset_y = self.drag_offset
         # 바닥(0)과 화면 위쪽 사이로 제한한다. --offset 을 크게 줘서 바닥이
         # 화면 위로 올라가 버린 경우에도 음수가 되지 않도록 천장을 0 이상으로 둔다.
-        ceiling = max(0.0, float(self.base_y))
+        ceiling = self.ceiling()
         self.x = min(max(0, event.x_root - offset_x), self.max_x)
         self.lift = min(max(0.0, self.base_y - (event.y_root - offset_y)), ceiling)
         self.place()
@@ -405,6 +423,20 @@ class PokemonPet:
         if not self.dragging or self.state == "gone":
             return
         self.dragging = False
+        if self.move == "float":
+            # 떠다니는 포켓몬은 떨어지지 않는다. 놓은 자리에서 이어서 떠 있다가
+            # 스스로 제 높이로 돌아간다.
+            self.float_base = self.lift
+            self.float_phase = 0.0
+            if self.drag_moved:
+                self.float_target = self.pick_float_height()
+                self.float_timer = random.uniform(*FLOAT_RETARGET)
+            else:
+                # 쓰다듬으면 기분 좋게 조금 더 떠오른다.
+                self.float_target = min(self.lift + FLOAT_NUDGE, self.ceiling())
+                self.float_timer = max(self.float_timer, 1.2)
+                self.spawn_emote("heart")
+            return
         if self.drag_moved:
             self.vertical_speed = 0.0
         else:
@@ -466,6 +498,8 @@ class PokemonPet:
             pass                     # 잠시 멈춤: 제자리에서 가만히
         elif self.move == "hop":
             self.hop_step(dt)
+        elif self.move == "float":
+            self.float_step(dt)
         elif self.state == "walk":
             self.anim_time += dt
             self.x += self.direction * self.speed * dt
@@ -484,8 +518,8 @@ class PokemonPet:
             if self.state_left <= 0:
                 self.set_state("walk")
 
-        # 떠 있으면 중력으로 끌어내린다.
-        if self.lift > 0 or self.vertical_speed != 0:
+        # 떠 있으면 중력으로 끌어내린다. 떠다니는 포켓몬은 예외다.
+        if self.move != "float" and (self.lift > 0 or self.vertical_speed != 0):
             self.vertical_speed -= GRAVITY * dt
             self.lift += self.vertical_speed * dt
             if self.lift <= 0:
@@ -569,7 +603,8 @@ class PokemonPet:
         """지금 상황에 맞는 자세 이름. 없으면 None(평소 프레임)."""
         if self.dragging:
             return None
-        if self.lift > self.dot:
+        # 떠다니는 포켓몬은 늘 공중에 있으므로 그것만으로 늘어나지는 않는다.
+        if self.move != "float" and self.lift > self.dot:
             return "stretch"
         if self.land_squash > 0:
             return "squash"
@@ -617,6 +652,56 @@ class PokemonPet:
                     left, top, left + dot, top + dot,
                     fill=effect["color"], outline="", tags="effect",
                 )
+
+    def ceiling(self):
+        """올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다."""
+        return max(0.0, float(self.base_y))
+
+    def pick_float_height(self):
+        """떠 있을 높이를 하나 고른다. 화면이 낮으면 그만큼 낮게 잡는다."""
+        low, high = FLOAT_HEIGHT
+        high = min(high, self.ceiling())
+        low = min(low, high)
+        return random.uniform(low, high)
+
+    def float_step(self, dt):
+        """뮤처럼 바닥을 딛지 않고 공중을 떠다닌다.
+
+        가로로는 느긋하게 흘러 다니고, 세로로는 목표 높이를 이따금 새로 골라
+        스르르 옮겨 가면서 그 위에서 살랑살랑 위아래로 흔들린다. 중력은 받지
+        않으므로 걷는 포켓몬처럼 떨어지지 않는다.
+        """
+        self.anim_time += dt
+
+        if self.state == "walk":
+            self.x += self.direction * self.speed * FLOAT_SPEED * dt
+            if self.x <= 0:
+                self.x = 0
+                self.direction = 1
+            elif self.x >= self.max_x:
+                self.x = self.max_x
+                self.direction = -1
+            elif random.random() < FLOAT_TURN_CHANCE:
+                self.direction = -self.direction
+            if random.random() < FLOAT_STOP_CHANCE:
+                self.set_state("idle")
+        else:
+            self.state_left -= dt
+            if self.state_left <= 0:
+                self.set_state("walk")
+
+        self.float_timer -= dt
+        if self.float_timer <= 0:
+            self.float_target = self.pick_float_height()
+            self.float_timer = random.uniform(*FLOAT_RETARGET)
+
+        # 목표 높이로 스르르 (한 틱에 다 가지 않도록 1.0 을 넘기지 않는다)
+        self.float_base += (self.float_target - self.float_base) * min(1.0, FLOAT_EASE * dt)
+
+        self.float_phase += dt
+        bob = math.sin(self.float_phase / FLOAT_BOB_SEC * 2 * math.pi)
+        wanted = self.float_base + bob * self.dot * FLOAT_BOB_DOTS
+        self.lift = min(max(0.0, wanted), self.ceiling())
 
     def hop_step(self, dt):
         """메타몽처럼 폴짝폴짝 뛰어서 이동한다.
@@ -697,6 +782,8 @@ class PokemonPet:
             frame = 0
         elif self.move == "hop":
             frame = self.hop_frame()
+        elif self.move == "float":
+            frame = int(self.anim_time / FLOAT_STEP_SEC) % self.frame_count
         elif self.state == "walk":
             frame = int(self.anim_time / STEP_SEC) % self.frame_count
         else:

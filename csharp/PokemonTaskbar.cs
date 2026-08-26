@@ -482,6 +482,19 @@ namespace PokemonTaskbar
         private const double HopRestMax = 0.45;
         private const double HopBoost = 2.0;       // 공중에서만 나아가므로 걷기보다 빠르게
         private const double HopTurnChance = 0.12; // 착지할 때마다 이 확률로 방향을 바꾼다
+        // 공중에 떠다니는 포켓몬(뮤). 바닥을 딛지 않는다.
+        private const double FloatHeightMin = 26.0;   // 바닥에서 떠 있는 높이 범위(px)
+        private const double FloatHeightMax = 120.0;
+        private const double FloatRetargetMin = 1.6;  // 이 간격으로 높이를 새로 고른다
+        private const double FloatRetargetMax = 4.5;
+        private const double FloatEase = 1.6;         // 새 높이로 옮겨 가는 빠르기
+        private const double FloatBobSeconds = 2.2;   // 위아래로 살랑거리는 한 주기
+        private const double FloatBobDots = 1.5;      // 살랑거리는 폭(도트 단위)
+        private const double FloatSpeed = 0.7;        // 걷는 포켓몬보다 느긋하게
+        private const double FloatStepSeconds = 0.30; // 프레임 넘기는 간격
+        private const double FloatTurnChance = 0.003;
+        private const double FloatStopChance = 0.004;
+        private const double FloatNudge = 30.0;       // 쓰다듬으면 이만큼 위로
         private const double EffectGravity = 260.0;   // 먼지가 떨어지는 가속도
         private const double DustLife = 0.40;
         private const double EmoteLife = 0.90;
@@ -565,6 +578,11 @@ namespace PokemonTaskbar
         private int direction;
         private bool walking = true;
         private readonly bool hops;
+        private readonly bool floats;
+        private double floatBase;
+        private double floatTarget;
+        private double floatTimer;
+        private double floatPhase;
         private readonly int bouncePixels;
         private string hopState = "rest";
         private double hopTimer;
@@ -619,6 +637,7 @@ namespace PokemonTaskbar
             this.windowWidth = this.spriteWidth + this.marginX * 2;
             this.windowHeight = this.spriteHeight + this.hop + this.marginTop;
             this.hops = sprite.Hops;
+            this.floats = sprite.Floats;
             // 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
             this.bouncePixels = sprite.Bounce ? this.hop : 0;
 
@@ -646,6 +665,13 @@ namespace PokemonTaskbar
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
             this.speedValue = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
             this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
+            this.floatBase = this.PickFloatHeight();
+            this.floatTarget = this.floatBase;
+            this.floatTimer = FloatRetargetMin
+                + this.random.NextDouble() * (FloatRetargetMax - FloatRetargetMin);
+            this.floatPhase = this.random.NextDouble() * FloatBobSeconds;
+            // 떠다니는 포켓몬은 처음부터 공중에 있다.
+            this.lift = this.floats ? this.floatBase : 0.0;
             this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
 
             ContextMenuStrip menu = new ContextMenuStrip();
@@ -742,6 +768,10 @@ namespace PokemonTaskbar
             {
                 frame = this.HopFrame();
             }
+            else if (this.floats)
+            {
+                frame = (int)(this.animTime / FloatStepSeconds) % this.frameCount;
+            }
             else if (this.walking)
             {
                 frame = (int)(this.animTime / StepSeconds) % this.frameCount;
@@ -766,7 +796,7 @@ namespace PokemonTaskbar
 
             // 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
             // 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
-            bool walkingNow = !this.hops && this.walking && !this.dragging;
+            bool walkingNow = !this.hops && !this.floats && this.walking && !this.dragging;
             int bounce = (walkingNow && image != null && pose == null && frame % 2 == 1)
                 ? this.bouncePixels : 0;
             // 들려 있으면 버둥거린다.
@@ -806,7 +836,7 @@ namespace PokemonTaskbar
 
                 // 바닥(0)과 화면 위쪽 사이로 제한한다. --offset 을 크게 줘서 바닥이
                 // 화면 위로 올라가 버린 경우에도 음수가 되지 않도록 천장을 0 이상으로 둔다.
-                double ceiling = Math.Max(0.0, (double)this.baseY);
+                double ceiling = this.Ceiling();
                 this.x = Math.Min(Math.Max(0, now.X - this.dragOffset.X), this.maxX);
                 double height = this.baseY - (now.Y - this.dragOffset.Y);
                 this.lift = Math.Min(Math.Max(0.0, height), ceiling);
@@ -821,7 +851,27 @@ namespace PokemonTaskbar
             {
                 // 놓으면 떨어진다. 거의 움직이지 않았으면 클릭으로 보고 폴짝 뛴다.
                 this.dragging = false;
-                if (this.dragMoved)
+                if (this.floats)
+                {
+                    // 떠다니는 포켓몬은 떨어지지 않는다. 놓은 자리에서 이어서 떠 있다가
+                    // 스스로 제 높이로 돌아간다.
+                    this.floatBase = this.lift;
+                    this.floatPhase = 0.0;
+                    if (this.dragMoved)
+                    {
+                        this.floatTarget = this.PickFloatHeight();
+                        this.floatTimer = FloatRetargetMin
+                            + this.random.NextDouble() * (FloatRetargetMax - FloatRetargetMin);
+                    }
+                    else
+                    {
+                        // 쓰다듬으면 기분 좋게 조금 더 떠오른다.
+                        this.floatTarget = Math.Min(this.lift + FloatNudge, this.Ceiling());
+                        this.floatTimer = Math.Max(this.floatTimer, 1.2);
+                        this.SpawnEmote("heart");
+                    }
+                }
+                else if (this.dragMoved)
                 {
                     this.verticalSpeed = 0.0;
                 }
@@ -858,6 +908,10 @@ namespace PokemonTaskbar
             else if (this.hops)
             {
                 this.HopStep(dt);
+            }
+            else if (this.floats)
+            {
+                this.FloatStep(dt);
             }
             else if (this.walking)
             {
@@ -904,8 +958,8 @@ namespace PokemonTaskbar
                 }
             }
 
-            // 떠 있으면 중력으로 끌어내린다.
-            if (this.lift > 0 || this.verticalSpeed != 0)
+            // 떠 있으면 중력으로 끌어내린다. 떠다니는 포켓몬은 예외다.
+            if (!this.floats && (this.lift > 0 || this.verticalSpeed != 0))
             {
                 this.verticalSpeed -= Gravity * dt;
                 this.lift += this.verticalSpeed * dt;
@@ -1048,7 +1102,8 @@ namespace PokemonTaskbar
             {
                 return null;
             }
-            if (this.lift > this.dot)
+            // 떠다니는 포켓몬은 늘 공중에 있으므로 그것만으로 늘어나지는 않는다.
+            if (!this.floats && this.lift > this.dot)
             {
                 return "stretch";
             }
@@ -1124,6 +1179,90 @@ namespace PokemonTaskbar
         ///
         /// 웅크렸다가(crouch) 튀어올라(air) 앞으로 나아가고, 착지해서 납작해졌다가
         /// (land) 잠시 쉰 뒤(rest) 다시 뛴다. 공중에 있는 동안에만 앞으로 간다.</summary>
+        /// <summary>올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다.</summary>
+        private double Ceiling()
+        {
+            return Math.Max(0.0, (double)this.baseY);
+        }
+
+        /// <summary>떠 있을 높이를 하나 고른다. 화면이 낮으면 그만큼 낮게 잡는다.</summary>
+        private double PickFloatHeight()
+        {
+            double high = Math.Min(FloatHeightMax, this.Ceiling());
+            double low = Math.Min(FloatHeightMin, high);
+            return low + this.random.NextDouble() * (high - low);
+        }
+
+        /// <summary>뮤처럼 바닥을 딛지 않고 공중을 떠다닌다.
+        ///
+        /// 가로로는 느긋하게 흘러 다니고, 세로로는 목표 높이를 이따금 새로 골라
+        /// 스르르 옮겨 가면서 그 위에서 살랑살랑 흔들린다. 중력은 받지 않는다.
+        /// </summary>
+        private void FloatStep(double dt)
+        {
+            this.animTime += dt;
+
+            if (this.walking)
+            {
+                this.x += this.direction * this.speedValue * FloatSpeed * dt;
+                if (this.x <= 0)
+                {
+                    this.x = 0;
+                    this.direction = 1;
+                }
+                else if (this.x >= this.maxX)
+                {
+                    this.x = this.maxX;
+                    this.direction = -1;
+                }
+                else if (this.random.NextDouble() < FloatTurnChance)
+                {
+                    this.direction = -this.direction;
+                }
+
+                if (this.random.NextDouble() < FloatStopChance)
+                {
+                    this.walking = false;
+                    if (this.random.NextDouble() < NapChance)
+                    {
+                        this.idleLeft = 4.0 + this.random.NextDouble() * 5.0;
+                        this.napping = true;
+                        this.zzzTimer = 0.35;
+                    }
+                    else
+                    {
+                        this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                    }
+                }
+            }
+            else
+            {
+                this.idleLeft -= dt;
+                if (this.idleLeft <= 0)
+                {
+                    this.walking = true;
+                    this.napping = false;
+                }
+            }
+
+            this.floatTimer -= dt;
+            if (this.floatTimer <= 0)
+            {
+                this.floatTarget = this.PickFloatHeight();
+                this.floatTimer = FloatRetargetMin
+                    + this.random.NextDouble() * (FloatRetargetMax - FloatRetargetMin);
+            }
+
+            // 목표 높이로 스르르 (한 틱에 다 가지 않도록 1.0 을 넘기지 않는다)
+            this.floatBase +=
+                (this.floatTarget - this.floatBase) * Math.Min(1.0, FloatEase * dt);
+
+            this.floatPhase += dt;
+            double bob = Math.Sin(this.floatPhase / FloatBobSeconds * 2.0 * Math.PI);
+            double wanted = this.floatBase + bob * this.dot * FloatBobDots;
+            this.lift = Math.Min(Math.Max(0.0, wanted), this.Ceiling());
+        }
+
         private void HopStep(double dt)
         {
             if (this.lift > 0)

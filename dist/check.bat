@@ -1,9 +1,11 @@
 @echo off
-chcp 65001 >nul 2>&1
 rem Pokemon taskbar - startup checker.
-rem Run this by double-clicking it. The window stays open at the end.
+rem Double-click this file. The window stays open at the end.
+chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
+set "LOG=%APPDATA%\PokemonTaskbar\startup.log"
+
 echo ==========================================================
 echo  Pokemon taskbar - startup check
 echo ==========================================================
@@ -11,16 +13,11 @@ echo.
 
 echo [1] Files in this folder
 if exist "PokemonTaskbar.exe" (
-    for %%F in ("PokemonTaskbar.exe") do echo     PokemonTaskbar.exe       %%~zF bytes
+    for %%F in ("PokemonTaskbar.exe") do echo     PokemonTaskbar.exe  %%~zF bytes
 ) else (
-    echo     PokemonTaskbar.exe       MISSING
+    echo     PokemonTaskbar.exe  MISSING  ^<-- put it next to this .bat
+    goto :theend
 )
-if exist "PokemonTaskbar-debug.exe" (
-    for %%F in ("PokemonTaskbar-debug.exe") do echo     PokemonTaskbar-debug.exe %%~zF bytes
-) else (
-    echo     PokemonTaskbar-debug.exe MISSING
-)
-echo     ^(expected: about 190000 and 190000 bytes^)
 echo.
 
 echo [2] Checksum
@@ -31,8 +28,8 @@ echo [3] Blocked by "downloaded from the internet"?
 set "BLOCKED=no"
 more < "PokemonTaskbar.exe:Zone.Identifier" >nul 2>&1 && set "BLOCKED=yes"
 if "!BLOCKED!"=="yes" (
-    echo     YES - Windows marked it as downloaded. Unblocking now...
-    powershell -NoProfile -Command "Unblock-File -Path '.\PokemonTaskbar.exe','.\PokemonTaskbar-debug.exe' -ErrorAction SilentlyContinue"
+    echo     YES - unblocking now...
+    powershell -NoProfile -Command "Get-ChildItem -Path '.\*.exe' ^| Unblock-File" >nul 2>&1
     echo     done.
 ) else (
     echo     no
@@ -45,26 +42,46 @@ for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\NET Framework Setu
 if defined NETREL (
     echo     yes  ^(Release = !NETREL!^)
 ) else (
-    echo     NOT FOUND - install .NET Framework 4.8 from microsoft.com
+    echo     NOT FOUND - install .NET Framework 4.8
 )
 echo.
 
-echo [5] Running the console build. Any error appears below.
-echo ----------------------------------------------------------
-"PokemonTaskbar-debug.exe" --check
-set "RC=!errorlevel!"
-echo ----------------------------------------------------------
-echo     exit code = !RC!
-if "!RC!"=="9009" echo     9009 = Windows could not start the file at all.
+echo [5] Self check ^(writes a log file, no console output^)
+if exist "!LOG!" del "!LOG!" >nul 2>&1
+rem the log is appended to, so both step 5 and step 6 end up in it
+"PokemonTaskbar.exe" --check
+echo     exit code = !errorlevel!
+echo     log file  = !LOG!
 echo.
 
-echo [6] Starting the real program now.
+echo [6] Starting the real program
 start "" "PokemonTaskbar.exe"
-echo     If a Pokemon does not appear, look for the Pokemon icon
-echo     in the notification area ^(bottom-right, click the ^^ arrow^)
-echo     and double-click it.
+timeout /t 5 /nobreak >nul 2>&1 || ping -n 6 127.0.0.1 >nul 2>&1
+tasklist /fi "imagename eq PokemonTaskbar.exe" 2>nul | find /i "PokemonTaskbar.exe" >nul
+if errorlevel 1 (
+    echo     the process is NOT running - it started and died.
+) else (
+    echo     the process IS running.
+    echo     Look for the Pokemon icon in the notification area
+    echo     ^(bottom-right, click the ^^ arrow^) and double-click it.
+)
 echo.
+
+echo ==========================================================
+echo  [7] Startup log - this says exactly how far it got
+echo ==========================================================
+if exist "!LOG!" (
+    type "!LOG!"
+) else (
+    echo     no log file was written at all.
+    echo     that means it could not even start running.
+)
+echo.
+
+:theend
 echo ==========================================================
 echo  Please send a screenshot of this whole window.
+echo  If it is too long, the log file is here:
+echo  %APPDATA%\PokemonTaskbar\startup.log
 echo ==========================================================
 pause

@@ -35,6 +35,101 @@ namespace PokemonTaskbar
     ///
     /// 파이썬 판과 같은 파일을 읽고 쓰므로 형식(한 줄에 `이름 = 값`)과
     /// 숫자 표기(InvariantCulture)를 맞춰 둔다.</summary>
+    /// <summary>시작 과정을 파일로 남긴다. 창이 안 떠도 이유가 남는다.</summary>
+    public static class Log
+    {
+        private static string path;
+
+        /// <summary>로그 파일 위치. 설정 파일과 같은 폴더에 둔다.</summary>
+        public static string Path
+        {
+            get
+            {
+                if (path == null)
+                {
+                    try
+                    {
+                        string appdata = Environment.GetFolderPath(
+                            Environment.SpecialFolder.ApplicationData);
+                        string folder = System.IO.Path.Combine(appdata, "PokemonTaskbar");
+                        if (!Directory.Exists(folder))
+                        {
+                            Directory.CreateDirectory(folder);
+                        }
+                        path = System.IO.Path.Combine(folder, "startup.log");
+                    }
+                    catch (Exception)
+                    {
+                        // 쓸 곳이 없으면 exe 옆에라도 남긴다.
+                        try
+                        {
+                            path = System.IO.Path.Combine(
+                                System.IO.Path.GetDirectoryName(Application.ExecutablePath),
+                                "startup.log");
+                        }
+                        catch (Exception)
+                        {
+                            path = "startup.log";
+                        }
+                    }
+                }
+                return path;
+            }
+        }
+
+        /// <summary>실행할 때마다 이어 쓴다. 너무 커지면 처음부터 다시 쓴다.</summary>
+        public static void Begin()
+        {
+            try
+            {
+                FileInfo info = new FileInfo(Path);
+                if (info.Exists && info.Length > 200000)
+                {
+                    File.WriteAllText(Path, "", new System.Text.UTF8Encoding(false));
+                }
+            }
+            catch (Exception)
+            {
+            }
+            Write("");
+            Write("=========================================================");
+            Write("시작: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        }
+
+        /// <summary>절대 예외를 밖으로 내보내지 않는다.</summary>
+        public static void Write(string line)
+        {
+            try
+            {
+                File.AppendAllText(Path, line + Environment.NewLine,
+                    new System.Text.UTF8Encoding(false));
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        public static void Fail(string where, Exception error)
+        {
+            Write("!! 실패 [" + where + "]");
+            try
+            {
+                Write(error == null ? "  (예외 정보 없음)" : error.ToString());
+            }
+            catch (Exception)
+            {
+                // ToString 자체가 실패하는 예외도 있다. 그럴 때는 형식 이름만이라도.
+                try
+                {
+                    Write("  " + error.GetType().FullName);
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+    }
+
     public static class SettingsFile
     {
         public const string EnvOverride = "POKEMON_TASKBAR_SETTINGS";
@@ -1202,10 +1297,12 @@ namespace PokemonTaskbar
                 menu.Opening += delegate { this.BuildTrayMenu(menu); };
                 this.tray.ContextMenuStrip = menu;
                 this.tray.DoubleClick += delegate { this.RecallAll(); };
+                Log.Write("알림 영역 아이콘 만듦");
             }
-            catch (Exception)
+            catch (Exception error)
             {
                 this.tray = null;        // 트레이가 없어도 프로그램은 그대로 돈다.
+                Log.Fail("알림 영역 아이콘", error);
             }
         }
 
@@ -1267,12 +1364,15 @@ namespace PokemonTaskbar
             PokemonSprite sprite = Sprites.Find(key);
             if (sprite == null)
             {
+                Log.Write("  " + key + ": 모르는 포켓몬이라 건너뜀");
                 return;
             }
             PetForm pet = new PetForm(this, sprite);
             pet.FormClosed += delegate { this.Forget(pet); };
             this.pets.Add(pet);
             pet.Show();
+            Log.Write("  " + key + ": 창 만들고 보임 " + pet.Bounds
+                + " 보이는중=" + pet.Visible + " 맨앞=" + pet.TopMost);
         }
 
         public void AddRandom()
@@ -1540,10 +1640,13 @@ namespace PokemonTaskbar
         /// <summary>조용히 죽지 않도록 오류를 창으로 보여 준다.</summary>
         private static void ShowCrash(string where, Exception error)
         {
+            Log.Fail(where, error);
             try
             {
                 MessageBox.Show(
-                    "포켓몬을 띄우는 중 문제가 생겼습니다.\n\n[" + where + "]\n" + error.ToString(),
+                    "포켓몬을 띄우는 중 문제가 생겼습니다.\n\n[" + where + "]\n"
+                        + (error == null ? "(예외 정보 없음)" : error.ToString())
+                        + "\n\n자세한 기록: " + Log.Path,
                     "하단바 포켓몬 - 오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch (Exception)
@@ -1608,9 +1711,44 @@ namespace PokemonTaskbar
         [STAThread]
         public static int Main(string[] argv)
         {
+            // 무슨 일이 있어도 흔적이 남도록 가장 먼저 로그부터 연다.
+            Log.Begin();
+            Log.Write("exe: " + Application.ExecutablePath);
+            Log.Write("인자: " + string.Join(" ", argv));
+            try
+            {
+                Log.Write("OS: " + Environment.OSVersion + " / 64비트 프로세스 "
+                    + (IntPtr.Size == 8) + " / CLR " + Environment.Version);
+            }
+            catch (Exception error)
+            {
+                Log.Fail("환경 조사", error);
+            }
+
+            // 처리되지 않은 예외도 로그와 창에 남긴다. 어떤 일보다 먼저 걸어 둔다.
+            AppDomain.CurrentDomain.UnhandledException +=
+                delegate(object sender, UnhandledExceptionEventArgs e)
+                {
+                    ShowCrash("바깥", e.ExceptionObject as Exception);
+                };
+
+            try
+            {
+                return Run(argv);
+            }
+            catch (Exception error)
+            {
+                ShowCrash("시작", error);
+                return 1;
+            }
+        }
+
+        private static int Run(string[] argv)
+        {
             try
             {
                 SetProcessDPIAware();
+                Log.Write("DPI 인식 설정 완료");
             }
             catch (EntryPointNotFoundException)
             {
@@ -1622,6 +1760,7 @@ namespace PokemonTaskbar
             }
 
             Options options = Parse(argv);
+            Log.Write("옵션 해석 완료");
 
             if (options.Error != null)
             {
@@ -1644,19 +1783,12 @@ namespace PokemonTaskbar
 
             if (options.ShowCheck)
             {
-                // 창을 못 띄우는 상황을 위해 글자로만 알려 준다(콘솔 판에서 쓴다).
-                try
-                {
-                    // 한글이 물음표로 깨지지 않도록.
-                    Console.OutputEncoding = new System.Text.UTF8Encoding(false);
-                }
-                catch (Exception)
-                {
-                }
-                Console.WriteLine("--- 하단바 포켓몬 자체 점검 ---");
-                Console.WriteLine(Diagnose(options));
-                Console.WriteLine(SpriteList());
-                Console.WriteLine("여기까지 나왔으면 프로그램 자체는 정상입니다.");
+                // 콘솔에 한글을 쓰면 .NET Framework 에서 터지는 경우가 있어
+                // 로그 파일에만 남긴다. check.bat 이 type 으로 보여 준다.
+                Log.Write("--- 자체 점검 ---");
+                Log.Write(Diagnose(options));
+                Log.Write(SpriteList());
+                Log.Write("여기까지 나왔으면 그림과 계산은 정상입니다.");
                 return 0;
             }
 
@@ -1672,23 +1804,15 @@ namespace PokemonTaskbar
                 ShowCrash("실행 중", e.Exception);
             };
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            AppDomain.CurrentDomain.UnhandledException +=
-                delegate(object sender, UnhandledExceptionEventArgs e)
-                {
-                    ShowCrash("바깥", e.ExceptionObject as Exception);
-                };
 
-            try
-            {
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new PetWorld(options));
-            }
-            catch (Exception error)
-            {
-                ShowCrash("시작", error);
-                return 1;
-            }
+            Log.Write(Diagnose(options));
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Log.Write("포켓몬 만드는 중...");
+            PetWorld world = new PetWorld(options);
+            Log.Write("메시지 루프 시작");
+            Application.Run(world);
+            Log.Write("정상 종료");
             return 0;
         }
     }

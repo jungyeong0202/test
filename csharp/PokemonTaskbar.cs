@@ -26,6 +26,7 @@ namespace PokemonTaskbar
         public bool SpeciesFromCommandLine = false;
         public bool ShowList = false;
         public bool ShowWhere = false;
+        public bool ShowCheck = false;
         public bool ShowHelp = false;
         public string Error = null;
     }
@@ -1405,7 +1406,8 @@ namespace PokemonTaskbar
             "      --offset <픽셀>    바닥에서 더 띄울 높이 (기본 0)\n" +
             "      --on-taskbar       작업 표시줄 위에 올라서지 않고 표시줄 위를 걷는다\n" +
             "      --list             포켓몬 목록 보기\n" +
-            "      --where            화면 어디에 그려지는지 보기\n\n" +
+            "      --where            화면 어디에 그려지는지 보기\n" +
+            "      --check            창 없이 글자로만 자체 점검\n\n" +
             "포켓몬을 왼쪽 클릭하면 점프합니다.\n" +
             "누른 채로 끌면 원하는 자리로 옮길 수 있고, 놓으면 바닥으로 떨어집니다.\n" +
             "오른쪽 클릭하면 메뉴가 열립니다.";
@@ -1485,6 +1487,9 @@ namespace PokemonTaskbar
                     case "--where":
                         options.ShowWhere = true;
                         break;
+                    case "--check":
+                        options.ShowCheck = true;
+                        break;
                     case "-h":
                     case "--help":
                     case "/?":
@@ -1514,6 +1519,22 @@ namespace PokemonTaskbar
                 options.Species = options.Species.GetRange(0, options.Count);
             }
             return options;
+        }
+
+        /// <summary>어떤 도트가 들어 있는지. 어느 빌드를 쓰는지 확인할 때 쓴다.</summary>
+        private static string SpriteList()
+        {
+            string list = "";
+            foreach (PokemonSprite sprite in Sprites.All)
+            {
+                List<Color?[][]> frames = SpriteFactory.Frames(sprite);
+                list += string.Format(
+                    "{0}  {1}  {2}x{3}  {4}프레임  {5} 보는 그림\n",
+                    sprite.Key.PadRight(12), sprite.NameKo,
+                    frames[0][0].Length, frames[0].Length, frames.Count,
+                    sprite.FacesRight ? "오른쪽" : "왼쪽");
+            }
+            return list;
         }
 
         /// <summary>조용히 죽지 않도록 오류를 창으로 보여 준다.</summary>
@@ -1617,18 +1638,25 @@ namespace PokemonTaskbar
 
             if (options.ShowList)
             {
-                // 어떤 도트가 들어 있는지 보여 준다. 어느 빌드를 쓰는지 확인할 때 쓴다.
-                string list = "";
-                foreach (PokemonSprite sprite in Sprites.All)
+                MessageBox.Show(SpriteList(), "하단바 포켓몬 - 목록");
+                return 0;
+            }
+
+            if (options.ShowCheck)
+            {
+                // 창을 못 띄우는 상황을 위해 글자로만 알려 준다(콘솔 판에서 쓴다).
+                try
                 {
-                    List<Color?[][]> frames = SpriteFactory.Frames(sprite);
-                    list += string.Format(
-                        "{0}  {1}  {2}x{3}  {4}프레임  {5} 보는 그림\n",
-                        sprite.Key.PadRight(12), sprite.NameKo,
-                        frames[0][0].Length, frames[0].Length, frames.Count,
-                        sprite.FacesRight ? "오른쪽" : "왼쪽");
+                    // 한글이 물음표로 깨지지 않도록.
+                    Console.OutputEncoding = new System.Text.UTF8Encoding(false);
                 }
-                MessageBox.Show(list, "하단바 포켓몬 - 목록");
+                catch (Exception)
+                {
+                }
+                Console.WriteLine("--- 하단바 포켓몬 자체 점검 ---");
+                Console.WriteLine(Diagnose(options));
+                Console.WriteLine(SpriteList());
+                Console.WriteLine("여기까지 나왔으면 프로그램 자체는 정상입니다.");
                 return 0;
             }
 

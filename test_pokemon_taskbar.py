@@ -282,7 +282,9 @@ class PetMovementTest(unittest.TestCase):
     def test_pet_stands_on_the_ground_line(self):
         # 창에는 효과가 튀어나갈 여백이 있으므로 창 높이 기준으로 바닥을 잡는다.
         pet = self.app.pets[0]
-        self.assertEqual(pet.base_y, self.app.ground_y - pet.window_height)
+        expected = min(self.app.ground_y - pet.window_height,
+                       self.app.screen_height - pet.window_height)
+        self.assertEqual(pet.base_y, max(0, expected))
 
     def test_pet_walks_and_stays_on_screen(self):
         pet = self.app.pets[0]
@@ -524,12 +526,35 @@ class DragTest(unittest.TestCase):
         self.assertLessEqual(self.pet.x, self.pet.max_x)
         self.assertLessEqual(self.pet.lift, self.pet.base_y)
 
+    def test_pet_never_starts_off_screen(self):
+        """--offset 을 아무리 크게 줘도 창은 화면 안에 있어야 한다."""
+        for offset in (0, 500, 5000, -500):
+            app = pt.App(pt.parse_args(["--offset", str(offset)]))
+            try:
+                for pet in app.pets:
+                    self.assertGreaterEqual(pet.base_y, 0, "offset=%d" % offset)
+                    self.assertLessEqual(
+                        pet.base_y + pet.window_height, app.screen_height, "offset=%d" % offset
+                    )
+            finally:
+                app.quit()
+
+    def test_app_always_has_at_least_one_pet(self):
+        """설정이 비어 있어도 빈 화면으로 남지 않는다."""
+        args = pt.parse_args([])
+        args.species = []
+        app = pt.App(args)
+        try:
+            self.assertEqual([pet.pokemon.key for pet in app.pets], ["pikachu"])
+        finally:
+            app.quit()
+
     def test_drag_stays_above_the_ground_even_off_screen(self):
         """--offset 을 크게 줘 바닥이 화면 위로 올라가도 lift 는 음수가 되지 않는다."""
         app = pt.App(pt.parse_args(["--offset", "5000"]))
         try:
             pet = app.pets[0]
-            self.assertLess(pet.base_y, 0)          # 바닥이 화면 밖으로 밀려난 상태
+            self.assertGreaterEqual(pet.base_y, 0)   # 화면 안으로 붙잡혀 있다
             pet.on_press(FakeMouse(100, 100))
             pet.on_drag(FakeMouse(400, 50))
             self.assertGreaterEqual(pet.lift, 0.0)
@@ -629,7 +654,7 @@ class EffectTest(unittest.TestCase):
         self.assertGreater(pet.window_width, pet.width)
         self.assertGreater(pet.window_height, pet.height + pet.hop)
         # 발끝은 여전히 바닥에 닿아 있어야 한다
-        self.assertEqual(pet.base_y, self.app.ground_y - pet.window_height)
+        self.assertEqual(pet.base_y + pet.window_height, self.app.ground_y)
 
 
 @needs_display

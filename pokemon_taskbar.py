@@ -274,7 +274,10 @@ class PokemonPet:
         )
 
         self.max_x = max(0, app.screen_width - self.window_width)
-        self.base_y = app.ground_y - self.window_height - app.offset
+        # 어떤 이유로든 화면 밖으로 나가지 않도록 붙잡아 둔다.
+        wanted = app.ground_y - self.window_height - app.offset
+        lowest = app.screen_height - self.window_height
+        self.base_y = max(0, min(wanted, lowest))
         self.x = random.uniform(0, self.max_x)
         self.direction = random.choice((-1, 1))
         self.speed = app.speed * random.uniform(0.85, 1.15)
@@ -756,6 +759,9 @@ class App:
 
         for key in args.species:
             self.add_pet(key)
+        if not self.pets:
+            # 설정이 이상해도 빈 화면으로 남지 않도록 한 마리는 꼭 띄운다.
+            self.add_pet("pikachu")
 
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.bind_all("<Escape>", lambda _e: self.quit())

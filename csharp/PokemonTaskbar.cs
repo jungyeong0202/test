@@ -25,6 +25,7 @@ namespace PokemonTaskbar
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
         public bool ShowList = false;
+        public bool ShowWhere = false;
         public bool ShowHelp = false;
         public string Error = null;
     }
@@ -541,7 +542,10 @@ namespace PokemonTaskbar
                 ? screen.Bottom
                 : Screen.PrimaryScreen.WorkingArea.Bottom;
             this.maxX = Math.Max(0, screen.Width - this.windowWidth);
-            this.baseY = ground - this.windowHeight - world.Options.Offset;
+            // 어떤 이유로든 화면 밖으로 나가지 않도록 붙잡아 둔다.
+            int wanted = ground - this.windowHeight - world.Options.Offset;
+            int lowest = screen.Bottom - this.windowHeight;
+            this.baseY = Math.Max(screen.Top, Math.Min(wanted, lowest));
             this.x = this.random.NextDouble() * this.maxX;
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
             this.speedValue = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
@@ -854,6 +858,20 @@ namespace PokemonTaskbar
             set { this.x = Math.Min(Math.Max(0, value), this.maxX); this.MoveToPlace(); }
         }
 
+        /// <summary>어디로 갔는지 안 보일 때, 확실히 보이는 자리로 데려온다.</summary>
+        public void Recall()
+        {
+            this.dragging = false;
+            this.lift = 0.0;
+            this.verticalSpeed = 0.0;
+            this.x = Math.Max(0, this.maxX / 2.0);
+            this.MoveToPlace();
+            this.BringToFront();
+            this.TopMost = true;
+            SetWindowPos(this.Handle, HwndTopmost, 0, 0, 0, 0,
+                SwpNoMove | SwpNoSize | SwpNoActivate);
+        }
+
         /// <summary>이동 속도를 바꾼다(메뉴에서 속도를 고쳤을 때).</summary>
         public void SetSpeed(double speed)
         {
@@ -1145,12 +1163,101 @@ namespace PokemonTaskbar
         private bool rebuilding;
         public bool Paused;
 
+        private NotifyIcon tray;
+
         public PetWorld(Options options)
         {
             this.Options = options;
             foreach (string key in options.Species)
             {
                 this.Add(key);
+            }
+            if (this.pets.Count == 0)
+            {
+                // 설정이 이상해도 빈 화면으로 남지 않도록 한 마리는 꼭 띄운다.
+                this.Add("pikachu");
+            }
+            if (this.pets.Count == 0)
+            {
+                MessageBox.Show("포켓몬 그림을 하나도 불러오지 못했습니다.",
+                    "하단바 포켓몬", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                this.ExitThread();
+                return;
+            }
+            this.BuildTray();
+        }
+
+        /// <summary>알림 영역 아이콘. 포켓몬이 안 보여도 여기서 부르거나 끌 수 있다.</summary>
+        private void BuildTray()
+        {
+            try
+            {
+                this.tray = new NotifyIcon();
+                this.tray.Icon = LoadTrayIcon();
+                this.tray.Text = "하단바 포켓몬";
+                this.tray.Visible = true;
+
+                ContextMenuStrip menu = new ContextMenuStrip();
+                menu.Opening += delegate { this.BuildTrayMenu(menu); };
+                this.tray.ContextMenuStrip = menu;
+                this.tray.DoubleClick += delegate { this.RecallAll(); };
+            }
+            catch (Exception)
+            {
+                this.tray = null;        // 트레이가 없어도 프로그램은 그대로 돈다.
+            }
+        }
+
+        private static Icon LoadTrayIcon()
+        {
+            try
+            {
+                Icon own = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (own != null)
+                {
+                    return own;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return SystemIcons.Application;
+        }
+
+        private void BuildTrayMenu(ContextMenuStrip menu)
+        {
+            menu.Items.Clear();
+
+            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 추가");
+            foreach (PokemonSprite sprite in Sprites.All)
+            {
+                string key = sprite.Key;
+                add.DropDownItems.Add(sprite.NameKo, null, delegate { this.AddAndSave(key); });
+            }
+            menu.Items.Add(add);
+
+            menu.Items.Add("화면 가운데로 데려오기", null, delegate { this.RecallAll(); });
+
+            ToolStripMenuItem pause = new ToolStripMenuItem("잠시 멈춤", null,
+                delegate { this.TogglePause(); });
+            pause.Checked = this.Paused;
+            menu.Items.Add(pause);
+
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("어디에 있는지 보기", null, delegate
+            {
+                MessageBox.Show(Program.Diagnose(this.Options), "하단바 포켓몬 - 진단");
+            });
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("종료", null, delegate { this.QuitAll(); });
+        }
+
+        /// <summary>모든 포켓몬을 화면 가운데의 잘 보이는 자리로 부른다.</summary>
+        public void RecallAll()
+        {
+            foreach (PetForm pet in this.pets.ToArray())
+            {
+                pet.Recall();
             }
         }
 
@@ -1257,7 +1364,7 @@ namespace PokemonTaskbar
             this.pets.Remove(pet);
             if (this.pets.Count == 0 && !this.quitting && !this.rebuilding)
             {
-                this.ExitThread();
+                this.QuitAll();
             }
             else if (!this.quitting && !this.rebuilding)
             {
@@ -1268,6 +1375,12 @@ namespace PokemonTaskbar
         public void QuitAll()
         {
             this.quitting = true;
+            if (this.tray != null)
+            {
+                this.tray.Visible = false;
+                this.tray.Dispose();
+                this.tray = null;
+            }
             foreach (PetForm pet in this.pets.ToArray())
             {
                 pet.Close();
@@ -1291,7 +1404,8 @@ namespace PokemonTaskbar
             "      --speed <속도>     이동 속도, 초당 픽셀 (기본 55)\n" +
             "      --offset <픽셀>    바닥에서 더 띄울 높이 (기본 0)\n" +
             "      --on-taskbar       작업 표시줄 위에 올라서지 않고 표시줄 위를 걷는다\n" +
-            "      --list             포켓몬 목록 보기\n\n" +
+            "      --list             포켓몬 목록 보기\n" +
+            "      --where            화면 어디에 그려지는지 보기\n\n" +
             "포켓몬을 왼쪽 클릭하면 점프합니다.\n" +
             "누른 채로 끌면 원하는 자리로 옮길 수 있고, 놓으면 바닥으로 떨어집니다.\n" +
             "오른쪽 클릭하면 메뉴가 열립니다.";
@@ -1368,6 +1482,9 @@ namespace PokemonTaskbar
                     case "--list":
                         options.ShowList = true;
                         break;
+                    case "--where":
+                        options.ShowWhere = true;
+                        break;
                     case "-h":
                     case "--help":
                     case "/?":
@@ -1399,9 +1516,90 @@ namespace PokemonTaskbar
             return options;
         }
 
+        /// <summary>조용히 죽지 않도록 오류를 창으로 보여 준다.</summary>
+        private static void ShowCrash(string where, Exception error)
+        {
+            try
+            {
+                MessageBox.Show(
+                    "포켓몬을 띄우는 중 문제가 생겼습니다.\n\n[" + where + "]\n" + error.ToString(),
+                    "하단바 포켓몬 - 오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>어디에 어떻게 그려지는지 알려 준다(안 보일 때 원인 찾기용).</summary>
+        public static string Diagnose(Options options)
+        {
+            System.Text.StringBuilder text = new System.Text.StringBuilder();
+            Rectangle bounds = Screen.PrimaryScreen.Bounds;
+            Rectangle work = Screen.PrimaryScreen.WorkingArea;
+            text.AppendLine("화면: " + bounds.Width + "x" + bounds.Height
+                + "  (좌상단 " + bounds.X + "," + bounds.Y + ")");
+            text.AppendLine("작업 영역 아래쪽 y: " + work.Bottom + "  (작업 표시줄 높이 "
+                + (bounds.Bottom - work.Bottom) + ")");
+            text.AppendLine("모니터 수: " + Screen.AllScreens.Length);
+            text.AppendLine();
+            text.AppendLine("설정 파일: " + (options.SettingsPath ?? SettingsFile.DefaultPath()));
+            try
+            {
+                string path = options.SettingsPath ?? SettingsFile.DefaultPath();
+                text.AppendLine(File.Exists(path) ? File.ReadAllText(path) : "  (아직 없음)");
+            }
+            catch (Exception error)
+            {
+                text.AppendLine("  읽기 실패: " + error.Message);
+            }
+            text.AppendLine("포켓몬: " + string.Join(", ", options.Species.ToArray()));
+            text.AppendLine("크기 " + options.Scale + " / 속도 " + options.Speed
+                + " / 띄울 높이 " + options.Offset + " / 표시줄 위 " + options.OnTaskbar);
+            text.AppendLine();
+
+            int ground = options.OnTaskbar ? bounds.Bottom : work.Bottom;
+            foreach (string key in options.Species)
+            {
+                PokemonSprite sprite = Sprites.Find(key);
+                if (sprite == null)
+                {
+                    text.AppendLine(key + ": 없는 포켓몬");
+                    continue;
+                }
+                double scale = Math.Max(MinSpriteScaleForCheck,
+                    options.Scale * sprite.ScaleFactor);
+                List<Color?[][]> frames = SpriteFactory.Frames(sprite);
+                int dot = Math.Max(1, (int)Math.Round(scale));
+                int spriteWidth = Math.Max(1, (int)Math.Floor(frames[0][0].Length * scale + 0.5));
+                int spriteHeight = Math.Max(1, (int)Math.Floor(frames[0].Length * scale + 0.5));
+                int windowWidth = spriteWidth + dot * 14;
+                int windowHeight = spriteHeight + dot + dot * 9;
+                text.AppendLine(string.Format(
+                    "{0}: 창 {1}x{2}, 창 위쪽 y={3} (바닥 {4})",
+                    key, windowWidth, windowHeight,
+                    ground - windowHeight - options.Offset, ground));
+            }
+            return text.ToString();
+        }
+
+        private const double MinSpriteScaleForCheck = 0.5;
+
         [STAThread]
         public static int Main(string[] argv)
         {
+            try
+            {
+                SetProcessDPIAware();
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // 아주 오래된 윈도우에서는 없을 수 있다. 무시해도 동작한다.
+            }
+            catch (DllNotFoundException)
+            {
+                // 윈도우가 아닌 환경(Mono 등).
+            }
+
             Options options = Parse(argv);
 
             if (options.Error != null)
@@ -1434,22 +1632,35 @@ namespace PokemonTaskbar
                 return 0;
             }
 
-            try
+            if (options.ShowWhere)
             {
-                SetProcessDPIAware();
-            }
-            catch (EntryPointNotFoundException)
-            {
-                // 아주 오래된 윈도우에서는 없을 수 있다. 무시해도 동작한다.
-            }
-            catch (DllNotFoundException)
-            {
-                // 윈도우가 아닌 환경(Mono 등).
+                MessageBox.Show(Diagnose(options), "하단바 포켓몬 - 진단");
+                return 0;
             }
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new PetWorld(options));
+            // 조용히 죽는 대신 무슨 일인지 보이게 한다.
+            Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs e)
+            {
+                ShowCrash("실행 중", e.Exception);
+            };
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            AppDomain.CurrentDomain.UnhandledException +=
+                delegate(object sender, UnhandledExceptionEventArgs e)
+                {
+                    ShowCrash("바깥", e.ExceptionObject as Exception);
+                };
+
+            try
+            {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new PetWorld(options));
+            }
+            catch (Exception error)
+            {
+                ShowCrash("시작", error);
+                return 1;
+            }
             return 0;
         }
     }

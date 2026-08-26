@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 /csharp/PokemonTaskbar.exe
 /csharp/PokemonTaskbar.new.exe
+/cs_frames.txt
+/py_frames.txt

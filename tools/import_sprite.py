@@ -447,6 +447,50 @@ def trim_frames(frames):
     ]
 
 
+def resample(cells, new_width, new_height):
+    """도트 그리드를 최근접 이웃으로 늘리거나 줄인다."""
+    height = len(cells)
+    width = len(cells[0])
+    return [
+        [
+            cells[min(height - 1, y * height // new_height)][
+                min(width - 1, x * width // new_width)
+            ]
+            for x in range(new_width)
+        ]
+        for y in range(new_height)
+    ]
+
+
+def squash_frames(cells, amount):
+    """다리가 없는 포켓몬(메타몽 등)을 위한 웅크림/늘어남 3프레임.
+
+    0 평소, 1 웅크림(납작), 2 늘어남(길쭉). 세 프레임 모두 같은 크기의
+    캔버스에 바닥을 맞춰 올려서, 뛰어오를 때 발밑이 흔들리지 않는다.
+    """
+    height = len(cells)
+    width = len(cells[0])
+    shapes = [
+        (width, height),
+        (width + amount, height - amount),
+        (max(1, width - amount), height + amount),
+    ]
+    canvas_width = max(w for w, _ in shapes)
+    canvas_height = max(h for _, h in shapes)
+
+    frames = []
+    for shape_width, shape_height in shapes:
+        scaled = resample(cells, shape_width, shape_height)
+        grid = [[None] * canvas_width for _ in range(canvas_height)]
+        left = (canvas_width - shape_width) // 2
+        top = canvas_height - shape_height          # 바닥 맞춤
+        for y, row in enumerate(scaled):
+            for x, color in enumerate(row):
+                grid[top + y][left + x] = color
+        frames.append(grid)
+    return frames
+
+
 # --- 5단계: sprites.py 에 써넣기 -----------------------------------------
 def to_rows(cells, palette_map):
     rows = []
@@ -456,7 +500,8 @@ def to_rows(cells, palette_map):
     return rows
 
 
-def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="right"):
+def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="right",
+                move="walk"):
     constant = key.upper()
     out = ["%s = Pokemon(" % constant]
     out.append('    key="%s",' % key)
@@ -466,6 +511,8 @@ def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="r
         out.append("    bounce=False,")
     if facing != "right":
         out.append('    facing="%s",' % facing)
+    if move != "walk":
+        out.append('    move="%s",' % move)
     out.append("    palette={")
     for char, color in palette:
         out.append('        "%s": "#%02x%02x%02x",' % (char, color[0], color[1], color[2]))
@@ -486,25 +533,39 @@ def splice(source, key, block):
     begin = "# --- 자동 생성 시작: %s ---" % key
     end = "# --- 자동 생성 끝: %s ---" % key
     body = "%s\n%s\n%s" % (begin, block, end)
+    constant = key.upper()
 
     if begin in source and end in source:
         head = source[: source.index(begin)]
         tail = source[source.index(end) + len(end):]
-        return head + body + tail
+        return register(head + body + tail, constant)
 
     # 기존 손그림 정의가 있으면 그 자리를 대신한다.
-    constant = key.upper()
     pattern = re.compile(
         r"^%s = Pokemon\(\n(?:.*\n)*?\)\n" % re.escape(constant), re.MULTILINE
     )
     if pattern.search(source):
-        return pattern.sub(body + "\n", source, count=1)
+        return register(pattern.sub(body + "\n", source, count=1), constant)
 
     marker = "\nPOKEMON = "
     if marker not in source:
         raise SystemExit("sprites.py 에서 POKEMON 정의를 찾지 못했습니다.")
     index = source.index(marker)
-    return source[:index] + "\n" + body + "\n" + source[index:]
+    return register(source[:index] + "\n" + body + "\n" + source[index:], constant)
+
+
+def register(source, constant):
+    """POKEMON 목록에 아직 없으면 끝에 추가한다."""
+    match = re.search(r"^POKEMON = \{p\.key: p for p in \(([^)]*)\)\}", source, re.MULTILINE)
+    if not match:
+        raise SystemExit("sprites.py 의 POKEMON 목록 형식을 알아보지 못했습니다.")
+
+    names = [name.strip() for name in match.group(1).split(",") if name.strip()]
+    if constant in names:
+        return source
+    names.append(constant)
+    replacement = "POKEMON = {p.key: p for p in (%s)}" % ", ".join(names)
+    return source[: match.start()] + replacement + source[match.end():]
 
 
 def main():
@@ -523,6 +584,8 @@ def main():
                         help="움직일 부위 사각형. 여러 번 쓸 수 있다")
     parser.add_argument("--motion", action="append", default=[], metavar="이름:dx,dy;dx,dy",
                         help="부위별 프레임 이동량. 이름 body 는 나머지 전부")
+    parser.add_argument("--hop", type=int, default=0, metavar="칸",
+                        help="다리 없이 폴짝 뛰는 포켓몬. 웅크림/늘어남 폭(도트 수)")
     parser.add_argument("--facing", choices=["left", "right"], default="right",
                         help="원본 그림이 보고 있는 방향 (기본 right)")
     parser.add_argument("--no-bounce", action="store_true",
@@ -588,7 +651,10 @@ def main():
     palette = [(PALETTE_CHARS[i], color) for i, (color, _) in enumerate(ordered)]
     palette_map = {color: char for char, color in palette}
 
-    if args.part or args.motion:
+    if args.hop:
+        frames = squash_frames(cells, args.hop)
+        print("웅크림/늘어남 %d칸으로 프레임 %d장" % (args.hop, len(frames)))
+    elif args.part or args.motion:
         parts = [parse_part(text) for text in args.part]
         motions = dict(parse_motion(text) for text in args.motion)
         frames = part_frames(cells, parts, motions)
@@ -605,8 +671,9 @@ def main():
         args.key, args.name, palette,
         [to_rows(frame, palette_map) for frame in frames],
         args.scale_factor,
-        bounce=not args.no_bounce,
+        bounce=not args.no_bounce and not args.hop,
         facing=args.facing,
+        move="hop" if args.hop else "walk",
     )
     if args.dry_run:
         print(block)

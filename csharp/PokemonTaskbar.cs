@@ -149,6 +149,13 @@ namespace PokemonTaskbar
         private const double Gravity = 900.0;      // 떨어지는 가속도(초당 픽셀^2)
         private const double JumpSpeed = 200.0;    // 클릭했을 때 튀어오르는 속도
         private const int DragSlack = 4;           // 이보다 많이 움직이면 끌기로 본다
+        private const double HopSpeed = 205.0;     // 뛰어다니는 포켓몬이 튀어오르는 속도
+        private const double HopCrouchSeconds = 0.10;
+        private const double HopLandSeconds = 0.10;
+        private const double HopRestMin = 0.10;
+        private const double HopRestMax = 0.45;
+        private const double HopBoost = 2.0;       // 공중에서만 나아가므로 걷기보다 빠르게
+        private const double HopTurnChance = 0.12; // 착지할 때마다 이 확률로 방향을 바꾼다
         private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
         private const double MinSpriteScale = 0.5;  // 도트 하나가 이보다 작아지지는 않는다
 
@@ -175,6 +182,10 @@ namespace PokemonTaskbar
         private double x;
         private int direction;
         private bool walking = true;
+        private readonly bool hops;
+        private readonly int bouncePixels;
+        private string hopState = "rest";
+        private double hopTimer;
         private double idleLeft;
         private double animTime;
         private double lift;               // 바닥에서 떠 있는 높이(px)
@@ -206,6 +217,9 @@ namespace PokemonTaskbar
             this.spriteWidth = this.images[0][0].Width;
             this.spriteHeight = this.images[0][0].Height;
             this.hop = Math.Max(1, (int)Math.Round(scale));
+            this.hops = sprite.Hops;
+            // 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
+            this.bouncePixels = sprite.Bounce ? this.hop : 0;
 
             this.FormBorderStyle = FormBorderStyle.None;
             this.ShowInTaskbar = false;
@@ -227,6 +241,7 @@ namespace PokemonTaskbar
             this.x = this.random.NextDouble() * this.maxX;
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
             this.speed = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
+            this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
 
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("포켓몬 추가", null, delegate { world.AddRandom(); });
@@ -257,11 +272,28 @@ namespace PokemonTaskbar
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            int frame = (this.walking && !this.dragging)
-                ? (int)(this.animTime / StepSeconds) % this.frameCount
-                : 0;
+            int frame;
+            if (this.dragging)
+            {
+                frame = 0;
+            }
+            else if (this.hops)
+            {
+                frame = this.HopFrame();
+            }
+            else if (this.walking)
+            {
+                frame = (int)(this.animTime / StepSeconds) % this.frameCount;
+            }
+            else
+            {
+                frame = 0;
+            }
+
             // 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
-            int bounce = (this.walking && frame % 2 == 1) ? this.hop : 0;
+            // 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
+            bool walkingNow = !this.hops && this.walking && !this.dragging;
+            int bounce = (walkingNow && frame % 2 == 1) ? this.bouncePixels : 0;
             Bitmap image = this.images[this.direction > 0 ? 0 : 1][frame];
             e.Graphics.DrawImageUnscaled(image, 0, this.hop - bounce);
         }
@@ -332,7 +364,11 @@ namespace PokemonTaskbar
                 return;
             }
 
-            if (this.walking)
+            if (this.hops)
+            {
+                this.HopStep(dt);
+            }
+            else if (this.walking)
             {
                 this.animTime += dt;
                 this.x += this.direction * this.speed * dt;
@@ -386,6 +422,82 @@ namespace PokemonTaskbar
 
             this.MoveToPlace();
             this.Invalidate();
+        }
+
+        /// <summary>메타몽처럼 폴짝폴짝 뛰어서 이동한다.
+        ///
+        /// 웅크렸다가(crouch) 튀어올라(air) 앞으로 나아가고, 착지해서 납작해졌다가
+        /// (land) 잠시 쉰 뒤(rest) 다시 뛴다. 공중에 있는 동안에만 앞으로 간다.</summary>
+        private void HopStep(double dt)
+        {
+            if (this.lift > 0)
+            {
+                this.hopState = "air";
+                this.x += this.direction * this.speed * HopBoost * dt;
+                if (this.x <= 0)
+                {
+                    this.x = 0;
+                    this.direction = 1;
+                }
+                else if (this.x >= this.maxX)
+                {
+                    this.x = this.maxX;
+                    this.direction = -1;
+                }
+                return;
+            }
+
+            if (this.hopState == "air")          // 방금 착지했다
+            {
+                this.hopState = "land";
+                this.hopTimer = HopLandSeconds;
+                return;
+            }
+
+            this.hopTimer -= dt;
+            if (this.hopTimer > 0)
+            {
+                return;
+            }
+
+            if (this.hopState == "land")
+            {
+                this.hopState = "rest";
+                this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
+                if (this.random.NextDouble() < HopTurnChance)
+                {
+                    this.direction = -this.direction;
+                }
+            }
+            else if (this.hopState == "rest")
+            {
+                this.hopState = "crouch";
+                this.hopTimer = HopCrouchSeconds;
+            }
+            else                                  // crouch
+            {
+                this.verticalSpeed = HopSpeed;
+                this.hopState = "air";
+            }
+        }
+
+        /// <summary>[평소, 웅크림, 늘어남] 중 지금 상태에 맞는 프레임.</summary>
+        private int HopFrame()
+        {
+            int index;
+            if (this.hopState == "air")
+            {
+                index = 2;
+            }
+            else if (this.hopState == "crouch" || this.hopState == "land")
+            {
+                index = 1;
+            }
+            else
+            {
+                index = 0;
+            }
+            return Math.Min(index, this.frameCount - 1);
         }
 
         /// <summary>포커스를 빼앗지 않으면서 창을 최상위로 올린다.</summary>

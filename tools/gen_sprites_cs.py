@@ -27,6 +27,8 @@ namespace PokemonTaskbar
         public string NameKo;
         public double ScaleFactor;
         public bool FacesRight;   // 원본 그림이 오른쪽을 보고 있는지
+        public bool Hops;         // 걷지 않고 폴짝 뛰어 다니는지
+        public bool Bounce;       // 걸을 때 프로그램이 살짝 띄워 줄지
         public Dictionary<char, string> Palette;
         public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
     }
@@ -68,6 +70,8 @@ def build():
         out.append("                ScaleFactor = %r,\n" % float(pokemon.scale_factor))
         out.append("                FacesRight = %s,\n"
                    % ("true" if pokemon.facing == "right" else "false"))
+        out.append("                Hops = %s,\n" % ("true" if pokemon.move == "hop" else "false"))
+        out.append("                Bounce = %s,\n" % ("true" if pokemon.bounce else "false"))
         out.append("                Palette = new Dictionary<char, string>\n                {\n")
         for char, color in pokemon.palette.items():
             out.append("                    { '%s', %s },\n" % (char, cs_string(color)))

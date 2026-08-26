@@ -30,6 +30,12 @@ MIN_SPRITE_SCALE = 0.5  # 도트 하나가 이보다 작아지지는 않는다
 GRAVITY = 900.0        # 떨어지는 가속도(초당 픽셀^2)
 JUMP_SPEED = 200.0     # 클릭했을 때 튀어오르는 속도(초당 픽셀)
 DRAG_SLACK = 4         # 이보다 많이 움직이면 클릭이 아니라 끌기로 본다
+HOP_SPEED = 205.0      # 뛰어다니는 포켓몬이 튀어오르는 속도
+HOP_CROUCH_SEC = 0.10  # 뛰기 직전 웅크리는 시간
+HOP_LAND_SEC = 0.10    # 착지하고 납작해져 있는 시간
+HOP_REST = (0.10, 0.45)  # 다음 점프까지 쉬는 시간
+HOP_BOOST = 2.0        # 공중에서만 나아가므로 걷기보다 빠르게
+HOP_TURN_CHANCE = 0.12  # 착지할 때마다 이 확률로 방향을 바꾼다
 TICK_MS = 40           # 화면 갱신 주기
 STEP_SEC = 0.16        # 걷기 프레임 교체 주기
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
@@ -184,8 +190,13 @@ class PokemonPet:
         self.x = random.uniform(0, self.max_x)
         self.direction = random.choice((-1, 1))
         self.speed = app.speed * random.uniform(0.85, 1.15)
+        self.move = pokemon.move
         self.state = "walk"
         self.state_left = 0.0
+        self.hop_state = "rest"
+        self.hop_timer = random.uniform(*HOP_REST)
+        # 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
+        self.bounce_px = self.hop if pokemon.bounce else 0
         self.anim_time = 0.0
         self.lift = 0.0        # 바닥에서 떠 있는 높이(px)
         self.vertical_speed = 0.0
@@ -298,7 +309,9 @@ class PokemonPet:
             self.after_id = self.window.after(TICK_MS, self.tick)
             return
 
-        if self.state == "walk":
+        if self.move == "hop":
+            self.hop_step(dt)
+        elif self.state == "walk":
             self.anim_time += dt
             self.x += self.direction * self.speed * dt
             if self.x <= 0:
@@ -332,6 +345,54 @@ class PokemonPet:
         self.place()
         self.after_id = self.window.after(TICK_MS, self.tick)
 
+    def hop_step(self, dt):
+        """메타몽처럼 폴짝폴짝 뛰어서 이동한다.
+
+        웅크렸다가(crouch) 튀어올라(air) 앞으로 나아가고, 착지해서 납작해졌다가
+        (land) 잠시 쉰 뒤(rest) 다시 뛴다. 공중에 있는 동안에만 앞으로 간다.
+        """
+        if self.lift > 0:
+            self.hop_state = "air"
+            self.x += self.direction * self.speed * HOP_BOOST * dt
+            if self.x <= 0:
+                self.x = 0
+                self.direction = 1
+            elif self.x >= self.max_x:
+                self.x = self.max_x
+                self.direction = -1
+            return
+
+        if self.hop_state == "air":          # 방금 착지했다
+            self.hop_state = "land"
+            self.hop_timer = HOP_LAND_SEC
+            return
+
+        self.hop_timer -= dt
+        if self.hop_timer > 0:
+            return
+
+        if self.hop_state == "land":
+            self.hop_state = "rest"
+            self.hop_timer = random.uniform(*HOP_REST)
+            if random.random() < HOP_TURN_CHANCE:
+                self.direction = -self.direction
+        elif self.hop_state == "rest":
+            self.hop_state = "crouch"
+            self.hop_timer = HOP_CROUCH_SEC
+        else:                                 # crouch
+            self.vertical_speed = HOP_SPEED
+            self.hop_state = "air"
+
+    def hop_frame(self):
+        """[평소, 웅크림, 늘어남] 중 지금 상태에 맞는 프레임."""
+        if self.hop_state == "air":
+            index = 2
+        elif self.hop_state in ("crouch", "land"):
+            index = 1
+        else:
+            index = 0
+        return min(index, self.frame_count - 1)
+
     def raise_above_all(self):
         """포커스를 빼앗지 않으면서 창을 최상위로 올린다."""
         if self.app.system == "Windows":
@@ -361,13 +422,17 @@ class PokemonPet:
         facing = "right" if self.direction > 0 else "left"
         if self.dragging:
             frame = 0
+        elif self.move == "hop":
+            frame = self.hop_frame()
         elif self.state == "walk":
             frame = int(self.anim_time / STEP_SEC) % self.frame_count
         else:
             frame = 0
         self.canvas.itemconfigure(self.sprite, image=self.images[facing][frame])
         # 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
-        bounce = self.hop if (self.state == "walk" and frame % 2 == 1) else 0
+        # 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
+        walking = self.move == "walk" and self.state == "walk"
+        bounce = self.bounce_px if (walking and frame % 2 == 1) else 0
         self.canvas.coords(self.sprite, 0, self.hop - bounce)
 
     def place(self):

@@ -42,7 +42,10 @@ class SpriteTest(unittest.TestCase):
         for pokemon in sprites.POKEMON.values():
             frames = pokemon.frames()
             self.assertGreaterEqual(len(frames), 2, pokemon.key)
-            self.assertEqual(len(frames) % 2, 0, "%s: 프레임은 짝수여야 걷기가 자연스럽다" % pokemon.key)
+            if pokemon.move == "walk":
+                self.assertEqual(
+                    len(frames) % 2, 0, "%s: 걷기 프레임은 짝수여야 자연스럽다" % pokemon.key
+                )
             width = len(frames[0][0])
             for frame in frames:
                 self.assertEqual(len(frame), len(pokemon.frame_rows[0]), pokemon.key)
@@ -275,7 +278,7 @@ class GroundLineTest(unittest.TestCase):
         app = pt.App(pt.parse_args(["--scale", "3"]))
         try:
             # 이미지에서 들여온 촘촘한 도트는 1배로 그린다
-            for key in ("pikachu", "charmander", "squirtle", "bulbasaur"):
+            for key in sprites.POKEMON:
                 self.assertAlmostEqual(app.sprite_scale(sprites.POKEMON[key]), 1, places=6)
             # 배율을 따로 주지 않은 스프라이트는 --scale 을 그대로 쓴다
             plain = sprites.Pokemon(
@@ -325,6 +328,81 @@ class FakeMouse:
     def __init__(self, x, y):
         self.x_root = x
         self.y_root = y
+
+
+@needs_display
+class HopTest(unittest.TestCase):
+    """메타몽처럼 뛰어다니는 이동."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args(["-p", "ditto"]))
+        self.pet = self.app.pets[0]
+
+    def tearDown(self):
+        self.app.quit()
+
+    def _run(self, seconds):
+        for _ in range(int(seconds / (pt.TICK_MS / 1000.0))):
+            self.pet.tick()
+
+    def test_ditto_is_a_hopper(self):
+        self.assertEqual(sprites.POKEMON["ditto"].move, "hop")
+        self.assertEqual(self.pet.move, "hop")
+        self.assertEqual(len(self.pet.images["right"]), 3)
+
+    def test_it_leaves_the_ground(self):
+        heights = []
+        self._run(0)
+        for _ in range(200):
+            self.pet.tick()
+            heights.append(self.pet.lift)
+        self.assertGreater(max(heights), 5, "뛰어오르지 않는다")
+        self.assertEqual(min(heights), 0.0, "바닥에 닿지 않는다")
+
+    def test_it_only_moves_while_in_the_air(self):
+        # 바닥에 있는 동안에는 앞으로 나아가지 않아야 한다.
+        self.pet.hop_state = "rest"
+        self.pet.hop_timer = 10.0
+        self.pet.lift = 0.0
+        before = self.pet.x
+        self._run(1.0)
+        self.assertEqual(self.pet.x, before)
+
+    def test_it_travels_over_time(self):
+        start = self.pet.x
+        self._run(6.0)
+        self.assertNotAlmostEqual(self.pet.x, start, places=1)
+        self.assertGreaterEqual(self.pet.x, 0)
+        self.assertLessEqual(self.pet.x, self.pet.max_x)
+
+    def test_frames_follow_the_hop(self):
+        self.pet.hop_state = "rest"
+        self.assertEqual(self.pet.hop_frame(), 0)
+        self.pet.hop_state = "crouch"
+        self.assertEqual(self.pet.hop_frame(), 1)
+        self.pet.hop_state = "land"
+        self.assertEqual(self.pet.hop_frame(), 1)
+        self.pet.hop_state = "air"
+        self.assertEqual(self.pet.hop_frame(), 2)
+
+    def test_hopper_does_not_use_the_walk_bounce(self):
+        self.assertEqual(self.pet.bounce_px, 0)
+        self.assertFalse(sprites.POKEMON["ditto"].bounce)
+
+    def test_hopper_can_be_dragged_and_lands(self):
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.pet.on_drag(FakeMouse(400, self.pet.base_y - 150))
+        self.assertGreater(self.pet.lift, 100)
+        self.pet.on_release(FakeMouse(400, self.pet.base_y - 150))
+        # 놓으면 떨어져 착지한다. (착지한 뒤에는 곧바로 다시 뛰므로
+        #  '지금 바닥에 있는지'가 아니라 '바닥에 닿았는지'를 본다.)
+        landed = False
+        for _ in range(50):
+            self.pet.tick()
+            if self.pet.lift == 0.0:
+                landed = True
+                break
+        self.assertTrue(landed, "놓았는데 착지하지 않는다")
 
 
 @needs_display

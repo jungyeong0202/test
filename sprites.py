@@ -22,7 +22,8 @@ class Pokemon:
     """
 
     def __init__(self, key, name_ko, palette, rows=None, step_rows=None,
-                 frame_rows=None, scale_factor=1.0, bounce=True, facing="right"):
+                 frame_rows=None, scale_factor=1.0, bounce=True, facing="right",
+                 move="walk"):
         self.key = key
         self.name_ko = name_ko
         self.palette = palette
@@ -35,6 +36,11 @@ class Pokemon:
         if facing not in ("left", "right"):
             raise ValueError("%s: facing 은 'left' 또는 'right' 여야 합니다" % key)
         self.facing = facing
+        # 걸어 다닐지(walk), 폴짝 뛰어 다닐지(hop).
+        # hop 은 프레임이 [평소, 웅크림, 늘어남] 순서라고 본다.
+        if move not in ("walk", "hop"):
+            raise ValueError("%s: move 는 'walk' 또는 'hop' 이어야 합니다" % key)
+        self.move = move
 
         if frame_rows:
             self.frame_rows = [list(frame) for frame in frame_rows]
@@ -838,7 +844,136 @@ SQUIRTLE = Pokemon(
 # --- 자동 생성 끝: squirtle ---
 
 
-POKEMON = {p.key: p for p in (PIKACHU, CHARMANDER, BULBASAUR, SQUIRTLE)}
+# --- 자동 생성 시작: ditto ---
+DITTO = Pokemon(
+    key="ditto",
+    name_ko="메타몽",
+    scale_factor=1 / 3,
+    bounce=False,
+    facing="left",
+    move="hop",
+    palette={
+        "K": "#c37ae4",
+        "Y": "#9a58b3",
+        "O": "#834f9b",
+        "W": "#241f27",
+        "R": "#ac68ca",
+        "B": "#6c3a8f",
+        "G": "#423c45",
+        "T": "#e6adf0",
+        "D": "#f2d2f3",
+        "E": "#ab7eba",
+        "C": "#5e218f",
+        "S": "#cd8fe2",
+    },
+    frame_rows=[
+        [
+            ".",
+            ".",
+            ".",
+            "..............EBWW",
+            ".............ETTRYW..BWWW",
+            "...........OBSDTKYOBBTTSYG",
+            "......EEOBBCRKSKKYYRSDDTKOW",
+            ".....ETTSKKKKKKKRRKKKTTKKYW",
+            "....ESDDTKKKKKKKKKKKKKKKKYOO",
+            "....BRTTKKKKKKKKKKKKKKKKKYYYC",
+            "....WYKKKKKKKGKKKKKKKKKKKKRKKBB",
+            ".....GRKKKKKKKKKKKKKWKKKKKKKKKKB",
+            ".....GRKKKKKRKKKKKKKRKKKKKKKKKKRG",
+            "......WYKKKKKCWOKKKKKKKKKKKKKKKRW",
+            "......WYKKKKKKRYCWWWCYKKKKKKKKKRW",
+            "......WYKKKKKKKKKKKKKKKKKKKKKKKYB",
+            "......BRKKKKKKKKKKKKKKKKKKKKKKKW",
+            ".....ORKKKKKKKKKKKKKKKKKKKKKKRYYB",
+            ".....ORKKKKKKKKKKKKKKKKKKKKKKYYYB",
+            "....WYKKKKKKKKKKKKKKKKKKKKKKKRYYOW",
+            "...GEKKKKKKKKKKKKKKKKKKKKKKKKKYYYB",
+            "..BOKKKKKKKKKKKKKKKKKKKKKKKKKRYYYYB",
+            ".DBYYRKKKKKKKKKKKKKKKKKKKKKKKYYYYYOGD",
+            ".OYYYYRKKKKKKKKKKKKKKKKKKKKKYYYYYYYOW",
+            ".GOYYYYYYYYYRKKKKKKKKKKYKRKYYYYYYYYOW",
+            ".GOYYYYYYYYYYKKKKKKKRKYKYKYYYYYYYYYOW",
+            "..WBYYYYYYYYYYRKKKKRYYKYKYYYYYYYYYYOG",
+            "..GBOYYYOOYYYYYYYYYYYYYYYYYOOYYYYOOO",
+            "...GWBOOGWBCYYYYYYYYYYYYYYBWWCOOOWG",
+            ".....GWWD..OYOYYYYYYYYYOOO...BWWO",
+            "............OGOOOOOOOOOWW",
+            "..............WWWWWWWWW",
+        ],
+        [
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            ".",
+            "...............EBWW",
+            ".............EETTRYW..BWWW",
+            "...........OBSSDTKYOBBTTSYGG",
+            "......EEOBBCRKKSKKYYRSDDTKOOW",
+            ".....ETTSKKKKKKKKRRKKKTTKKYYW",
+            "....ESDDTKKKKKKKKKKKKKKKKKYYOO",
+            "....BRTTKKKKKKKKKKKKKKKKKKYYYYC",
+            "....WYKKKKKKKGGKKKKKKKKKKKKKRKKBB",
+            ".....GRKKKKKKKKKKKKKKWKKKKKKKKKKKB",
+            "......WYKKKKKCCWOKKKKKKKKKKKKKKKKRW",
+            "......WYKKKKKKKRYCWWWCYKKKKKKKKKKRW",
+            "......WYKKKKKKKKKKKKKKKKKKKKKKKKKYB",
+            "......BRKKKKKKKKKKKKKKKKKKKKKKKKKW",
+            ".....ORKKKKKKKKKKKKKKKKKKKKKKKKRYYB",
+            ".....ORKKKKKKKKKKKKKKKKKKKKKKKKYYYB",
+            "....WYKKKKKKKKKKKKKKKKKKKKKKKKKRYYOW",
+            "...GEKKKKKKKKKKKKKKKKKKKKKKKKKKKYYYB",
+            "..BOKKKKKKKKKKKKKKKKKKKKKKKKKKKRYYYYB",
+            "OOYYYYRKKKKKKKKKKKKKKKKKKKKKKKYYYYYYYOW",
+            "GGOYYYYYYYYYRKKKKKKKKKKKYKRRKYYYYYYYYOW",
+            "GGOYYYYYYYYYYKKKKKKKKRKYKYKKYYYYYYYYYOW",
+            "..WBYYYYYYYYYYYRKKKKRYYKYKYYYYYYYYYYYOG",
+            "..GBOYYYOOYYYYYYYYYYYYYYYYYYYOOYYYYOOO",
+            "...GWBOOGWBCYYYYYYYYYYYYYYYYBWWCOOOWG",
+            ".....GWWD..OYOOYYYYYYYYYOOOO...BWWO",
+            "............OGGOOOOOOOOOWW",
+        ],
+        [
+            "...............EBWW",
+            "...............EBWW",
+            "..............ETTRYW..BWW",
+            ".............OSDTKYOBBTTSG",
+            "........EEOBBCKSKKYYRSDDTOW",
+            ".......ETTSKKKKKKRRKKKTTKYW",
+            "......ESDDTKKKKKKKKKKKKKKYOO",
+            "......BRTTKKKKKKKKKKKKKKKYYYC",
+            "......WYKKKKKKGKKKKKKKKKKKRKKBB",
+            ".......GRKKKKKKKKKKKKWKKKKKKKKKB",
+            ".......GRKKKKKKKKKKKKRKKKKKKKKKRG",
+            ".......GRKKKKKKKKKKKKRKKKKKKKKKRG",
+            "........WYKKKKCWOKKKKKKKKKKKKKKRW",
+            "........WYKKKKKRYCWWWCYKKKKKKKKRW",
+            "........WYKKKKKKKKKKKKKKKKKKKKKYB",
+            "........BRKKKKKKKKKKKKKKKKKKKKKW",
+            ".......ORKKKKKKKKKKKKKKKKKKKKRYYB",
+            ".......ORKKKKKKKKKKKKKKKKKKKKYYYB",
+            "......WYKKKKKKKKKKKKKKKKKKKKKRYYOW",
+            ".....GEKKKKKKKKKKKKKKKKKKKKKKKYYYB",
+            "....BOKKKKKKKKKKKKKKKKKKKKKKKRYYYYB",
+            "...DBYYRKKKKKKKKKKKKKKKKKKKKKYYYYYOG",
+            "...DBYYRKKKKKKKKKKKKKKKKKKKKKYYYYYOG",
+            "...OYYYYRKKKKKKKKKKKKKKKKKKKYYYYYYYO",
+            "...GOYYYYYYYYYKKKKKKKKKKYRKYYYYYYYYO",
+            "...GOYYYYYYYYYKKKKKKKRKYKKYYYYYYYYYO",
+            "....WBYYYYYYYYYRKKKKRYYKYYYYYYYYYYYO",
+            "....GBOYYYOOYYYYYYYYYYYYYYYOOYYYYOOO",
+            ".....GWBOOGWBCYYYYYYYYYYYYBWWCOOOWG",
+            ".......GWWD..OOYYYYYYYYYOO...BWWO",
+            "..............GOOOOOOOOOW",
+            "...............WWWWWWWWW",
+        ],
+    ],
+)
+# --- 자동 생성 끝: ditto ---
+
+POKEMON = {p.key: p for p in (PIKACHU, CHARMANDER, BULBASAUR, SQUIRTLE, DITTO)}
 
 
 def validate_all():
@@ -851,7 +986,11 @@ def validate_all():
         if len(widths) != 1 or len(heights) != 1:
             raise ValueError("%s: 프레임 크기가 서로 다릅니다" % pokemon.key)
         if len(frames) < 2:
-            raise ValueError("%s: 걷기 프레임이 2장 이상이어야 합니다" % pokemon.key)
+            raise ValueError("%s: 프레임이 2장 이상이어야 합니다" % pokemon.key)
+        if pokemon.move == "hop" and len(frames) < 3:
+            raise ValueError(
+                "%s: 뛰어다니는 포켓몬은 [평소, 웅크림, 늘어남] 3장이 필요합니다" % pokemon.key
+            )
     return True
 
 

@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import os
 import platform
 import random
 import sys
 import tkinter as tk
 
+import settings as settings_file
 from sprites import POKEMON, validate_all
 
 MIN_SPRITE_SCALE = 0.5  # 도트 하나가 이보다 작아지지는 않는다
@@ -36,6 +38,8 @@ HOP_LAND_SEC = 0.10    # 착지하고 납작해져 있는 시간
 HOP_REST = (0.10, 0.45)  # 다음 점프까지 쉬는 시간
 HOP_BOOST = 2.0        # 공중에서만 나아가므로 걷기보다 빠르게
 HOP_TURN_CHANCE = 0.12  # 착지할 때마다 이 확률로 방향을 바꾼다
+SIZE_CHOICES = (("작게", 3.0), ("보통", 4.5), ("크게", 6.0), ("아주 크게", 9.0))
+SPEED_CHOICES = (("느리게", 30.0), ("보통", 55.0), ("빠르게", 95.0))
 TICK_MS = 40           # 화면 갱신 주기
 STEP_SEC = 0.16        # 걷기 프레임 교체 주기
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
@@ -46,6 +50,54 @@ HWND_TOPMOST = -1
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VALUE = "PokemonTaskbar"
+
+
+def autostart_command():
+    """윈도우 시작 시 실행할 명령. 콘솔 창이 뜨지 않도록 pythonw 를 쓴다."""
+    script = os.path.abspath(__file__)
+    launcher = sys.executable
+    windowed = os.path.join(os.path.dirname(launcher), "pythonw.exe")
+    if os.path.exists(windowed):
+        launcher = windowed
+    return '"%s" "%s"' % (launcher, script)
+
+
+def autostart_enabled():
+    """윈도우 시작 프로그램에 등록돼 있는지."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            winreg.QueryValueEx(key, RUN_VALUE)
+        return True
+    except Exception:
+        return False
+
+
+def set_autostart(enabled):
+    """윈도우 시작 프로그램 등록/해제. 현재 사용자(HKCU)에만 쓴다."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        import winreg
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            if enabled:
+                winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, autostart_command())
+            else:
+                try:
+                    winreg.DeleteValue(key, RUN_VALUE)
+                except FileNotFoundError:
+                    pass
+        return True
+    except Exception:
+        return False
 
 
 def work_area_bottom(fallback):
@@ -207,11 +259,7 @@ class PokemonPet:
         self.ticks = 0
         self.after_id = None
 
-        self.menu = tk.Menu(self.window, tearoff=0)
-        self.menu.add_command(label="포켓몬 추가", command=app.add_random_pet)
-        self.menu.add_command(label="이 포켓몬 보내주기", command=self.release)
-        self.menu.add_separator()
-        self.menu.add_command(label="전부 종료", command=app.quit)
+        self.menu = self.build_menu(app)
 
         self.window.bind("<Escape>", lambda _e: app.quit())
         self.canvas.bind("<Button-1>", self.on_press)
@@ -224,6 +272,54 @@ class PokemonPet:
         self.after_id = self.window.after(TICK_MS, self.tick)
 
     # --- 조작 -----------------------------------------------------------
+    def build_menu(self, app):
+        """우클릭 메뉴. 명령줄 없이도 웬만한 건 여기서 다 된다."""
+        menu = tk.Menu(self.window, tearoff=0)
+
+        choose = tk.Menu(menu, tearoff=0)
+        for pokemon in POKEMON.values():
+            choose.add_command(
+                label=pokemon.name_ko,
+                command=lambda key=pokemon.key: app.add_pet_and_save(key),
+            )
+        choose.add_separator()
+        choose.add_command(label="무작위", command=app.add_random_pet)
+        menu.add_cascade(label="포켓몬 추가", menu=choose)
+        menu.add_command(label="이 포켓몬 보내주기", command=self.release)
+        menu.add_separator()
+
+        sizes = tk.Menu(menu, tearoff=0)
+        for label, value in SIZE_CHOICES:
+            sizes.add_radiobutton(
+                label=label, value=value, variable=app.scale_var,
+                command=lambda v=value: app.set_scale(v),
+            )
+        menu.add_cascade(label="크기", menu=sizes)
+
+        speeds = tk.Menu(menu, tearoff=0)
+        for label, value in SPEED_CHOICES:
+            speeds.add_radiobutton(
+                label=label, value=value, variable=app.speed_var,
+                command=lambda v=value: app.set_speed(v),
+            )
+        menu.add_cascade(label="속도", menu=speeds)
+
+        menu.add_checkbutton(
+            label="잠시 멈춤", variable=app.pause_var, command=app.toggle_pause
+        )
+
+        if app.system == "Windows":
+            menu.add_separator()
+            menu.add_checkbutton(
+                label="윈도우 시작할 때 실행",
+                variable=app.autostart_var,
+                command=app.toggle_autostart,
+            )
+
+        menu.add_separator()
+        menu.add_command(label="전부 종료", command=app.quit)
+        return menu
+
     def on_press(self, event):
         """누른 순간. 이 자리를 기억해 두고 끌기를 시작한다."""
         if self.state == "gone":
@@ -309,7 +405,9 @@ class PokemonPet:
             self.after_id = self.window.after(TICK_MS, self.tick)
             return
 
-        if self.move == "hop":
+        if self.app.paused:
+            pass                     # 잠시 멈춤: 제자리에서 가만히
+        elif self.move == "hop":
             self.hop_step(dt)
         elif self.state == "walk":
             self.anim_time += dt
@@ -454,19 +552,72 @@ class App:
         self.screen_width = self.root.winfo_screenwidth()
         self.screen_height = self.root.winfo_screenheight()
         # 기본값은 작업 표시줄 "위"에 올라서기. --on-taskbar 면 표시줄 위를 걷는다.
+        self.on_taskbar = args.on_taskbar
         self.ground_y = (
             self.screen_height if args.on_taskbar else work_area_bottom(self.screen_height)
         )
         self.image_cache = {}
         self.pets = []
         self.quitting = False
+        self.paused = False
         self.heartbeat_id = None
+        self.settings_path = args.settings
+        # 메뉴의 체크/선택 표시를 여러 창이 함께 쓰도록 앱이 들고 있는다.
+        self.scale_var = tk.DoubleVar(master=self.root, value=self.scale)
+        self.speed_var = tk.DoubleVar(master=self.root, value=self.speed)
+        self.pause_var = tk.BooleanVar(master=self.root, value=False)
+        self.autostart_var = tk.BooleanVar(master=self.root, value=autostart_enabled())
 
         for key in args.species:
             self.add_pet(key)
 
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.bind_all("<Escape>", lambda _e: self.quit())
+
+    def current_settings(self):
+        """지금 상태를 설정 딕셔너리로."""
+        return {
+            "species": [pet.pokemon.key for pet in self.pets] or ["pikachu"],
+            "scale": self.scale,
+            "speed": self.speed,
+            "offset": self.offset,
+            "on_taskbar": self.on_taskbar,
+        }
+
+    def save_settings(self):
+        """지금 상태를 파일에 남긴다. 실패해도 그냥 넘어간다."""
+        settings_file.save(self.current_settings(), self.settings_path)
+
+    def set_scale(self, scale):
+        """크기를 바꾸고 지금 있는 포켓몬을 그대로 다시 만든다."""
+        if scale == self.scale:
+            return
+        self.scale = scale
+        self.scale_var.set(scale)
+        self.image_cache.clear()
+        self.rebuild()
+
+    def set_speed(self, speed):
+        self.speed = speed
+        self.speed_var.set(speed)
+        for pet in self.pets:
+            pet.speed = speed * random.uniform(0.85, 1.15)
+        self.save_settings()
+
+    def toggle_pause(self):
+        self.paused = bool(self.pause_var.get())
+
+    def rebuild(self):
+        """포켓몬을 모두 지웠다가 같은 구성으로 다시 만든다."""
+        keys = [pet.pokemon.key for pet in self.pets]
+        places = [pet.x for pet in self.pets]
+        for pet in list(self.pets):
+            pet.destroy()
+        self.pets = []
+        for key, place in zip(keys, places):
+            self.add_pet(key)
+            self.pets[-1].x = min(place, self.pets[-1].max_x)
+        self.save_settings()
 
     def sprite_scale(self, pokemon):
         """스프라이트별 확대 배율(도트 하나가 차지할 화면 픽셀 수).
@@ -496,8 +647,12 @@ class App:
     def add_pet(self, key):
         self.pets.append(PokemonPet(self, POKEMON[key]))
 
+    def add_pet_and_save(self, key):
+        self.add_pet(key)
+        self.save_settings()
+
     def add_random_pet(self):
-        self.add_pet(random.choice(list(POKEMON)))
+        self.add_pet_and_save(random.choice(list(POKEMON)))
 
     def remove_pet(self, pet):
         if pet in self.pets:
@@ -505,6 +660,14 @@ class App:
         pet.destroy()
         if not self.pets:
             self.quit()
+        else:
+            self.save_settings()
+
+    def toggle_autostart(self):
+        """윈도우 시작 프로그램 등록을 켜고 끈다. 실패하면 표시를 되돌린다."""
+        wanted = bool(self.autostart_var.get())
+        if not set_autostart(wanted):
+            self.autostart_var.set(autostart_enabled())
 
     def quit(self):
         """모든 펫을 정리하고 프로그램을 끝낸다. 여러 번 불러도 안전하다."""
@@ -561,16 +724,20 @@ def parse_args(argv=None):
         metavar="이름",
         help="등장시킬 포켓몬 (%s). 여러 번 쓸 수 있다." % ", ".join(POKEMON),
     )
-    parser.add_argument("-c", "--count", type=int, default=1, help="마리 수 (기본 1)")
+    parser.add_argument("-c", "--count", type=int, default=None, help="마리 수 (기본 1)")
     parser.add_argument(
-        "-s", "--scale", type=float, default=4.5,
+        "-s", "--scale", type=float, default=None,
         help="크기 배율 (기본 4.5. 3 을 주면 예전 크기, 6 이면 두 배)",
     )
     parser.add_argument(
-        "--speed", type=float, default=55.0, help="이동 속도(초당 픽셀, 기본 55)"
+        "--speed", type=float, default=None, help="이동 속도(초당 픽셀, 기본 55)"
     )
     parser.add_argument(
-        "--offset", type=int, default=0, help="바닥에서 더 띄울 높이(px, 기본 0)"
+        "--offset", type=int, default=None, help="바닥에서 더 띄울 높이(px, 기본 0)"
+    )
+    parser.add_argument(
+        "--settings", default=None, metavar="파일",
+        help="설정 파일 경로 (기본: %s)" % settings_file.settings_path(),
     )
     parser.add_argument(
         "--on-taskbar",
@@ -584,6 +751,19 @@ def parse_args(argv=None):
     )
     parser.add_argument("--list", action="store_true", help="사용 가능한 포켓몬 목록 출력")
     args = parser.parse_args(argv)
+
+    # 명령줄 > 저장된 설정 > 기본값 순으로 채운다.
+    saved = settings_file.load(args.settings, known_species=set(POKEMON))
+    if args.scale is None:
+        args.scale = saved["scale"]
+    if args.speed is None:
+        args.speed = saved["speed"]
+    if args.offset is None:
+        args.offset = saved["offset"]
+    if not args.on_taskbar:
+        args.on_taskbar = saved["on_taskbar"]
+    if args.count is None:
+        args.count = len(saved["species"]) if not args.species else 1
 
     if args.scale <= 0:
         parser.error("--scale 은 0보다 커야 합니다")
@@ -599,9 +779,10 @@ def parse_args(argv=None):
         while len(args.species) < args.count:
             args.species.append(random.choice(list(POKEMON)))
     else:
-        args.species = ["pikachu"] + [
-            random.choice(list(POKEMON)) for _ in range(args.count - 1)
-        ]
+        args.species = list(saved["species"])
+        while len(args.species) < args.count:
+            args.species.append(random.choice(list(POKEMON)))
+        args.species = args.species[: max(1, args.count)]
     return args
 
 

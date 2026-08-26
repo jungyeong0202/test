@@ -10,9 +10,17 @@ import contextlib
 import io
 import importlib.util
 import os
+import shutil
+import tempfile
 import time
 import unittest
 from unittest import mock
+
+import settings as settings_file
+
+# 테스트가 진짜 사용자 설정 파일을 건드리지 않도록 임시 폴더로 돌려 둔다.
+_SETTINGS_DIR = tempfile.mkdtemp(prefix="pokemon-taskbar-test-")
+os.environ[settings_file.ENV_OVERRIDE] = os.path.join(_SETTINGS_DIR, "settings.txt")
 
 import sprites
 
@@ -32,6 +40,60 @@ else:  # 화면이 필요 없는 부분만 쓰기 위해 지연 임포트
     pt = None
 
 needs_display = unittest.skipUnless(HAS_DISPLAY, "tkinter 디스플레이가 필요합니다")
+
+
+def tearDownModule():
+    shutil.rmtree(_SETTINGS_DIR, ignore_errors=True)
+
+
+class SettingsTest(unittest.TestCase):
+    """설정 저장/불러오기. 화면이 없어도 확인할 수 있다."""
+
+    def setUp(self):
+        self.path = os.path.join(_SETTINGS_DIR, "case.txt")
+
+    def tearDown(self):
+        if os.path.exists(self.path):
+            os.remove(self.path)
+
+    def test_round_trip(self):
+        values = dict(settings_file.DEFAULTS)
+        values["species"] = ["ditto", "pikachu"]
+        values["scale"] = 6.0
+        values["speed"] = 95.0
+        values["offset"] = 12
+        values["on_taskbar"] = True
+        self.assertTrue(settings_file.save(values, self.path))
+        self.assertEqual(settings_file.load(self.path), values)
+
+    def test_missing_file_gives_defaults(self):
+        self.assertEqual(settings_file.load(self.path)["species"], ["pikachu"])
+
+    def test_broken_values_fall_back(self):
+        values = settings_file.parse_text(
+            "scale = 헬로\nspeed = -5\noffset = ?\nspecies = 없는놈, ditto\n쓰레기줄",
+            known_species=set(sprites.POKEMON),
+        )
+        self.assertEqual(values["scale"], settings_file.DEFAULTS["scale"])
+        self.assertEqual(values["speed"], settings_file.DEFAULTS["speed"])
+        self.assertEqual(values["offset"], settings_file.DEFAULTS["offset"])
+        self.assertEqual(values["species"], ["ditto"])
+
+    def test_unknown_species_are_dropped(self):
+        values = settings_file.parse_text(
+            "species = 없는놈", known_species=set(sprites.POKEMON)
+        )
+        self.assertEqual(values["species"], settings_file.DEFAULTS["species"])
+
+    def test_saving_into_a_new_folder(self):
+        deep = os.path.join(_SETTINGS_DIR, "새폴더", "settings.txt")
+        self.assertTrue(settings_file.save(dict(settings_file.DEFAULTS), deep))
+        self.assertTrue(os.path.exists(deep))
+
+    def test_env_override_is_used(self):
+        self.assertEqual(
+            settings_file.settings_path(), os.environ[settings_file.ENV_OVERRIDE]
+        )
 
 
 class SpriteTest(unittest.TestCase):
@@ -499,6 +561,86 @@ class DragTest(unittest.TestCase):
                 self.pet.tick()
         self.assertEqual(self.pet.lift, 0.0)
         self.assertNotAlmostEqual(self.pet.x, start, places=1)
+
+
+@needs_display
+class MenuTest(unittest.TestCase):
+    """우클릭 메뉴로 하는 일들이 실제로 반영되고 저장되는지."""
+
+    def setUp(self):
+        self.path = os.path.join(_SETTINGS_DIR, "menu.txt")
+        if os.path.exists(self.path):
+            os.remove(self.path)
+        self.app = pt.App(pt.parse_args(["--settings", self.path]))
+
+    def tearDown(self):
+        self.app.quit()
+
+    def _saved(self):
+        return settings_file.load(self.path, known_species=set(sprites.POKEMON))
+
+    def test_adding_a_pokemon_is_remembered(self):
+        self.app.add_pet_and_save("ditto")
+        self.assertEqual(self._saved()["species"], ["pikachu", "ditto"])
+
+    def test_removing_a_pokemon_is_remembered(self):
+        self.app.add_pet_and_save("ditto")
+        self.app.remove_pet(self.app.pets[0])
+        self.assertEqual(self._saved()["species"], ["ditto"])
+
+    def test_changing_size_rebuilds_and_saves(self):
+        self.app.add_pet_and_save("ditto")
+        before = [pet.width for pet in self.app.pets]
+        self.app.set_scale(9.0)
+        after = [pet.width for pet in self.app.pets]
+        self.assertEqual(len(after), len(before))
+        for old, new in zip(before, after):
+            self.assertGreater(new, old)
+        self.assertEqual(self._saved()["scale"], 9.0)
+        self.assertEqual(self._saved()["species"], ["pikachu", "ditto"])
+
+    def test_changing_speed_applies_to_every_pet(self):
+        self.app.add_pet_and_save("charmander")
+        self.app.set_speed(95.0)
+        self.assertEqual(self._saved()["speed"], 95.0)
+        for pet in self.app.pets:
+            self.assertGreater(pet.speed, 55.0)
+
+    def test_pause_stops_the_pets(self):
+        pet = self.app.pets[0]
+        pet.state = "walk"
+        self.app.pause_var.set(True)
+        self.app.toggle_pause()
+        self.assertTrue(self.app.paused)
+        start = pet.x
+        for _ in range(40):
+            pet.tick()
+        self.assertEqual(pet.x, start)
+        self.app.pause_var.set(False)
+        self.app.toggle_pause()
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            for _ in range(40):
+                pet.tick()
+        self.assertNotAlmostEqual(pet.x, start, places=1)
+
+    def test_menu_has_every_pokemon(self):
+        pet = self.app.pets[0]
+        labels = []
+        submenu = pet.menu.nametowidget(pet.menu.entrycget(0, "menu"))
+        for index in range(submenu.index("end") + 1):
+            if submenu.type(index) == "command":
+                labels.append(submenu.entrycget(index, "label"))
+        for pokemon in sprites.POKEMON.values():
+            self.assertIn(pokemon.name_ko, labels)
+
+    def test_autostart_is_safe_off_windows(self):
+        # 윈도우가 아니면 등록되지 않고, 예외도 나지 않아야 한다.
+        if pt.platform.system() != "Windows":
+            self.assertFalse(pt.autostart_enabled())
+            self.assertFalse(pt.set_autostart(True))
+            self.app.autostart_var.set(True)
+            self.app.toggle_autostart()
+            self.assertFalse(self.app.autostart_var.get())
 
 
 @needs_display

@@ -633,6 +633,77 @@ class EffectTest(unittest.TestCase):
 
 
 @needs_display
+class PoseTest(unittest.TestCase):
+    """같은 도트에서 만들어 낸 자세들(눌림·늘어남·눈 감기)."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args(["-p", "pikachu"]))
+        self.pet = self.app.pets[0]
+
+    def tearDown(self):
+        self.app.quit()
+
+    def test_every_pokemon_can_blink(self):
+        for pokemon in sprites.POKEMON.values():
+            self.assertIn("blink", pokemon.poses(), pokemon.key)
+
+    def test_walkers_have_squash_and_stretch(self):
+        for pokemon in sprites.POKEMON.values():
+            if pokemon.move == "walk":
+                self.assertIn("squash", pokemon.poses(), pokemon.key)
+                self.assertIn("stretch", pokemon.poses(), pokemon.key)
+
+    def test_poses_match_the_frame_size(self):
+        for pokemon in sprites.POKEMON.values():
+            frame = pokemon.frames()[0]
+            for name, pose in pokemon.poses().items():
+                self.assertEqual(len(pose), len(frame), "%s/%s" % (pokemon.key, name))
+                self.assertEqual(len(pose[0]), len(frame[0]), "%s/%s" % (pokemon.key, name))
+
+    def test_in_the_air_it_stretches(self):
+        self.pet.lift = 20.0
+        self.assertEqual(self.pet.choose_pose(), "stretch")
+
+    def test_landing_squashes(self):
+        self.pet.lift = 0.0
+        self.pet.land_squash = pt.LAND_SQUASH_TIME
+        self.assertEqual(self.pet.choose_pose(), "squash")
+
+    def test_it_blinks_now_and_then(self):
+        self.pet.blink_timer = 0.01
+        seen = False
+        for _ in range(20):
+            self.pet.tick()
+            if self.pet.choose_pose() == "blink":
+                seen = True
+                break
+        self.assertTrue(seen, "눈을 깜빡이지 않는다")
+
+    def test_it_does_not_blink_in_mid_air(self):
+        self.pet.blink_timer = 0.01
+        for _ in range(10):
+            self.pet.lift = 30.0          # 계속 공중에 떠 있게 붙잡아 둔다
+            self.pet.vertical_speed = 0.0
+            self.pet.tick()
+        self.assertEqual(self.pet.blinking, 0.0)
+
+    def test_napping_breathes(self):
+        self.pet.napping = True
+        self.pet.breath = pt.BREATH_SEC * 1.5
+        self.assertEqual(self.pet.choose_pose(), "squash")
+
+    def test_held_pet_uses_the_plain_frame(self):
+        self.pet.dragging = True
+        self.pet.lift = 50.0
+        self.assertIsNone(self.pet.choose_pose())
+
+    def test_pose_images_are_built_for_both_directions(self):
+        for side in ("pose_right", "pose_left"):
+            self.assertIn("blink", self.pet.images[side])
+            self.assertIn("stretch", self.pet.images[side])
+
+
+@needs_display
 class MenuTest(unittest.TestCase):
     """우클릭 메뉴로 하는 일들이 실제로 반영되고 저장되는지."""
 

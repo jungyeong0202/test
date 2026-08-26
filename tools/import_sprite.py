@@ -491,6 +491,67 @@ def squash_frames(cells, amount):
     return frames
 
 
+def place_on_canvas(grid, canvas_width, canvas_height):
+    """그리드를 더 큰 캔버스의 아래쪽 가운데에 올린다."""
+    height = len(grid)
+    width = len(grid[0])
+    out = [[None] * canvas_width for _ in range(canvas_height)]
+    left = (canvas_width - width) // 2
+    top = canvas_height - height
+    for y, row in enumerate(grid):
+        for x, color in enumerate(row):
+            out[top + y][left + x] = color
+    return out
+
+
+def blink_pose(cells, eyes):
+    """눈 자리를 주변 살색으로 덮고 가로선을 그어 감은 눈을 만든다."""
+    out = [list(row) for row in cells]
+    for x0, y0, x1, y1 in eyes:
+        # 눈 테두리 바깥의 색을 모아 가장 흔한 색을 살색으로 본다
+        around = {}
+        darkest = None
+        for y in range(y0 - 1, y2_end(y1, cells) + 1):
+            for x in range(x0 - 1, x2_end(x1, cells[0]) + 1):
+                if not (0 <= y < len(cells) and 0 <= x < len(cells[0])):
+                    continue
+                color = cells[y][x]
+                if color is None:
+                    continue
+                inside = x0 <= x <= x1 and y0 <= y <= y1
+                if inside:
+                    if darkest is None or brightness(color) < brightness(darkest):
+                        darkest = color
+                else:
+                    around[color] = around.get(color, 0) + 1
+        if not around:
+            continue
+        skin = max(around.items(), key=lambda item: item[1])[0]
+        line = darkest or skin
+
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                if 0 <= y < len(out) and 0 <= x < len(out[0]) and out[y][x] is not None:
+                    out[y][x] = skin
+        middle = (y0 + y1) // 2
+        for x in range(x0, x1 + 1):
+            if 0 <= middle < len(out) and 0 <= x < len(out[0]) and out[middle][x] is not None:
+                out[middle][x] = line
+    return out
+
+
+def y2_end(value, cells):
+    return min(value + 1, len(cells) - 1)
+
+
+def x2_end(value, row):
+    return min(value + 1, len(row) - 1)
+
+
+def brightness(color):
+    return color[0] * 299 + color[1] * 587 + color[2] * 114
+
+
 # --- 5단계: sprites.py 에 써넣기 -----------------------------------------
 def to_rows(cells, palette_map):
     rows = []
@@ -501,7 +562,7 @@ def to_rows(cells, palette_map):
 
 
 def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="right",
-                move="walk"):
+                move="walk", poses=None):
     constant = key.upper()
     out = ["%s = Pokemon(" % constant]
     out.append('    key="%s",' % key)
@@ -524,6 +585,14 @@ def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="r
             out.append('            "%s",' % row)
         out.append("        ],")
     out.append("    ],")
+    if poses:
+        out.append("    pose_rows={")
+        for pose_name in sorted(poses):
+            out.append('        "%s": [' % pose_name)
+            for row in poses[pose_name]:
+                out.append('            "%s",' % row)
+            out.append("        ],")
+        out.append("    },")
     out.append(")")
     return "\n".join(out)
 
@@ -584,6 +653,10 @@ def main():
                         help="움직일 부위 사각형. 여러 번 쓸 수 있다")
     parser.add_argument("--motion", action="append", default=[], metavar="이름:dx,dy;dx,dy",
                         help="부위별 프레임 이동량. 이름 body 는 나머지 전부")
+    parser.add_argument("--pose-squash", type=int, default=0, metavar="칸",
+                        help="눌린/늘어난 자세를 만들어 둔다 (공중·착지·숨쉬기에 쓰임)")
+    parser.add_argument("--eyes", action="append", default=[], metavar="x0,y0,x1,y1",
+                        help="눈 위치. 주면 눈 감은 자세를 만든다. 여러 번 쓸 수 있다")
     parser.add_argument("--hop", type=int, default=0, metavar="칸",
                         help="다리 없이 폴짝 뛰는 포켓몬. 웅크림/늘어남 폭(도트 수)")
     parser.add_argument("--facing", choices=["left", "right"], default="right",
@@ -663,6 +736,36 @@ def main():
         frames = walk_frames(cells, args.foot_band, args.foot_rise)
         print("걷기 프레임: %d 장" % len(frames))
 
+    poses = {}
+    if args.pose_squash or args.eyes:
+        amount = args.pose_squash
+        base_height = len(cells)
+        base_width = len(cells[0])
+
+        if amount:
+            poses["squash"] = resample(cells, base_width + amount, base_height - amount)
+            poses["stretch"] = resample(cells, max(1, base_width - amount), base_height + amount)
+        if args.eyes:
+            eyes = []
+            for text in args.eyes:
+                values = [int(v) for v in text.split(",")]
+                if len(values) != 4:
+                    raise SystemExit("--eyes 형식은 x0,y0,x1,y1 입니다: %s" % text)
+                eyes.append(tuple(values))
+            poses["blink"] = blink_pose(cells, eyes)
+
+        # 프레임과 자세를 같은 크기 캔버스에 바닥 맞춰 올린다.
+        canvas_width = max([len(frame[0]) for frame in frames]
+                           + [len(grid[0]) for grid in poses.values()])
+        canvas_height = max([len(frame) for frame in frames]
+                            + [len(grid) for grid in poses.values()])
+        frames = [place_on_canvas(frame, canvas_width, canvas_height) for frame in frames]
+        poses = {
+            name: place_on_canvas(grid, canvas_width, canvas_height)
+            for name, grid in poses.items()
+        }
+        print("자세 %s 를 함께 만듦 (%dx%d)" % (", ".join(sorted(poses)), canvas_width, canvas_height))
+
     if args.preview:
         save_preview(frames, args.preview)
         print("미리보기: %s" % args.preview)
@@ -674,6 +777,7 @@ def main():
         bounce=not args.no_bounce and not args.hop,
         facing=args.facing,
         move="hop" if args.hop else "walk",
+        poses={name: to_rows(grid, palette_map) for name, grid in poses.items()},
     )
     if args.dry_run:
         print(block)

@@ -31,6 +31,7 @@ namespace PokemonTaskbar
         public bool Bounce;       // 걸을 때 프로그램이 살짝 띄워 줄지
         public Dictionary<char, string> Palette;
         public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
+        public Dictionary<string, string[]> Poses;  // 상황별 자세 (squash/stretch/blink)
     }
 
     public static class Sprites
@@ -82,6 +83,14 @@ def build():
             for row in frame:
                 out.append("                        %s,\n" % cs_string(row))
             out.append("                    },\n")
+        out.append("                },\n")
+        out.append("                Poses = new Dictionary<string, string[]>\n                {\n")
+        for pose_name in sorted(pokemon.pose_rows):
+            out.append("                    { %s, new string[]\n                        {\n"
+                       % cs_string(pose_name))
+            for row in pokemon.pose_rows[pose_name]:
+                out.append("                            %s,\n" % cs_string(row))
+            out.append("                        }\n                    },\n")
         out.append("                },\n")
         out.append("            },\n")
     out.append(FOOTER)

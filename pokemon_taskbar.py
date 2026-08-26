@@ -46,6 +46,11 @@ LAND_DUST_SPEED = 60.0   # 이 속도보다 세게 떨어져야 먼지가 인다
 NAP_CHANCE = 0.18        # 멈춰 설 때 이 확률로 길게 낮잠을 잔다
 NAP_SECONDS = (4.0, 9.0)
 ZZZ_EVERY = 1.1          # 낮잠 중 Zzz 를 올려 보내는 간격
+BLINK_EVERY = (3.0, 7.0) # 이 간격마다 한 번씩 눈을 깜빡인다
+BLINK_TIME = 0.14        # 눈을 감고 있는 시간
+LAND_SQUASH_TIME = 0.12  # 착지하고 눌려 있는 시간
+BREATH_SEC = 0.9         # 낮잠 중 숨쉬기 한 박자
+WIGGLE_SEC = 0.10        # 들려 있을 때 버둥거리는 간격
 
 # 효과에 쓰는 아주 작은 도트 그림
 HEART_DOTS = (
@@ -280,6 +285,11 @@ class PokemonPet:
         self.hop_timer = random.uniform(*HOP_REST)
         self.napping = False
         self.zzz_timer = 0.0
+        self.blink_timer = random.uniform(*BLINK_EVERY)
+        self.blinking = 0.0
+        self.land_squash = 0.0
+        self.breath = 0.0
+        self.wiggle = 0.0
         # 프레임에 몸통 움직임이 그려져 있으면 프로그램 쪽 흔들림은 끈다.
         self.bounce_px = self.hop if pokemon.bounce else 0
         self.anim_time = 0.0
@@ -479,9 +489,11 @@ class PokemonPet:
                 # 세게 떨어졌으면 발밑에 먼지가 인다.
                 if -self.vertical_speed >= LAND_DUST_SPEED:
                     self.spawn_dust()
+                    self.land_squash = LAND_SQUASH_TIME
                 self.lift = 0.0
                 self.vertical_speed = 0.0
 
+        self.update_timers(dt)
         self.update_effects(dt)
         if self.napping:
             self.zzz_timer -= dt
@@ -526,6 +538,43 @@ class PokemonPet:
             "life": EMOTE_LIFE,
             "color": "#ff5f83" if kind == "heart" else "#ffffff",
         })
+
+    def update_timers(self, dt):
+        """눈 깜빡임, 착지 눌림, 숨쉬기, 버둥거림 박자를 센다."""
+        if self.land_squash > 0:
+            self.land_squash -= dt
+
+        if self.dragging:
+            self.wiggle += dt
+        else:
+            self.wiggle = 0.0
+
+        if self.napping:
+            self.breath += dt
+        else:
+            self.breath = 0.0
+
+        if self.blinking > 0:
+            self.blinking -= dt
+        elif self.lift <= 0 and not self.dragging:
+            self.blink_timer -= dt
+            if self.blink_timer <= 0:
+                self.blinking = BLINK_TIME
+                self.blink_timer = random.uniform(*BLINK_EVERY)
+
+    def choose_pose(self):
+        """지금 상황에 맞는 자세 이름. 없으면 None(평소 프레임)."""
+        if self.dragging:
+            return None
+        if self.lift > self.dot:
+            return "stretch"
+        if self.land_squash > 0:
+            return "squash"
+        if self.napping and int(self.breath / BREATH_SEC) % 2 == 1:
+            return "squash"
+        if self.blinking > 0:
+            return "blink"
+        return None
 
     def update_effects(self, dt):
         alive = []
@@ -649,12 +698,25 @@ class PokemonPet:
             frame = int(self.anim_time / STEP_SEC) % self.frame_count
         else:
             frame = 0
-        self.canvas.itemconfigure(self.sprite, image=self.images[facing][frame])
+
+        # 상황에 맞는 자세가 있으면 그것을, 없으면 평소 프레임을 쓴다.
+        pose = self.choose_pose()
+        image = None
+        if pose:
+            image = self.images["pose_" + facing].get(pose)
+        if image is None:
+            image = self.images[facing][frame]
+        self.canvas.itemconfigure(self.sprite, image=image)
+
         # 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
         # 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
         walking = self.move == "walk" and self.state == "walk"
-        bounce = self.bounce_px if (walking and frame % 2 == 1) else 0
-        self.canvas.coords(self.sprite, self.margin_x, self.margin_top + self.hop - bounce)
+        bounce = self.bounce_px if (walking and pose is None and frame % 2 == 1) else 0
+        # 들려 있으면 버둥거린다.
+        sway = self.dot if (self.dragging and int(self.wiggle / WIGGLE_SEC) % 2) else 0
+        self.canvas.coords(
+            self.sprite, self.margin_x + sway, self.margin_top + self.hop - bounce
+        )
         self.draw_effects()
 
     def place(self):
@@ -756,6 +818,7 @@ class App:
         if pokemon.key not in self.image_cache:
             frames = pokemon.frames()
             scale = self.sprite_scale(pokemon)
+            poses = pokemon.poses()
             self.image_cache[pokemon.key] = {
                 "right": [
                     make_photo(f, scale, flip=flip_for(pokemon, True), master=self.root)
@@ -765,6 +828,14 @@ class App:
                     make_photo(f, scale, flip=flip_for(pokemon, False), master=self.root)
                     for f in frames
                 ],
+                "pose_right": {
+                    name: make_photo(g, scale, flip=flip_for(pokemon, True), master=self.root)
+                    for name, g in poses.items()
+                },
+                "pose_left": {
+                    name: make_photo(g, scale, flip=flip_for(pokemon, False), master=self.root)
+                    for name, g in poses.items()
+                },
             }
         return self.image_cache[pokemon.key]
 

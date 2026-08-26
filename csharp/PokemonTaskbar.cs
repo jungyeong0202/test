@@ -216,17 +216,7 @@ namespace PokemonTaskbar
         /// <summary>걷기 프레임들을 색 배열로 만든다. 빈 칸은 null.</summary>
         public static List<Color?[][]> Frames(PokemonSprite sprite)
         {
-            int width = 0;
-            foreach (string[] frame in sprite.Frames)
-            {
-                foreach (string row in frame)
-                {
-                    if (row.Length > width)
-                    {
-                        width = row.Length;
-                    }
-                }
-            }
+            int width = SpriteWidth(sprite);
 
             List<Color?[][]> frames = new List<Color?[][]>();
             foreach (string[] rows in sprite.Frames)
@@ -245,6 +235,64 @@ namespace PokemonTaskbar
                 frames.Add(grid);
             }
             return frames;
+        }
+
+        /// <summary>프레임과 자세를 통틀어 가장 넓은 줄의 길이.</summary>
+        public static int SpriteWidth(PokemonSprite sprite)
+        {
+            int width = 0;
+            foreach (string[] frame in sprite.Frames)
+            {
+                foreach (string row in frame)
+                {
+                    if (row.Length > width)
+                    {
+                        width = row.Length;
+                    }
+                }
+            }
+            if (sprite.Poses != null)
+            {
+                foreach (string[] rows in sprite.Poses.Values)
+                {
+                    foreach (string row in rows)
+                    {
+                        if (row.Length > width)
+                        {
+                            width = row.Length;
+                        }
+                    }
+                }
+            }
+            return width;
+        }
+
+        /// <summary>이름별 자세를 색 배열로.</summary>
+        public static Dictionary<string, Color?[][]> Poses(PokemonSprite sprite)
+        {
+            Dictionary<string, Color?[][]> poses = new Dictionary<string, Color?[][]>();
+            if (sprite.Poses == null)
+            {
+                return poses;
+            }
+            int width = SpriteWidth(sprite);
+            foreach (KeyValuePair<string, string[]> pair in sprite.Poses)
+            {
+                string[] rows = pair.Value;
+                Color?[][] grid = new Color?[rows.Length][];
+                for (int y = 0; y < rows.Length; y++)
+                {
+                    grid[y] = new Color?[width];
+                    string row = rows[y].PadRight(width, '.');
+                    for (int x = 0; x < width; x++)
+                    {
+                        char key = row[x];
+                        grid[y][x] = key == '.' ? (Color?)null : ParseColor(sprite.Palette[key]);
+                    }
+                }
+                poses[pair.Key] = grid;
+            }
+            return poses;
         }
 
         /// <summary>색 배열을 확대해 비트맵으로 그린다. flip 이면 좌우로 뒤집는다.
@@ -343,6 +391,12 @@ namespace PokemonTaskbar
         private const double LandDustSpeed = 60.0;    // 이보다 세게 떨어져야 먼지가 인다
         private const double NapChance = 0.18;        // 멈춰 설 때 이 확률로 낮잠
         private const double ZzzEvery = 1.1;
+        private const double BlinkEveryMin = 3.0;
+        private const double BlinkEveryMax = 7.0;
+        private const double BlinkTime = 0.14;
+        private const double LandSquashTime = 0.12;
+        private const double BreathSeconds = 0.9;
+        private const double WiggleSeconds = 0.10;
 
         // 효과에 쓰는 아주 작은 도트 그림
         private static readonly int[,] HeartDots = {
@@ -383,6 +437,13 @@ namespace PokemonTaskbar
         }
 
         private readonly List<Effect> effects = new List<Effect>();
+        private readonly Dictionary<string, Bitmap>[] poseImages =
+            new Dictionary<string, Bitmap>[2];
+        private double blinkTimer;
+        private double blinking;
+        private double landSquash;
+        private double breath;
+        private double wiggle;
         private readonly PetWorld world;
         private readonly Bitmap[][] images;   // [0] 오른쪽, [1] 왼쪽
         private readonly Timer timer;
@@ -440,6 +501,17 @@ namespace PokemonTaskbar
                 this.images[1][i] = SpriteFactory.Render(frames[i], scale, sprite.FacesRight);
             }
 
+            Dictionary<string, Color?[][]> poseGrids = SpriteFactory.Poses(sprite);
+            this.poseImages[0] = new Dictionary<string, Bitmap>();
+            this.poseImages[1] = new Dictionary<string, Bitmap>();
+            foreach (KeyValuePair<string, Color?[][]> pair in poseGrids)
+            {
+                this.poseImages[0][pair.Key] =
+                    SpriteFactory.Render(pair.Value, scale, !sprite.FacesRight);
+                this.poseImages[1][pair.Key] =
+                    SpriteFactory.Render(pair.Value, scale, sprite.FacesRight);
+            }
+
             this.spriteWidth = this.images[0][0].Width;
             this.spriteHeight = this.images[0][0].Height;
             this.hop = Math.Max(1, (int)Math.Round(scale));
@@ -474,6 +546,7 @@ namespace PokemonTaskbar
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
             this.speedValue = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
             this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
+            this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
 
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Opening += delegate { this.BuildMenu(menu, world); };
@@ -578,12 +651,29 @@ namespace PokemonTaskbar
                 frame = 0;
             }
 
+            // 상황에 맞는 자세가 있으면 그것을, 없으면 평소 프레임을 쓴다.
+            int side = this.direction > 0 ? 0 : 1;
+            string pose = this.ChoosePose();
+            Bitmap image = null;
+            if (pose != null)
+            {
+                this.poseImages[side].TryGetValue(pose, out image);
+            }
+            if (image == null)
+            {
+                image = this.images[side][frame];
+            }
+
             // 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
             // 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
             bool walkingNow = !this.hops && this.walking && !this.dragging;
-            int bounce = (walkingNow && frame % 2 == 1) ? this.bouncePixels : 0;
-            Bitmap image = this.images[this.direction > 0 ? 0 : 1][frame];
-            e.Graphics.DrawImageUnscaled(image, this.marginX, this.marginTop + this.hop - bounce);
+            int bounce = (walkingNow && image != null && pose == null && frame % 2 == 1)
+                ? this.bouncePixels : 0;
+            // 들려 있으면 버둥거린다.
+            int sway = (this.dragging && (int)(this.wiggle / WiggleSeconds) % 2 == 1)
+                ? this.dot : 0;
+            e.Graphics.DrawImageUnscaled(
+                image, this.marginX + sway, this.marginTop + this.hop - bounce);
             this.PaintEffects(e.Graphics);
         }
 
@@ -725,12 +815,14 @@ namespace PokemonTaskbar
                     if (-this.verticalSpeed >= LandDustSpeed)
                     {
                         this.SpawnDust();
+                        this.landSquash = LandSquashTime;
                     }
                     this.lift = 0.0;
                     this.verticalSpeed = 0.0;
                 }
             }
 
+            this.UpdateTimers(dt);
             this.UpdateEffects(dt);
             if (this.napping)
             {
@@ -807,6 +899,58 @@ namespace PokemonTaskbar
                 ? Color.FromArgb(255, 95, 131)
                 : Color.FromArgb(255, 255, 255);
             this.effects.Add(emote);
+        }
+
+        /// <summary>눈 깜빡임, 착지 눌림, 숨쉬기, 버둥거림 박자를 센다.</summary>
+        private void UpdateTimers(double dt)
+        {
+            if (this.landSquash > 0)
+            {
+                this.landSquash -= dt;
+            }
+            this.wiggle = this.dragging ? this.wiggle + dt : 0.0;
+            this.breath = this.napping ? this.breath + dt : 0.0;
+
+            if (this.blinking > 0)
+            {
+                this.blinking -= dt;
+            }
+            else if (this.lift <= 0 && !this.dragging)
+            {
+                this.blinkTimer -= dt;
+                if (this.blinkTimer <= 0)
+                {
+                    this.blinking = BlinkTime;
+                    this.blinkTimer = BlinkEveryMin
+                        + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
+                }
+            }
+        }
+
+        /// <summary>지금 상황에 맞는 자세 이름. 없으면 null(평소 프레임).</summary>
+        private string ChoosePose()
+        {
+            if (this.dragging)
+            {
+                return null;
+            }
+            if (this.lift > this.dot)
+            {
+                return "stretch";
+            }
+            if (this.landSquash > 0)
+            {
+                return "squash";
+            }
+            if (this.napping && (int)(this.breath / BreathSeconds) % 2 == 1)
+            {
+                return "squash";
+            }
+            if (this.blinking > 0)
+            {
+                return "blink";
+            }
+            return null;
         }
 
         private void UpdateEffects(double dt)
@@ -902,6 +1046,7 @@ namespace PokemonTaskbar
             {
                 this.hopState = "rest";
                 this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
+            this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
                 if (this.random.NextDouble() < HopTurnChance)
                 {
                     this.direction = -this.direction;

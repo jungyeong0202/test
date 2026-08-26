@@ -196,11 +196,15 @@ def refine_cell(image, box, cell):
     return best[1]
 
 
-def sample_grid(image, start, cell, columns, rows):
+SPRITE_SHARE = 0.35   # 칸에서 이만큼은 그림이어야 그림 칸으로 본다
+
+
+def sample_grid(image, start, cell, columns, rows, is_background=None):
     """각 칸을 면적 평균해 대표색을 정한다.
 
-    가운데 몇 점만 찍는 방식은 격자가 조금만 밀려도 경계색을 물어 와 얼룩이
-    생긴다. 칸 전체를 평균하면 흐릿하게 확대된 그림에서도 안쪽 색이 이긴다.
+    이때 배경(흰 여백)에 해당하는 픽셀은 평균에서 빼야 한다. 그렇지 않으면
+    가장자리 칸이 '외곽선 + 흰 배경'의 중간색이 되어, 그림 둘레에 옅은 점이
+    남는다. 배경이 대부분인 칸은 아예 배경으로 돌린다.
     """
     pixels = image.load()
     width, height = image.size
@@ -212,21 +216,26 @@ def sample_grid(image, start, cell, columns, rows):
         line = []
         for gx in range(columns):
             left = x0 + gx * cell
-            reds = greens = blues = count = 0
+            reds = greens = blues = inside = total = 0
             for y in range(int(round(top)), int(round(top + cell))):
                 if not 0 <= y < height:
                     continue
                 for x in range(int(round(left)), int(round(left + cell))):
                     if not 0 <= x < width:
                         continue
-                    red, green, blue = pixels[x, y][:3]
-                    reds += red
-                    greens += green
-                    blues += blue
-                    count += 1
-            line.append(
-                (reds // count, greens // count, blues // count) if count else (255, 255, 255)
-            )
+                    color = pixels[x, y][:3]
+                    total += 1
+                    if is_background is not None and is_background(color):
+                        continue          # 배경은 평균에 넣지 않는다
+                    reds += color[0]
+                    greens += color[1]
+                    blues += color[2]
+                    inside += 1
+
+            if total == 0 or inside == 0 or inside < total * SPRITE_SHARE:
+                line.append((255, 255, 255))      # 배경 칸
+            else:
+                line.append((reds // inside, greens // inside, blues // inside))
         grid.append(line)
     return grid
 
@@ -685,7 +694,7 @@ def main():
         rows = args.rows
     print("도트 격자: %d x %d 칸 (칸 크기 %.2f)" % (columns, rows, cell))
 
-    grid = sample_grid(image, (start_x, start_y), cell, columns, rows)
+    grid = sample_grid(image, (start_x, start_y), cell, columns, rows, is_background)
     outside = clear_background(grid, is_background)
 
     inside_colors = [

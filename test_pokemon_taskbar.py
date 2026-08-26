@@ -155,6 +155,72 @@ class SpriteTest(unittest.TestCase):
             self.assertGreater(filled, 50, pokemon.key)
 
 
+class CellSizeTest(unittest.TestCase):
+    """그림에서 도트 격자를 알아내는 부분.
+
+    도트 한 칸을 실제보다 작게 잡으면 몇 칸마다 한 칸씩 늘어나, 외곽선이
+    두꺼워지고 그림이 뭉개진다. 뮤를 들여올 때 7.82 픽셀짜리를 6.95 로 잡아
+    실제로 그랬다. 부드럽게 확대되어 저장된 그림에서도 맞히는지 확인한다.
+    """
+
+    def setUp(self):
+        try:
+            from PIL import Image                       # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow 가 필요합니다")
+        spec = importlib.util.spec_from_file_location(
+            "import_sprite", os.path.join(os.path.dirname(__file__),
+                                          "tools", "import_sprite.py")
+        )
+        self.tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.tool)
+
+    def _art(self, columns, rows, seed=7):
+        """작은 도트 그림 하나를 만든다."""
+        from PIL import Image
+
+        import random as rng
+        maker = rng.Random(seed)
+        colors = [(20, 20, 30), (240, 170, 205), (200, 110, 150), (255, 255, 255)]
+        image = Image.new("RGB", (columns, rows), (255, 255, 255))
+        pixels = image.load()
+        for y in range(rows):
+            for x in range(columns):
+                # 가장자리는 흰 여백으로 둬서 내용 상자가 잡히게 한다.
+                edge = x < 2 or y < 2 or x >= columns - 2 or y >= rows - 2
+                pixels[x, y] = (255, 255, 255) if edge else maker.choice(colors[:3])
+        return image
+
+    def _blown_up(self, columns, rows, cell):
+        """정수배가 아닌 크기로 부드럽게 늘린다(사람이 올리는 그림처럼)."""
+        from PIL import Image
+
+        art = self._art(columns, rows)
+        return art.resize((int(columns * cell), int(rows * cell)), Image.BICUBIC)
+
+    def _measure(self, image):
+        def is_background(color):
+            return color[0] > 235 and color[1] > 235 and color[2] > 235
+
+        box = self.tool.content_box(image, is_background)
+        guess = self.tool.guess_cell_size(image, box, is_background)
+        return self.tool.refine_cell(image, box, guess)
+
+    def test_finds_a_non_integer_cell_size(self):
+        for cell in (7.82, 9.4):
+            got = self._measure(self._blown_up(28, 24, cell))
+            self.assertAlmostEqual(
+                got, cell, delta=cell * 0.03,
+                msg="칸 %.2f 를 %.2f 로 쟀습니다" % (cell, got)
+            )
+
+    def test_does_not_land_on_a_multiple(self):
+        """칸 크기의 두 배·세 배도 점수가 높다. 거기에 걸리면 안 된다."""
+        cell = 8.0
+        got = self._measure(self._blown_up(28, 24, cell))
+        self.assertLess(got, cell * 1.5, "칸을 배수로 잡았습니다: %.2f" % got)
+
+
 @needs_display
 class ArgumentTest(unittest.TestCase):
     def test_default_scale_draws_at_one_and_a_half(self):

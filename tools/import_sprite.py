@@ -77,38 +77,90 @@ def color_runs(image, box, is_background):
     return lengths
 
 
+def edge_strength(image, box):
+    """줄 사이가 얼마나 달라지는지. 도트 경계에서 값이 크게 튄다."""
+    pixels = image.load()
+    x0, y0, x1, y1 = box
+    columns = [0.0] * (x1 - x0 + 1)
+    rows = [0.0] * (y1 - y0 + 1)
+    for y in range(y0, y1 + 1):
+        previous = pixels[x0, y]
+        for x in range(x0 + 1, x1 + 1):
+            here = pixels[x, y]
+            columns[x - x0] += (abs(here[0] - previous[0]) + abs(here[1] - previous[1])
+                                + abs(here[2] - previous[2]))
+            previous = here
+    for x in range(x0, x1 + 1):
+        previous = pixels[x, y0]
+        for y in range(y0 + 1, y1 + 1):
+            here = pixels[x, y]
+            rows[y - y0] += (abs(here[0] - previous[0]) + abs(here[1] - previous[1])
+                             + abs(here[2] - previous[2]))
+            previous = here
+    return columns, rows
+
+
+def period_score(signal, cell, phase):
+    """격자선 위의 변화량이 칸 안쪽보다 얼마나 두드러지는지."""
+    on_total = on_count = 0.0
+    off_total = off_count = 0.0
+    for index, value in enumerate(signal):
+        place = (index - phase) % cell
+        if place < 0.5 or place > cell - 0.5:
+            on_total += value
+            on_count += 1
+        else:
+            off_total += value
+            off_count += 1
+    if not on_count or not off_count:
+        return 0.0
+    off_mean = off_total / off_count
+    if off_mean <= 0.0:
+        return 0.0
+    return (on_total / on_count) / off_mean
+
+
 def guess_cell_size(image, box, is_background):
     """도트 한 칸이 몇 픽셀인지 추정한다.
 
-    픽셀아트는 같은 색이 '한 칸의 정수배'만큼 이어진다. 그래서 이어진 길이의
-    분포에서 가장 잘 들어맞는 기본 단위를 찾으면 된다.
-    """
-    lengths = color_runs(image, box, is_background)
-    if not lengths:
-        raise SystemExit("도트 격자를 알아내지 못했습니다. --grid 로 지정하세요.")
+    픽셀아트를 크게 늘려 저장하면 도트 경계마다 색이 바뀐다. 그 경계가 일정한
+    간격으로 되풀이되므로, 여러 간격을 대 보고 '경계 위'가 '칸 안쪽'보다 가장
+    크게 튀는 간격을 고르면 된다.
 
+    예전에는 같은 색이 이어지는 길이로 쟀는데, 원본이 부드럽게 확대되어
+    저장된 그림(픽셀마다 색이 조금씩 다른 그림)에서는 이어지는 길이가
+    믿을 수 없어 칸을 실제보다 작게 잡았다. 실제로 7.82 픽셀짜리 그림을
+    6.95 로 잡아, 여덟 칸마다 한 칸씩 늘어난 뭉갠 도트가 나온 적이 있다.
+    """
     x0, y0, x1, y1 = box
     longest = max(x1 - x0 + 1, y1 - y0 + 1)
+    columns, rows = edge_strength(image, box)
 
-    best = None
-    candidate = 4.0
-    while candidate <= 64.0:
+    # 도트가 최소 열두 칸은 된다고 보고, 그보다 큰 칸은 아예 보지 않는다.
+    high = min(64.0, longest / 12.0)
+    scored = []
+    candidate = 3.0
+    while candidate <= high:
         score = 0.0
-        for run, count in lengths.items():
-            multiple = run / candidate
-            nearest_multiple = round(multiple)
-            if nearest_multiple < 1:
-                continue
-            error = abs(multiple - nearest_multiple)
-            # 오차가 작을수록, 자주 나온 길이일수록 점수가 높다.
-            score += count * max(0.0, 1.0 - error * 4.0)
-        # 같은 점수라면 큰 칸(=원래 도트 크기)을 고른다.
-        score *= candidate ** 0.5
-        if best is None or score > best[0]:
-            best = (score, candidate)
-        candidate += 0.05
+        for signal in (columns, rows):
+            best_phase = 0.0
+            for step in range(8):
+                phase = candidate * step / 8.0
+                value = period_score(signal, candidate, phase)
+                if value > best_phase:
+                    best_phase = value
+            score += best_phase
+        scored.append((candidate, score))
+        candidate += 0.02
 
-    cell = best[1]
+    if not scored:
+        raise SystemExit("도트 격자를 알아내지 못했습니다. --grid 로 지정하세요.")
+
+    # 칸 크기의 두 배, 세 배도 (한 칸 걸러 격자선을 놓는 셈이라) 점수가 높다.
+    # 그래서 가장 높은 점수만 보면 배수에 걸린다. 최고점에 가까운 것들 중
+    # 가장 작은 칸을 골라야 진짜 한 칸이다.
+    top = max(score for _cell, score in scored)
+    cell = min(size for size, score in scored if score >= top * 0.9)
     if longest / cell < 6:
         raise SystemExit("칸 크기 추정이 이상합니다(%.2f). --grid 로 지정하세요." % cell)
     return cell
@@ -172,23 +224,22 @@ def align_lattice(image, box, cell):
 
 
 def refine_cell(image, box, cell):
-    """칸 크기를 내용 폭/높이의 정확한 약수로 맞춘다.
+    """추정한 칸 크기를 주변에서 조금씩 흔들어 보며 가장 깔끔한 값을 고른다.
 
-    추정값이 조금만 어긋나도 칸이 쌓이면서 밀려(드리프트) 오른쪽 끝에서는
-    도트 경계를 반 칸씩 넘어가 색이 뒤섞인다. 후보 중 가장 깔끔한 값을 고른다.
+    칸 크기가 조금만 어긋나도 칸이 쌓이면서 밀려(드리프트), 오른쪽 끝에서는
+    도트 경계를 반 칸씩 넘어가 색이 뒤섞인다.
+
+    예전에는 '칸 크기가 내용 폭을 정확히 나눠야 한다'고 보고 폭/칸수 만
+    후보로 삼았다. 하지만 흐릿한 가장자리가 잘려 내용 상자가 도트 경계에
+    맞지 않으면 그 가정이 틀리고, 오히려 맞게 추정한 칸 크기를 망가뜨린다.
+    (7.82 를 7.77 로 되돌려 놓는 식이다.) 그래서 추정값 둘레만 훑는다.
     """
-    x0, y0, x1, y1 = box
-    spans = (x1 - x0 + 1, y1 - y0 + 1)
-
-    candidates = set()
-    for span in spans:
-        count = round(span / cell)
-        for delta in (-1, 0, 1):
-            if count + delta >= 4:
-                candidates.add(span / (count + delta))
-
     best = None
-    for candidate in sorted(candidates):
+    step = cell * 0.002
+    for index in range(-20, 21):
+        candidate = cell + index * step
+        if candidate < 3.0:
+            continue
         start_x, start_y, columns, rows = align_lattice(image, box, candidate)
         noise = lattice_noise(image, start_x, start_y, candidate, columns, rows)
         if best is None or noise < best[0]:

@@ -32,6 +32,23 @@ jobs:
           "size: $($exe.Length) bytes"
           [System.Reflection.AssemblyName]::GetAssemblyName($exe.FullName) | Format-List
 
+      # 실제로 한 번 돌려 본다. 컴파일만 되고 윈도우에서 죽는 일이 있었다
+      # (Mono 로 빌드하면 .NET Framework 에 없는 API 를 부르는 exe 가 나온다).
+      - name: Smoke test - does it actually run?
+        shell: pwsh
+        run: |
+          $log = "$env:APPDATA\PokemonTaskbar\startup.log"
+          if (Test-Path $log) { Remove-Item $log }
+          $run = Start-Process -FilePath .\PokemonTaskbar.exe -ArgumentList '--check' -Wait -PassThru
+          "exit code: $($run.ExitCode)"
+          if (-not (Test-Path $log)) { throw "시작 기록이 아예 없습니다. 실행되지 못했습니다." }
+          Get-Content $log
+          if ($run.ExitCode -ne 0) { throw "0 이 아닌 종료 코드: $($run.ExitCode)" }
+          if (-not (Select-String -Path $log -Pattern '그림과 계산은 정상' -Quiet)) {
+            throw "자체 점검이 끝까지 가지 못했습니다."
+          }
+          if (Select-String -Path $log -Pattern '!! 실패' -Quiet) { throw "기록에 실패가 있습니다." }
+
       - uses: actions/upload-artifact@v4
         with:
           name: PokemonTaskbar-exe

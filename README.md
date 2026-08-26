@@ -286,6 +286,29 @@ rows=[
 `sprites.py` 의 `POKEMON` 목록에 새 `Pokemon(...)` 을 추가하면 바로 `--pokemon` 으로 부를 수 있습니다.
 도트가 촘촘한 그림은 `scale_factor` 를 작게 주면 (`1 / 3` 처럼) `--scale` 과 무관하게 알맞은 크기로 그려집니다.
 
+## 리눅스에서 윈도우용 exe 를 빌드할 때 주의할 점
+
+`tools/build_exe.sh` 는 반드시 **`-sdk:4.8`** 로 컴파일합니다. 이게 빠지면 안 됩니다.
+
+`mcs` 는 기본으로 **Mono 자신의** 클래스 라이브러리를 기준으로 컴파일합니다. Mono 에는
+.NET Core 시절 추가된 API 가 들어 있어서, 그냥 빌드하면 윈도우의 .NET Framework 에는
+**없는 메서드를 호출하는 exe** 가 만들어집니다. 리눅스에서 Mono 로 돌리면 멀쩡히 돌기
+때문에 여기서는 절대 드러나지 않고, 윈도우에서만 `MissingMethodException` 으로 조용히
+죽습니다.
+
+실제로 `value.Split(',')` 가 Mono 에만 있는 `Split(char, StringSplitOptions)` 로
+컴파일되어, 옵션 해석 첫 단계에서 아무 창도 못 띄우고 죽은 적이 있습니다.
+
+막는 장치는 두 겹입니다.
+
+| 장치 | 언제 걸리나 |
+| --- | --- |
+| `-sdk:4.8` | 컴파일할 때. `/usr/lib/mono/4.8-api` 의 진짜 .NET Framework 4.8 참조 어셈블리를 씁니다 |
+| `tools/check_net48.py` | 빌드 끝나고. 만들어진 IL 의 호출을 하나씩 4.8 참조 어셈블리와 맞춰 봅니다 |
+
+윈도우에서 `csharp/run.bat` 이나 GitHub Actions 로 빌드할 때는 진짜 `csc.exe` 를 쓰므로
+이 문제가 없습니다. Actions 는 빌드한 exe 를 실제로 한 번 실행해 보는 단계까지 돕니다.
+
 ## 테스트
 
 ```bash

@@ -239,6 +239,18 @@ class ArgumentTest(unittest.TestCase):
         args = pt.parse_args(["--count", "4"])
         self.assertEqual(len(args.species), 4)
 
+    def test_count_never_hands_out_evolved_pokemon(self):
+        """진화체는 진화로만 만나야 한다. 무작위로 나눠 주면 안 된다."""
+        for _ in range(60):
+            args = pt.parse_args(["--count", "5"])
+            for key in args.species:
+                self.assertNotIn(key, sprites.EVOLVED_ONLY, "무작위로 나왔습니다: %s" % key)
+
+    def test_named_evolved_pokemon_is_still_allowed(self):
+        """직접 이름을 대면(명령줄) 쓸 수 있어야 한다."""
+        args = pt.parse_args(["-p", "wartortle"])
+        self.assertEqual(args.species, ["wartortle"])
+
     def test_on_taskbar_is_off_by_default(self):
         self.assertFalse(pt.parse_args([]).on_taskbar)
         self.assertTrue(pt.parse_args(["--on-taskbar"]).on_taskbar)
@@ -633,6 +645,135 @@ class FloatTest(unittest.TestCase):
 
 
 @needs_display
+class EvolutionTest(unittest.TestCase):
+    """아껴 주면 진화한다."""
+
+    def setUp(self):
+        self.app = pt.App(pt.parse_args(["-p", "squirtle"]))
+        self.pet = self.app.pets[0]
+
+    def tearDown(self):
+        self.app.quit()
+
+    def _run(self, seconds):
+        for _ in range(int(seconds / (pt.TICK_MS / 1000.0))):
+            self.app.pets[0].tick()
+
+    def test_squirtle_evolves_into_wartortle(self):
+        self.assertEqual(sprites.POKEMON["squirtle"].evolves_to, "wartortle")
+        self.assertEqual(self.pet.next_key, "wartortle")
+
+    def test_most_pokemon_do_not_evolve(self):
+        self.assertIsNone(sprites.POKEMON["pikachu"].evolves_to)
+
+    def test_it_is_not_ready_at_the_start(self):
+        self.assertFalse(self.pet.can_evolve())
+        self.assertEqual(self.pet.pets_left(), int(pt.EVOLVE_NEED))
+
+    def test_petting_enough_starts_it(self):
+        for _ in range(int(pt.EVOLVE_NEED)):
+            self.pet.petted()
+        self.assertTrue(self.pet.evolving)
+        self.assertEqual(self.pet.pets_left(), 0)
+
+    def test_one_pet_short_does_nothing(self):
+        for _ in range(int(pt.EVOLVE_NEED) - 1):
+            self.pet.petted()
+        self.assertFalse(self.pet.evolving)
+        self.assertEqual(self.pet.pets_left(), 1)
+
+    def test_time_alone_never_evolves_it(self):
+        """아끼던 모습이 예고 없이 바뀌면 안 된다. 시간만으로는 진화하지 않는다."""
+        self._run(30.0)
+        self.assertEqual(self.pet.friendship, 0.0)
+        self.assertFalse(self.pet.evolving)
+
+    def test_petting_more_does_not_restart_it(self):
+        for _ in range(int(pt.EVOLVE_NEED) * 3):
+            self.pet.petted()
+        self.assertEqual(self.pet.friendship, pt.EVOLVE_NEED)
+        self.assertEqual(self.pet.evolve_step, 0)
+
+    def test_the_flash_ends_with_the_evolved_form(self):
+        for _ in range(int(pt.EVOLVE_NEED)):
+            self.pet.petted()
+        self.assertTrue(self.pet.evolving)
+        # 번쩍임이 다 끝날 만큼 돌린다.
+        for _ in range(400):
+            if self.app.pets and self.app.pets[0].pokemon.key == "wartortle":
+                break
+            self.app.pets[0].tick()
+        self.assertEqual(len(self.app.pets), 1)
+        self.assertEqual(self.app.pets[0].pokemon.key, "wartortle")
+        self.assertIsNone(self.app.pets[0].next_key)
+
+    def test_it_stays_where_it_was(self):
+        self.pet.x = 200.0
+        self.pet.direction = -1
+        for _ in range(int(pt.EVOLVE_NEED)):
+            self.pet.petted()
+        for _ in range(400):
+            if self.app.pets[0].pokemon.key == "wartortle":
+                break
+            self.app.pets[0].tick()
+        grown = self.app.pets[0]
+        self.assertEqual(grown.pokemon.key, "wartortle")
+        self.assertAlmostEqual(grown.x, 200.0, delta=1.0)
+        self.assertEqual(grown.direction, -1)
+
+    def test_it_does_not_move_while_evolving(self):
+        for _ in range(int(pt.EVOLVE_NEED)):
+            self.pet.petted()
+        start = self.pet.x
+        for _ in range(5):
+            self.pet.tick()
+        self.assertEqual(self.pet.x, start)
+
+    def test_it_cannot_be_dragged_while_evolving(self):
+        for _ in range(int(pt.EVOLVE_NEED)):
+            self.pet.petted()
+        self.pet.on_press(FakeMouse(100, self.pet.base_y))
+        self.assertFalse(self.pet.dragging)
+
+    def test_the_window_fits_both_forms(self):
+        """번쩍이는 동안 진화한 모습이 잘리면 안 된다."""
+        after = self.app.get_images(sprites.POKEMON["wartortle"])["right"][0]
+        self.assertGreaterEqual(self.pet.width, after.width())
+        self.assertGreaterEqual(self.pet.height, after.height())
+
+    def test_it_still_stands_on_the_ground(self):
+        """창이 커져도 발은 바닥에 그대로 붙어 있어야 한다."""
+        top = self.pet.base_y + self.pet.margin_top + self.pet.hop + self.pet.own_dy
+        self.assertEqual(top + self.pet.own_height, self.app.ground_y - self.app.offset)
+
+    def test_the_flash_speeds_up(self):
+        gaps = [self.pet.evolve_flash_seconds(i) for i in range(pt.EVOLVE_FLASHES)]
+        self.assertEqual(gaps, sorted(gaps, reverse=True))
+        self.assertAlmostEqual(gaps[0], pt.EVOLVE_FIRST_SEC)
+        self.assertAlmostEqual(gaps[-1], pt.EVOLVE_LAST_SEC)
+
+    def test_silhouettes_are_pure_white(self):
+        white = self.app.get_white(sprites.POKEMON["squirtle"])["right"]
+        seen = set()
+        for y in range(0, white.height(), 3):
+            for x in range(0, white.width(), 3):
+                if not white.transparency_get(x, y):
+                    seen.add(white.get(x, y))
+        self.assertTrue(seen)
+        for colour in seen:
+            self.assertEqual(tuple(colour), (255, 255, 255))
+
+    def test_the_evolved_form_is_saved(self):
+        for _ in range(int(pt.EVOLVE_NEED)):
+            self.pet.petted()
+        for _ in range(400):
+            if self.app.pets[0].pokemon.key == "wartortle":
+                break
+            self.app.pets[0].tick()
+        self.assertEqual(self.app.current_settings()["species"], ["wartortle"])
+
+
+@needs_display
 class DragTest(unittest.TestCase):
     """클릭한 채로 끌어서 옮기기."""
 
@@ -951,15 +1092,24 @@ class MenuTest(unittest.TestCase):
                 pet.tick()
         self.assertNotAlmostEqual(pet.x, start, places=1)
 
-    def test_menu_has_every_pokemon(self):
-        pet = self.app.pets[0]
+    def _add_menu_labels(self, pet):
         labels = []
         submenu = pet.menu.nametowidget(pet.menu.entrycget(0, "menu"))
         for index in range(submenu.index("end") + 1):
             if submenu.type(index) == "command":
                 labels.append(submenu.entrycget(index, "label"))
-        for pokemon in sprites.POKEMON.values():
-            self.assertIn(pokemon.name_ko, labels)
+        return labels
+
+    def test_menu_has_every_starting_pokemon(self):
+        labels = self._add_menu_labels(self.app.pets[0])
+        for key in sprites.base_species():
+            self.assertIn(sprites.POKEMON[key].name_ko, labels)
+
+    def test_menu_hides_evolved_pokemon(self):
+        """진화체는 진화로만 만날 수 있어야 한다."""
+        labels = self._add_menu_labels(self.app.pets[0])
+        for key in sprites.EVOLVED_ONLY:
+            self.assertNotIn(sprites.POKEMON[key].name_ko, labels)
 
     def test_autostart_is_safe_off_windows(self):
         # 윈도우가 아니면 등록되지 않고, 예외도 나지 않아야 한다.

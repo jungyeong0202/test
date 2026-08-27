@@ -27,7 +27,7 @@ import sys
 import tkinter as tk
 
 import settings as settings_file
-from sprites import POKEMON, validate_all
+from sprites import EVOLUTIONS, POKEMON, base_species, validate_all
 
 MIN_SPRITE_SCALE = 0.5  # 도트 하나가 이보다 작아지지는 않는다
 GRAVITY = 900.0        # 떨어지는 가속도(초당 픽셀^2)
@@ -51,6 +51,17 @@ FLOAT_STEP_SEC = 0.30          # 프레임 넘기는 간격
 FLOAT_TURN_CHANCE = 0.003      # 틱마다 이 확률로 방향을 바꾼다
 FLOAT_STOP_CHANCE = 0.004      # 틱마다 이 확률로 잠깐 멈춘다
 FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라간다
+
+# 진화. 쓰다듬은 만큼 친밀도가 차고, 다 차면 그 자리에서 진화한다.
+#
+# 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이 바뀌면
+# 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
+EVOLVE_NEED = 12.0          # 이만큼 채우면 진화한다
+EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
+EVOLVE_FLASHES = 7          # 두 모습을 번갈아 번쩍이는 횟수
+EVOLVE_FIRST_SEC = 0.30     # 처음 번쩍임 간격
+EVOLVE_LAST_SEC = 0.07      # 마지막 번쩍임 간격 (점점 빨라진다)
+EVOLVE_HOLD_SEC = 0.55      # 다 끝나고 새하얗게 머무는 시간
 SIZE_CHOICES = (("작게", 3.0), ("보통", 4.5), ("크게", 6.0), ("아주 크게", 9.0))
 EFFECT_GRAVITY = 260.0   # 먼지가 떨어지는 가속도
 DUST_LIFE = 0.40         # 먼지가 사라지기까지
@@ -255,8 +266,20 @@ class PokemonPet:
         self.scale = app.sprite_scale(pokemon)
 
         sample = self.images["right"][0]
-        self.width = sample.width()
-        self.height = sample.height()
+        self.own_width = sample.width()
+        self.own_height = sample.height()
+        # 진화하면 몸집이 달라진다. 번쩍이는 동안 잘리지 않도록 두 모습이
+        # 모두 들어갈 크기로 창을 잡아 둔다. 그림은 아래쪽에 맞춰 그리므로
+        # 창이 커져도 발은 바닥에 그대로 붙어 있다.
+        self.next_key = pokemon.evolves_to
+        self.width = self.own_width
+        self.height = self.own_height
+        if self.next_key:
+            after = app.get_images(POKEMON[self.next_key])["right"][0]
+            self.width = max(self.width, after.width())
+            self.height = max(self.height, after.height())
+        self.own_dx = (self.width - self.own_width) // 2
+        self.own_dy = self.height - self.own_height
         self.hop = max(1, int(round(self.scale)))  # 걸을 때 위아래로 흔들리는 폭
         # 먼지나 하트가 몸 밖으로 튀어나갈 자리를 창에 미리 마련해 둔다.
         self.dot = max(1, int(round(self.scale)))
@@ -282,8 +305,8 @@ class PokemonPet:
         )
         self.canvas.pack()
         self.sprite = self.canvas.create_image(
-            self.margin_x, self.margin_top + self.hop, anchor="nw",
-            image=self.images["right"][0],
+            self.margin_x + self.own_dx, self.margin_top + self.hop + self.own_dy,
+            anchor="nw", image=self.images["right"][0],
         )
 
         self.max_x = max(0, app.screen_width - self.window_width)
@@ -303,6 +326,11 @@ class PokemonPet:
         self.float_target = self.float_base
         self.float_timer = random.uniform(*FLOAT_RETARGET)
         self.float_phase = random.uniform(0.0, FLOAT_BOB_SEC)
+        self.friendship = 0.0      # 아껴 준 만큼 찬다. 다 차면 진화할 수 있다.
+        self.evolving = False
+        self.evolve_step = 0
+        self.evolve_timer = 0.0
+        self.white = None          # 진화할 때 쓰는 하얀 실루엣
         self.napping = False
         self.zzz_timer = 0.0
         self.blink_timer = random.uniform(*BLINK_EVERY)
@@ -341,15 +369,23 @@ class PokemonPet:
         menu = tk.Menu(self.window, tearoff=0)
 
         choose = tk.Menu(menu, tearoff=0)
-        for pokemon in POKEMON.values():
+        # 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
+        for key in base_species():
             choose.add_command(
-                label=pokemon.name_ko,
-                command=lambda key=pokemon.key: app.add_pet_and_save(key),
+                label=POKEMON[key].name_ko,
+                command=lambda key=key: app.add_pet_and_save(key),
             )
         choose.add_separator()
         choose.add_command(label="무작위", command=app.add_random_pet)
         menu.add_cascade(label="포켓몬 추가", menu=choose)
         menu.add_command(label="이 포켓몬 보내주기", command=self.release)
+
+        # 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
+        self.evolve_index = None
+        if self.next_key:
+            menu.add_command(label="", state="disabled")
+            self.evolve_index = menu.index("end")
+            menu.configure(postcommand=self.refresh_menu)
         menu.add_separator()
 
         sizes = tk.Menu(menu, tearoff=0)
@@ -393,6 +429,8 @@ class PokemonPet:
             self.window.focus_force()
         except tk.TclError:
             pass
+        if self.evolving:
+            return               # 진화하는 동안에는 건드릴 수 없다
         self.dragging = True
         self.drag_moved = False
         self.drag_start = (event.x_root, event.y_root)
@@ -435,13 +473,36 @@ class PokemonPet:
                 # 쓰다듬으면 기분 좋게 조금 더 떠오른다.
                 self.float_target = min(self.lift + FLOAT_NUDGE, self.ceiling())
                 self.float_timer = max(self.float_timer, 1.2)
-                self.spawn_emote("heart")
+                self.petted()
             return
         if self.drag_moved:
             self.vertical_speed = 0.0
         else:
             self.vertical_speed = JUMP_SPEED
-            self.spawn_emote("heart")
+            self.petted()
+
+    def petted(self):
+        """쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다.
+
+        다 채우면 그 자리에서 바로 진화가 시작된다.
+        """
+        self.spawn_emote("heart")
+        if not self.next_key or self.evolving:
+            return
+        self.friendship = min(EVOLVE_NEED, self.friendship + EVOLVE_PER_PET)
+        if self.can_evolve():
+            self.start_evolving()
+
+    def refresh_menu(self):
+        """메뉴를 열 때마다 진화 항목을 지금 상태로 고쳐 쓴다."""
+        if self.evolve_index is None:
+            return
+        name = POKEMON[self.next_key].name_ko
+        if self.evolving:
+            label = "진화하는 중..."
+        else:
+            label = "%s까지 %d번 더 쓰다듬기" % (name, self.pets_left())
+        self.menu.entryconfigure(self.evolve_index, label=label)
 
     def on_menu(self, event):
         try:
@@ -494,7 +555,12 @@ class PokemonPet:
             self.after_id = self.window.after(TICK_MS, self.tick)
             return
 
-        if self.app.paused:
+        if self.evolving:
+            # 진화하는 동안에는 제자리에서 번쩍이기만 한다.
+            if self.evolve_tick(dt):
+                self.app.finish_evolving(self)
+                return
+        elif self.app.paused:
             pass                     # 잠시 멈춤: 제자리에서 가만히
         elif self.move == "hop":
             self.hop_step(dt)
@@ -519,7 +585,8 @@ class PokemonPet:
                 self.set_state("walk")
 
         # 떠 있으면 중력으로 끌어내린다. 떠다니는 포켓몬은 예외다.
-        if self.move != "float" and (self.lift > 0 or self.vertical_speed != 0):
+        if (not self.evolving and self.move != "float"
+                and (self.lift > 0 or self.vertical_speed != 0)):
             self.vertical_speed -= GRAVITY * dt
             self.lift += self.vertical_speed * dt
             if self.lift <= 0:
@@ -653,6 +720,63 @@ class PokemonPet:
                     fill=effect["color"], outline="", tags="effect",
                 )
 
+    def evolution_images(self):
+        """진화할 때 번갈아 보여 줄 하얀 실루엣 둘.
+
+        지금 모습과 진화한 모습의 윤곽만 새하얗게 칠한 것이다. 한 창 안에서
+        번갈아 보여 주므로, 그림마다 가운데·아래에 맞춰 놓을 위치도 함께 준다.
+        """
+        if self.white is None:
+            after = self.app.get_white(POKEMON[self.next_key])
+            sample = after["right"]
+            self.white = [
+                (self.app.get_white(self.pokemon), self.own_dx, self.own_dy),
+                (after,
+                 (self.width - sample.width()) // 2,
+                 self.height - sample.height()),
+            ]
+        return self.white
+
+    def can_evolve(self):
+        """진화할 준비가 됐는지."""
+        return bool(self.next_key) and self.friendship >= EVOLVE_NEED
+
+    def pets_left(self):
+        """진화까지 몇 번 더 쓰다듬어야 하는지."""
+        return max(0, int(-(-(EVOLVE_NEED - self.friendship) // EVOLVE_PER_PET)))
+
+    def start_evolving(self):
+        """진화 연출을 시작한다. 끝나면 앱이 새 포켓몬으로 갈아 끼운다."""
+        if self.evolving or not self.next_key:
+            return
+        self.evolution_images()
+        self.evolving = True
+        self.evolve_step = 0
+        self.evolve_timer = EVOLVE_FIRST_SEC
+        self.dragging = False
+
+    def evolve_flash_seconds(self, step):
+        """번쩍임 간격. 갈수록 짧아져 점점 빨라진다.
+
+        EVOLVE_FLASHES 는 2 이상이어야 한다.
+        """
+        share = min(1.0, step / float(EVOLVE_FLASHES - 1))
+        return EVOLVE_FIRST_SEC + (EVOLVE_LAST_SEC - EVOLVE_FIRST_SEC) * share
+
+    def evolve_tick(self, dt):
+        """번쩍임을 한 칸 진행한다. 다 끝났으면 True."""
+        self.evolve_timer -= dt
+        if self.evolve_timer > 0:
+            return False
+        self.evolve_step += 1
+        if self.evolve_step > EVOLVE_FLASHES:
+            return True
+        if self.evolve_step == EVOLVE_FLASHES:
+            self.evolve_timer = EVOLVE_HOLD_SEC       # 마지막엔 새하얗게 머문다
+        else:
+            self.evolve_timer = self.evolve_flash_seconds(self.evolve_step)
+        return False
+
     def ceiling(self):
         """올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다."""
         return max(0.0, float(self.base_y))
@@ -777,6 +901,9 @@ class PokemonPet:
             pass
 
     def draw(self):
+        if self.evolving:
+            self.draw_evolving()
+            return
         facing = "right" if self.direction > 0 else "left"
         if self.dragging:
             frame = 0
@@ -805,7 +932,24 @@ class PokemonPet:
         # 들려 있으면 버둥거린다.
         sway = self.dot if (self.dragging and int(self.wiggle / WIGGLE_SEC) % 2) else 0
         self.canvas.coords(
-            self.sprite, self.margin_x + sway, self.margin_top + self.hop - bounce
+            self.sprite,
+            self.margin_x + self.own_dx + sway,
+            self.margin_top + self.hop + self.own_dy - bounce,
+        )
+        self.draw_effects()
+
+    def draw_evolving(self):
+        """진화 연출. 지금 모습과 진화한 모습을 번갈아 하얗게 보여 준다."""
+        before, after = self.evolution_images()
+        # 마지막 한 박자는 진화한 모습으로 새하얗게 머문다.
+        images, offset_x, offset_y = after if self.evolve_step % 2 else before
+        if self.evolve_step >= EVOLVE_FLASHES:
+            images, offset_x, offset_y = after
+        facing = "right" if self.direction > 0 else "left"
+        self.canvas.itemconfigure(self.sprite, image=images[facing])
+        self.canvas.coords(
+            self.sprite,
+            self.margin_x + offset_x, self.margin_top + self.hop + offset_y,
         )
         self.draw_effects()
 
@@ -833,6 +977,7 @@ class App:
             self.screen_height if args.on_taskbar else work_area_bottom(self.screen_height)
         )
         self.image_cache = {}
+        self.white_cache = {}
         self.pets = []
         self.quitting = False
         self.paused = False
@@ -906,6 +1051,23 @@ class App:
         """
         return max(MIN_SPRITE_SCALE, self.scale * pokemon.scale_factor)
 
+    def get_white(self, pokemon):
+        """진화할 때 쓰는 하얀 실루엣(캐시). 윤곽만 남기고 전부 하얗게 칠한다."""
+        if pokemon.key not in self.white_cache:
+            frame = pokemon.frames()[0]
+            shape = [
+                ["#ffffff" if cell else None for cell in row]
+                for row in frame
+            ]
+            scale = self.sprite_scale(pokemon)
+            self.white_cache[pokemon.key] = {
+                "right": make_photo(shape, scale, flip=flip_for(pokemon, True),
+                                    master=self.root),
+                "left": make_photo(shape, scale, flip=flip_for(pokemon, False),
+                                   master=self.root),
+            }
+        return self.white_cache[pokemon.key]
+
     def get_images(self, pokemon):
         """방향별 걷기 이미지(캐시)."""
         if pokemon.key not in self.image_cache:
@@ -934,13 +1096,32 @@ class App:
 
     def add_pet(self, key):
         self.pets.append(PokemonPet(self, POKEMON[key]))
+        return self.pets[-1]
+
+    def finish_evolving(self, pet):
+        """번쩍임이 끝났다. 같은 자리에 진화한 포켓몬을 놓는다."""
+        key = pet.next_key
+        if key is None:
+            return
+        where = pet.x
+        facing = pet.direction
+        index = self.pets.index(pet) if pet in self.pets else len(self.pets)
+        if pet in self.pets:
+            self.pets.remove(pet)
+        pet.destroy()
+        grown = PokemonPet(self, POKEMON[key])
+        grown.x = min(max(0, where), grown.max_x)
+        grown.direction = facing
+        grown.place()
+        self.pets.insert(index, grown)
+        self.save_settings()
 
     def add_pet_and_save(self, key):
         self.add_pet(key)
         self.save_settings()
 
     def add_random_pet(self):
-        self.add_pet_and_save(random.choice(list(POKEMON)))
+        self.add_pet_and_save(random.choice(base_species()))
 
     def remove_pet(self, pet):
         if pet in self.pets:
@@ -1065,11 +1246,11 @@ def parse_args(argv=None):
                 "모르는 포켓몬입니다: %s (가능: %s)" % (", ".join(unknown), ", ".join(POKEMON))
             )
         while len(args.species) < args.count:
-            args.species.append(random.choice(list(POKEMON)))
+            args.species.append(random.choice(base_species()))
     else:
         args.species = list(saved["species"])
         while len(args.species) < args.count:
-            args.species.append(random.choice(list(POKEMON)))
+            args.species.append(random.choice(base_species()))
         args.species = args.species[: max(1, args.count)]
     return args
 

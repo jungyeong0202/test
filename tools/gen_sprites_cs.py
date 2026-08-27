@@ -29,6 +29,7 @@ namespace PokemonTaskbar
         public bool FacesRight;   // 원본 그림이 오른쪽을 보고 있는지
         public bool Hops;         // 걷지 않고 폴짝 뛰어 다니는지
         public bool Floats;       // 바닥을 딛지 않고 공중에 떠다니는지
+        public string EvolvesTo;  // 진화하면 무엇이 되는지(키). 진화 안 하면 null
         public bool Bounce;       // 걸을 때 프로그램이 살짝 띄워 줄지
         public Dictionary<char, string> Palette;
         public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
@@ -54,6 +55,33 @@ FOOTER = """        };
             }
             return null;
         }
+
+        /// <summary>진화해야 만날 수 있는 포켓몬인지. 메뉴에는 넣지 않는다.</summary>
+        public static bool IsEvolvedOnly(string key)
+        {
+            foreach (PokemonSprite sprite in All)
+            {
+                if (sprite.EvolvesTo == key)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>처음부터 고를 수 있는 포켓몬들(진화체 제외).</summary>
+        public static List<PokemonSprite> BaseSpecies()
+        {
+            List<PokemonSprite> list = new List<PokemonSprite>();
+            foreach (PokemonSprite sprite in All)
+            {
+                if (!IsEvolvedOnly(sprite.Key))
+                {
+                    list.Add(sprite);
+                }
+            }
+            return list;
+        }
     }
 }
 """
@@ -74,6 +102,8 @@ def build():
                    % ("true" if pokemon.facing == "right" else "false"))
         out.append("                Hops = %s,\n" % ("true" if pokemon.move == "hop" else "false"))
         out.append("                Floats = %s,\n" % ("true" if pokemon.move == "float" else "false"))
+        out.append("                EvolvesTo = %s,\n" % (
+            ('"%s"' % pokemon.evolves_to) if pokemon.evolves_to else "null"))
         out.append("                Bounce = %s,\n" % ("true" if pokemon.bounce else "false"))
         out.append("                Palette = new Dictionary<char, string>\n                {\n")
         for char, color in pokemon.palette.items():

@@ -495,6 +495,17 @@ namespace PokemonTaskbar
         private const double FloatTurnChance = 0.003;
         private const double FloatStopChance = 0.004;
         private const double FloatNudge = 30.0;       // 쓰다듬으면 이만큼 위로
+
+        // 진화. 쓰다듬은 만큼 친밀도가 차고, 다 차면 그 자리에서 진화한다.
+        //
+        // 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이
+        // 바뀌면 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
+        private const double EvolveNeed = 12.0;        // 이만큼 채우면 진화한다
+        private const double EvolvePerPet = 1.0;       // 한 번 쓰다듬을 때마다
+        private const int EvolveFlashes = 7;           // 두 모습을 번갈아 번쩍이는 횟수
+        private const double EvolveFirstSeconds = 0.30;
+        private const double EvolveLastSeconds = 0.07; // 갈수록 빨라진다
+        private const double EvolveHoldSeconds = 0.55; // 끝에 새하얗게 머무는 시간
         private const double EffectGravity = 260.0;   // 먼지가 떨어지는 가속도
         private const double DustLife = 0.40;
         private const double EmoteLife = 0.90;
@@ -579,6 +590,19 @@ namespace PokemonTaskbar
         private bool walking = true;
         private readonly bool hops;
         private readonly bool floats;
+        private readonly string nextKey;      // 진화하면 무엇이 되는지
+        private double friendship;
+        private bool evolving;
+        private int evolveStep;
+        private double evolveTimer;
+        private Bitmap[][] whiteImages;       // [모습][방향] 하얀 실루엣
+        private int[] whiteOffsetX;
+        private int[] whiteOffsetY;
+        private readonly int ownWidth;
+        private readonly int ownHeight;
+        private readonly int ownOffsetX;
+        private readonly int ownOffsetY;
+        private ToolStripMenuItem evolveItem;
         private double floatBase;
         private double floatTarget;
         private double floatTimer;
@@ -627,8 +651,28 @@ namespace PokemonTaskbar
                     SpriteFactory.Render(pair.Value, scale, sprite.FacesRight);
             }
 
-            this.spriteWidth = this.images[0][0].Width;
-            this.spriteHeight = this.images[0][0].Height;
+            this.ownWidth = this.images[0][0].Width;
+            this.ownHeight = this.images[0][0].Height;
+            // 진화하면 몸집이 달라진다. 번쩍이는 동안 잘리지 않도록 두 모습이
+            // 모두 들어갈 크기로 창을 잡아 둔다. 그림은 아래쪽에 맞춰 그리므로
+            // 창이 커져도 발은 바닥에 그대로 붙어 있다.
+            this.nextKey = sprite.EvolvesTo;
+            this.spriteWidth = this.ownWidth;
+            this.spriteHeight = this.ownHeight;
+            if (this.nextKey != null)
+            {
+                // 굳이 그려 보지 않고 크기만 같은 규칙으로 계산한다.
+                PokemonSprite after = Sprites.Find(this.nextKey);
+                Color?[][] afterFrame = SpriteFactory.Frames(after)[0];
+                double afterScale = Math.Max(MinSpriteScale,
+                    world.Options.Scale * after.ScaleFactor);
+                this.spriteWidth = Math.Max(this.spriteWidth, Math.Max(1,
+                    (int)Math.Floor(afterFrame[0].Length * afterScale + 0.5)));
+                this.spriteHeight = Math.Max(this.spriteHeight, Math.Max(1,
+                    (int)Math.Floor(afterFrame.Length * afterScale + 0.5)));
+            }
+            this.ownOffsetX = (this.spriteWidth - this.ownWidth) / 2;
+            this.ownOffsetY = this.spriteHeight - this.ownHeight;
             this.hop = Math.Max(1, (int)Math.Round(scale));
             // 먼지나 하트가 몸 밖으로 튀어나갈 자리를 창에 미리 마련해 둔다.
             this.dot = Math.Max(1, (int)Math.Round(scale));
@@ -692,7 +736,8 @@ namespace PokemonTaskbar
             menu.Items.Clear();
 
             ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 추가");
-            foreach (PokemonSprite sprite in Sprites.All)
+            // 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
+            foreach (PokemonSprite sprite in Sprites.BaseSpecies())
             {
                 string key = sprite.Key;
                 add.DropDownItems.Add(sprite.NameKo, null, delegate { world.AddAndSave(key); });
@@ -702,6 +747,18 @@ namespace PokemonTaskbar
             menu.Items.Add(add);
 
             menu.Items.Add("이 포켓몬 보내주기", null, delegate { world.Remove(this); });
+
+            // 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
+            if (this.nextKey != null)
+            {
+                string name = Sprites.Find(this.nextKey).NameKo;
+                this.evolveItem = new ToolStripMenuItem();
+                this.evolveItem.Enabled = false;      // 진행 상황을 보여 주기만 한다
+                this.evolveItem.Text = this.evolving
+                    ? "진화하는 중..."
+                    : string.Format("{0}까지 {1}번 더 쓰다듬기", name, this.PetsLeft());
+                menu.Items.Add(this.evolveItem);
+            }
             menu.Items.Add(new ToolStripSeparator());
 
             ToolStripMenuItem sizes = new ToolStripMenuItem("크기");
@@ -759,6 +816,12 @@ namespace PokemonTaskbar
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            if (this.evolving)
+            {
+                this.PaintEvolving(e.Graphics);
+                return;
+            }
+
             int frame;
             if (this.dragging)
             {
@@ -803,12 +866,18 @@ namespace PokemonTaskbar
             int sway = (this.dragging && (int)(this.wiggle / WiggleSeconds) % 2 == 1)
                 ? this.dot : 0;
             e.Graphics.DrawImageUnscaled(
-                image, this.marginX + sway, this.marginTop + this.hop - bounce);
+                image,
+                this.marginX + this.ownOffsetX + sway,
+                this.marginTop + this.hop + this.ownOffsetY - bounce);
             this.PaintEffects(e.Graphics);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            if (this.evolving)
+            {
+                return;              // 진화하는 동안에는 건드릴 수 없다
+            }
             if (e.Button == MouseButtons.Left && !this.IsDisposed)
             {
                 // 누른 자리를 기억해 두고 끌기를 시작한다.
@@ -868,7 +937,7 @@ namespace PokemonTaskbar
                         // 쓰다듬으면 기분 좋게 조금 더 떠오른다.
                         this.floatTarget = Math.Min(this.lift + FloatNudge, this.Ceiling());
                         this.floatTimer = Math.Max(this.floatTimer, 1.2);
-                        this.SpawnEmote("heart");
+                        this.Petted();
                     }
                 }
                 else if (this.dragMoved)
@@ -878,7 +947,7 @@ namespace PokemonTaskbar
                 else
                 {
                     this.verticalSpeed = JumpSpeed;
-                    this.SpawnEmote("heart");
+                    this.Petted();
                 }
             }
             base.OnMouseUp(e);
@@ -901,7 +970,16 @@ namespace PokemonTaskbar
                 return;
             }
 
-            if (this.world.Paused)
+            if (this.evolving)
+            {
+                // 진화하는 동안에는 제자리에서 번쩍이기만 한다.
+                if (this.EvolveTick(dt))
+                {
+                    this.world.FinishEvolving(this);
+                    return;
+                }
+            }
+            else if (this.world.Paused)
             {
                 // 잠시 멈춤: 제자리에서 가만히
             }
@@ -959,7 +1037,8 @@ namespace PokemonTaskbar
             }
 
             // 떠 있으면 중력으로 끌어내린다. 떠다니는 포켓몬은 예외다.
-            if (!this.floats && (this.lift > 0 || this.verticalSpeed != 0))
+            if (!this.evolving && !this.floats
+                && (this.lift > 0 || this.verticalSpeed != 0))
             {
                 this.verticalSpeed -= Gravity * dt;
                 this.lift += this.verticalSpeed * dt;
@@ -1000,6 +1079,19 @@ namespace PokemonTaskbar
 
         /// <summary>어떤 포켓몬인지(설정 저장에 쓴다).</summary>
         public string SpriteKey { get; private set; }
+
+        /// <summary>진화하면 무엇이 되는지(키). 진화하지 않으면 null.</summary>
+        public string NextKey
+        {
+            get { return this.nextKey; }
+        }
+
+        /// <summary>보고 있는 방향. 진화한 뒤에도 그대로 이어받는다.</summary>
+        public int Facing
+        {
+            get { return this.direction; }
+            set { this.direction = value >= 0 ? 1 : -1; this.Invalidate(); }
+        }
 
         /// <summary>가로 위치. 크기를 바꿔 다시 만들 때 자리를 이어받는다.</summary>
         public double Position
@@ -1098,7 +1190,7 @@ namespace PokemonTaskbar
         /// <summary>지금 상황에 맞는 자세 이름. 없으면 null(평소 프레임).</summary>
         private string ChoosePose()
         {
-            if (this.dragging)
+            if (this.dragging || this.evolving)
             {
                 return null;
             }
@@ -1179,6 +1271,137 @@ namespace PokemonTaskbar
         ///
         /// 웅크렸다가(crouch) 튀어올라(air) 앞으로 나아가고, 착지해서 납작해졌다가
         /// (land) 잠시 쉰 뒤(rest) 다시 뛴다. 공중에 있는 동안에만 앞으로 간다.</summary>
+        /// <summary>진화할 때 번갈아 보여 줄 하얀 실루엣 둘.
+        ///
+        /// 지금 모습과 진화한 모습의 윤곽만 새하얗게 칠한 것이다. 한 창 안에서
+        /// 번갈아 보여 주므로, 그림마다 가운데·아래에 맞춰 놓을 위치도 함께 둔다.
+        /// </summary>
+        private void PrepareWhite()
+        {
+            if (this.whiteImages != null || this.nextKey == null)
+            {
+                return;
+            }
+            PokemonSprite before = Sprites.Find(this.SpriteKey);
+            PokemonSprite after = Sprites.Find(this.nextKey);
+            this.whiteImages = new Bitmap[2][];
+            this.whiteOffsetX = new int[2];
+            this.whiteOffsetY = new int[2];
+            PokemonSprite[] forms = { before, after };
+            for (int index = 0; index < 2; index++)
+            {
+                PokemonSprite form = forms[index];
+                double scale = Math.Max(MinSpriteScale,
+                    this.world.Options.Scale * form.ScaleFactor);
+                Color?[][] shape = Silhouette(SpriteFactory.Frames(form)[0]);
+                Bitmap right = SpriteFactory.Render(shape, scale, !form.FacesRight);
+                Bitmap left = SpriteFactory.Render(shape, scale, form.FacesRight);
+                this.whiteImages[index] = new Bitmap[] { right, left };
+                this.whiteOffsetX[index] = (this.spriteWidth - right.Width) / 2;
+                this.whiteOffsetY[index] = this.spriteHeight - right.Height;
+            }
+        }
+
+        /// <summary>윤곽만 남기고 전부 하얗게 칠한 도트.</summary>
+        private static Color?[][] Silhouette(Color?[][] grid)
+        {
+            Color?[][] shape = new Color?[grid.Length][];
+            for (int y = 0; y < grid.Length; y++)
+            {
+                shape[y] = new Color?[grid[y].Length];
+                for (int x = 0; x < grid[y].Length; x++)
+                {
+                    shape[y][x] = grid[y][x] == null ? (Color?)null : Color.White;
+                }
+            }
+            return shape;
+        }
+
+        /// <summary>진화할 준비가 됐는지.</summary>
+        public bool CanEvolve()
+        {
+            return this.nextKey != null && this.friendship >= EvolveNeed && !this.evolving;
+        }
+
+        /// <summary>진화까지 몇 번 더 쓰다듬어야 하는지.</summary>
+        public int PetsLeft()
+        {
+            double left = (EvolveNeed - this.friendship) / EvolvePerPet;
+            return Math.Max(0, (int)Math.Ceiling(left));
+        }
+
+        /// <summary>진화 연출을 시작한다. 끝나면 세계가 새 포켓몬으로 갈아 끼운다.</summary>
+        public void StartEvolving()
+        {
+            if (this.evolving || this.nextKey == null)
+            {
+                return;
+            }
+            this.PrepareWhite();
+            this.evolving = true;
+            this.evolveStep = 0;
+            this.evolveTimer = EvolveFirstSeconds;
+            this.dragging = false;
+        }
+
+        /// <summary>번쩍임 간격. 갈수록 짧아져 점점 빨라진다.
+        /// (EvolveFlashes 는 2 이상이어야 한다.)</summary>
+        public static double EvolveFlashSeconds(int step)
+        {
+            double share = Math.Min(1.0, step / (double)(EvolveFlashes - 1));
+            return EvolveFirstSeconds + (EvolveLastSeconds - EvolveFirstSeconds) * share;
+        }
+
+        /// <summary>번쩍임을 한 칸 진행한다. 다 끝났으면 true.</summary>
+        private bool EvolveTick(double dt)
+        {
+            this.evolveTimer -= dt;
+            if (this.evolveTimer > 0)
+            {
+                return false;
+            }
+            this.evolveStep++;
+            if (this.evolveStep > EvolveFlashes)
+            {
+                return true;
+            }
+            this.evolveTimer = this.evolveStep == EvolveFlashes
+                ? EvolveHoldSeconds          // 마지막엔 새하얗게 머문다
+                : EvolveFlashSeconds(this.evolveStep);
+            return false;
+        }
+
+        /// <summary>진화 연출. 지금 모습과 진화한 모습을 번갈아 하얗게 보여 준다.</summary>
+        private void PaintEvolving(Graphics graphics)
+        {
+            // 마지막 한 박자는 진화한 모습으로 새하얗게 머문다.
+            int form = (this.evolveStep % 2 != 0 || this.evolveStep >= EvolveFlashes) ? 1 : 0;
+            int side = this.direction > 0 ? 0 : 1;
+            graphics.DrawImageUnscaled(
+                this.whiteImages[form][side],
+                this.marginX + this.whiteOffsetX[form],
+                this.marginTop + this.hop + this.whiteOffsetY[form]);
+            this.PaintEffects(graphics);
+        }
+
+        /// <summary>쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다.
+        ///
+        /// 다 채우면 그 자리에서 바로 진화가 시작된다.
+        /// </summary>
+        private void Petted()
+        {
+            this.SpawnEmote("heart");
+            if (this.nextKey == null || this.evolving)
+            {
+                return;
+            }
+            this.friendship = Math.Min(EvolveNeed, this.friendship + EvolvePerPet);
+            if (this.CanEvolve())
+            {
+                this.StartEvolving();
+            }
+        }
+
         /// <summary>올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다.</summary>
         private double Ceiling()
         {
@@ -1466,7 +1689,7 @@ namespace PokemonTaskbar
             menu.Items.Clear();
 
             ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 추가");
-            foreach (PokemonSprite sprite in Sprites.All)
+            foreach (PokemonSprite sprite in Sprites.BaseSpecies())
             {
                 string key = sprite.Key;
                 add.DropDownItems.Add(sprite.NameKo, null, delegate { this.AddAndSave(key); });
@@ -1516,7 +1739,8 @@ namespace PokemonTaskbar
 
         public void AddRandom()
         {
-            this.AddAndSave(Sprites.All[this.Random.Next(Sprites.All.Count)].Key);
+            List<PokemonSprite> choices = Sprites.BaseSpecies();
+            this.AddAndSave(choices[this.Random.Next(choices.Count)].Key);
         }
 
         /// <summary>포켓몬을 한 마리 늘리고 설정에 남긴다.</summary>
@@ -1591,6 +1815,37 @@ namespace PokemonTaskbar
                 this.Add(keys[i]);
                 this.pets[this.pets.Count - 1].Position = places[i];
             }
+            this.SaveSettings();
+        }
+
+        /// <summary>번쩍임이 끝났다. 같은 자리에 진화한 포켓몬을 놓는다.</summary>
+        public void FinishEvolving(PetForm pet)
+        {
+            string key = pet.NextKey;
+            if (key == null || Sprites.Find(key) == null)
+            {
+                return;
+            }
+            double where = pet.Position;
+            int facing = pet.Facing;
+            int index = this.pets.IndexOf(pet);
+
+            this.rebuilding = true;       // 마지막 한 마리여도 프로그램이 끝나지 않게
+            pet.Close();
+            this.pets.Remove(pet);
+            this.rebuilding = false;
+
+            PetForm grown = new PetForm(this, Sprites.Find(key));
+            grown.FormClosed += delegate { this.Forget(grown); };
+            if (index < 0 || index > this.pets.Count)
+            {
+                index = this.pets.Count;
+            }
+            this.pets.Insert(index, grown);
+            grown.Show();
+            grown.Position = where;
+            grown.Facing = facing;
+            Log.Write("  " + key + ": 진화해서 나타남 " + grown.Bounds);
             this.SaveSettings();
         }
 
@@ -1749,9 +2004,11 @@ namespace PokemonTaskbar
                 options.Species.Add("pikachu");
             }
             Random random = new Random();
+            // 진화해야 만날 수 있는 포켓몬은 무작위로 나눠 주지 않는다.
+            List<PokemonSprite> choices = Sprites.BaseSpecies();
             while (options.Species.Count < options.Count)
             {
-                options.Species.Add(Sprites.All[random.Next(Sprites.All.Count)].Key);
+                options.Species.Add(choices[random.Next(choices.Count)].Key);
             }
             if (options.Count > 0 && options.Species.Count > options.Count)
             {

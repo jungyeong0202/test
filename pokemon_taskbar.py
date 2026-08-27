@@ -39,6 +39,12 @@ HOP_LAND_SEC = 0.10    # 착지하고 납작해져 있는 시간
 HOP_REST = (0.10, 0.45)  # 다음 점프까지 쉬는 시간
 HOP_BOOST = 2.0        # 공중에서만 나아가므로 걷기보다 빠르게
 HOP_TURN_CHANCE = 0.12  # 착지할 때마다 이 확률로 방향을 바꾼다
+# 걷는 포켓몬은 가끔 제자리에서 두 번 폴짝 뛰며 장난을 친다.
+PLAY_CHANCE = 0.28
+PLAY_HOPS = 2
+PLAY_HOP_SPEED = 145.0
+PLAY_WAIT_SEC = 0.12
+PLAY_TURN_CHANCE = 0.45
 
 # 공중에 떠다니는 포켓몬(뮤). 바닥을 딛지 않는다.
 FLOAT_HEIGHT = (26.0, 120.0)   # 바닥에서 떠 있는 높이 범위(px)
@@ -320,6 +326,7 @@ class PokemonPet:
         self.move = pokemon.move
         self.state = "walk"
         self.state_left = 0.0
+        self.play_hops = 0
         self.hop_state = "rest"
         self.hop_timer = random.uniform(*HOP_REST)
         self.float_base = self.pick_float_height()
@@ -431,6 +438,9 @@ class PokemonPet:
             pass
         if self.evolving:
             return               # 진화하는 동안에는 건드릴 수 없다
+        # 낮잠이나 장난 중에도 손에 들면 바로 평소 상태로 돌아온다.
+        if self.move == "walk":
+            self.set_state("walk")
         self.dragging = True
         self.drag_moved = False
         self.drag_start = (event.x_root, event.y_root)
@@ -540,6 +550,33 @@ class PokemonPet:
             else:
                 self.state_left = random.uniform(0.8, 3.0)
 
+    def start_playing(self):
+        """걷는 포켓몬이 가끔 하는 짧은 제자리 점프 놀이를 시작한다."""
+        self.state = "play_wait"
+        self.state_left = PLAY_WAIT_SEC
+        self.play_hops = 0
+        self.napping = False
+
+    def play_step(self, dt):
+        """잠깐 뜸을 들인 뒤 두 번 폴짝 뛰고 다시 걷는다."""
+        if self.state == "play_air":
+            if self.lift > 0:
+                return
+            if self.play_hops >= PLAY_HOPS:
+                self.set_state("walk")
+                return
+            self.state = "play_wait"
+            self.state_left = PLAY_WAIT_SEC
+            if random.random() < PLAY_TURN_CHANCE:
+                self.direction = -self.direction
+            return
+
+        self.state_left -= dt
+        if self.state_left <= 0:
+            self.play_hops += 1
+            self.vertical_speed = PLAY_HOP_SPEED
+            self.state = "play_air"
+
     def tick(self):
         if self.state == "gone":
             return
@@ -566,6 +603,8 @@ class PokemonPet:
             self.hop_step(dt)
         elif self.move == "float":
             self.float_step(dt)
+        elif self.state.startswith("play_"):
+            self.play_step(dt)
         elif self.state == "walk":
             self.anim_time += dt
             self.x += self.direction * self.speed * dt
@@ -578,7 +617,10 @@ class PokemonPet:
             elif random.random() < 0.004:
                 self.direction = -self.direction
             if random.random() < 0.005:
-                self.set_state("idle")
+                if random.random() < PLAY_CHANCE:
+                    self.start_playing()
+                else:
+                    self.set_state("idle")
         else:
             self.state_left -= dt
             if self.state_left <= 0:

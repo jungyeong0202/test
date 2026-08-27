@@ -401,6 +401,24 @@ class PetMovementTest(unittest.TestCase):
         self._pump(0.3)
         self.assertEqual(pet.state, "walk")
 
+    def test_playful_hops_return_to_walking(self):
+        pet = self.app.pets[0]
+        pet.start_playing()
+        pet.state_left = 0.0
+        pet.tick()
+        self.assertEqual(pet.state, "play_air")
+        self.assertGreater(pet.lift, 0)
+
+        # 두 번의 짧은 점프가 끝나면 다시 걷는다.
+        for _ in range(pt.PLAY_HOPS):
+            pet.lift = 0.0
+            pet.vertical_speed = 0.0
+            pet.tick()
+            if pet.state == "play_wait":
+                pet.state_left = 0.0
+                pet.tick()
+        self.assertEqual(pet.state, "walk")
+
     def test_release_removes_the_pet(self):
         self.app.add_pet("squirtle")
         pet = self.app.pets[0]

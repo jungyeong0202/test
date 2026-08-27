@@ -482,6 +482,12 @@ namespace PokemonTaskbar
         private const double HopRestMax = 0.45;
         private const double HopBoost = 2.0;       // 공중에서만 나아가므로 걷기보다 빠르게
         private const double HopTurnChance = 0.12; // 착지할 때마다 이 확률로 방향을 바꾼다
+        // 걷는 포켓몬은 가끔 제자리에서 두 번 폴짝 뛰며 장난을 친다.
+        private const double PlayChance = 0.28;
+        private const int PlayHops = 2;
+        private const double PlayHopSpeed = 145.0;
+        private const double PlayWaitSeconds = 0.12;
+        private const double PlayTurnChance = 0.45;
         // 공중에 떠다니는 포켓몬(뮤). 바닥을 딛지 않는다.
         private const double FloatHeightMin = 26.0;   // 바닥에서 떠 있는 높이 범위(px)
         private const double FloatHeightMax = 120.0;
@@ -611,6 +617,9 @@ namespace PokemonTaskbar
         private string hopState = "rest";
         private double hopTimer;
         private double idleLeft;
+        private string playState;
+        private double playLeft;
+        private int playHops;
         private double animTime;
         private double lift;               // 바닥에서 떠 있는 높이(px)
         private double verticalSpeed;
@@ -881,6 +890,13 @@ namespace PokemonTaskbar
             if (e.Button == MouseButtons.Left && !this.IsDisposed)
             {
                 // 누른 자리를 기억해 두고 끌기를 시작한다.
+                // 낮잠이나 장난 중에도 손에 들면 바로 평소 상태로 돌아온다.
+                if (!this.hops && !this.floats)
+                {
+                    this.walking = true;
+                    this.napping = false;
+                    this.playState = null;
+                }
                 this.dragging = true;
                 this.dragMoved = false;
                 this.dragStart = Control.MousePosition;
@@ -991,6 +1007,10 @@ namespace PokemonTaskbar
             {
                 this.FloatStep(dt);
             }
+            else if (this.playState != null)
+            {
+                this.PlayStep(dt);
+            }
             else if (this.walking)
             {
                 this.animTime += dt;
@@ -1012,17 +1032,24 @@ namespace PokemonTaskbar
 
                 if (this.random.NextDouble() < 0.005)
                 {
-                    this.walking = false;
-                    if (this.random.NextDouble() < NapChance)
+                    if (this.random.NextDouble() < PlayChance)
                     {
-                        // 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
-                        this.idleLeft = 4.0 + this.random.NextDouble() * 5.0;
-                        this.napping = true;
-                        this.zzzTimer = 0.35;
+                        this.StartPlaying();
                     }
                     else
                     {
-                        this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                        this.walking = false;
+                        if (this.random.NextDouble() < NapChance)
+                        {
+                            // 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
+                            this.idleLeft = 4.0 + this.random.NextDouble() * 5.0;
+                            this.napping = true;
+                            this.zzzTimer = 0.35;
+                        }
+                        else
+                        {
+                            this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                        }
                     }
                 }
             }
@@ -1484,6 +1511,49 @@ namespace PokemonTaskbar
             double bob = Math.Sin(this.floatPhase / FloatBobSeconds * 2.0 * Math.PI);
             double wanted = this.floatBase + bob * this.dot * FloatBobDots;
             this.lift = Math.Min(Math.Max(0.0, wanted), this.Ceiling());
+        }
+
+        /// <summary>걷는 포켓몬이 가끔 하는 짧은 제자리 점프 놀이를 시작한다.</summary>
+        private void StartPlaying()
+        {
+            this.walking = false;
+            this.napping = false;
+            this.playState = "wait";
+            this.playLeft = PlayWaitSeconds;
+            this.playHops = 0;
+        }
+
+        /// <summary>잠깐 뜸을 들인 뒤 두 번 폴짝 뛰고 다시 걷는다.</summary>
+        private void PlayStep(double dt)
+        {
+            if (this.playState == "air")
+            {
+                if (this.lift > 0)
+                {
+                    return;
+                }
+                if (this.playHops >= PlayHops)
+                {
+                    this.playState = null;
+                    this.walking = true;
+                    return;
+                }
+                this.playState = "wait";
+                this.playLeft = PlayWaitSeconds;
+                if (this.random.NextDouble() < PlayTurnChance)
+                {
+                    this.direction = -this.direction;
+                }
+                return;
+            }
+
+            this.playLeft -= dt;
+            if (this.playLeft <= 0)
+            {
+                this.playHops++;
+                this.verticalSpeed = PlayHopSpeed;
+                this.playState = "air";
+            }
         }
 
         private void HopStep(double dt)

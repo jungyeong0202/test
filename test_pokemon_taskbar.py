@@ -880,6 +880,22 @@ class EvolutionTest(unittest.TestCase):
             self.app.update_market()
         self.assertEqual(self.app.stock_prices, [100, 1600, 2500])
 
+    def test_stock_history_keeps_the_latest_twenty_prices(self):
+        with mock.patch("pokemon_taskbar.random.choice", return_value=100):
+            for _ in range(24):
+                self.app.update_market()
+        self.assertEqual(len(self.app.stock_history[0]), 20)
+        self.assertGreater(self.app.stock_history[0][-1], self.app.stock_history[0][0])
+
+    def test_stock_market_opens_in_its_own_overlay(self):
+        self.app.open_stock_overlay()
+        overlay = self.app.stock_overlay
+        self.assertIsNotNone(overlay)
+        self.assertTrue(overlay.window.winfo_exists())
+        self.assertTrue(overlay.rows[0][1].find_all(), "그래프가 그려지지 않습니다")
+        overlay.close()
+        self.assertIsNone(self.app.stock_overlay)
+
     def test_start_evolving_rejects_unmet_conditions(self):
         self.pet.start_evolving()
         self.assertFalse(self.pet.evolving)

@@ -536,18 +536,7 @@ class PokemonPet:
         menu.add_command(label="", command=lambda: app.feed_pet(self))
         self.feed_index = menu.index("end")
 
-        market = pokemon_menu(menu)
-        market.add_command(label="20초마다 가격 변동", state="disabled")
-        self.stock_indices = []
-        for index, _name in enumerate(STOCK_NAMES):
-            market.add_command(label="", command=lambda index=index: app.buy_stock(index))
-            buy_index = market.index("end")
-            market.add_command(label="", command=lambda index=index: app.sell_stock(index))
-            sell_index = market.index("end")
-            self.stock_indices.append((buy_index, sell_index))
-        menu.add_cascade(label="주식시장", menu=market)
-        self.market_index = menu.index("end")
-        self.market_menu = market
+        menu.add_command(label="주식시장 열기", command=app.open_stock_overlay)
 
         # 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
         self.evolve_index = None
@@ -695,18 +684,6 @@ class PokemonPet:
             self.random_purchase_index, label="무작위 — %s" % format_won(POKEMON_PRICE),
             state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
         )
-        for index, (buy_index, sell_index) in enumerate(self.stock_indices):
-            name = STOCK_NAMES[index]
-            price = self.app.stock_prices[index]
-            shares = self.app.stock_shares[index]
-            self.market_menu.entryconfigure(
-                buy_index, label="%s 1주 매수 — %s (보유 %d주)" % (name, format_won(price), shares),
-                state="normal" if self.app.coins >= price else "disabled",
-            )
-            self.market_menu.entryconfigure(
-                sell_index, label="%s 1주 매도 — %s (보유 %d주)" % (name, format_won(price), shares),
-                state="normal" if shares else "disabled",
-            )
         if self.evolve_index is None:
             return
         name = POKEMON[self.next_key].name_ko
@@ -1384,6 +1361,129 @@ class PokemonPet:
         self.window.geometry("+%d+%d" % (int(self.x), y))
 
 
+class StockOverlay:
+    """주가·보유량·최근 가격 그래프를 한 창에 보여 주는 오버레이."""
+
+    def __init__(self, app):
+        self.app = app
+        self.window = tk.Toplevel(app.root)
+        self.window.overrideredirect(True)
+        self.window.wm_attributes("-topmost", True)
+        self.window.configure(bg=MENU_RED, padx=3, pady=3)
+        self.window.geometry("460x450+%d+%d" % (
+            (app.screen_width - 460) // 2, max(20, (app.screen_height - 450) // 3)
+        ))
+
+        body = tk.Frame(self.window, bg=MENU_CREAM)
+        body.pack(fill="both", expand=True)
+        title = tk.Frame(body, bg=MENU_RED, height=48)
+        title.pack(fill="x")
+        tk.Label(
+            title, text="●  포켓몬 주식시장  ●", bg=MENU_RED, fg="white",
+            font=("Malgun Gothic", 13, "bold"), pady=9,
+        ).pack(side="left", padx=14)
+        tk.Button(
+            title, text="×", command=self.close, bg=MENU_RED, fg="white",
+            activebackground="#aa2028", activeforeground="white", bd=0,
+            font=("Malgun Gothic", 14, "bold"), cursor="hand2",
+        ).pack(side="right", padx=10)
+
+        self.balance = tk.Label(
+            body, bg=MENU_CREAM, fg=MENU_DARK, anchor="w",
+            font=("Malgun Gothic", 11, "bold"), padx=16, pady=8,
+        )
+        self.balance.pack(fill="x")
+        self.rows = []
+        for index, name in enumerate(STOCK_NAMES):
+            card = tk.Frame(body, bg="#fffdf7", highlightbackground="#d9ad74",
+                            highlightthickness=1)
+            card.pack(fill="x", padx=12, pady=4)
+            info = tk.Frame(card, bg="#fffdf7")
+            info.pack(fill="x", padx=8, pady=(5, 0))
+            tk.Label(
+                info, text=name, bg="#fffdf7", fg=MENU_DARK,
+                font=("Malgun Gothic", 10, "bold"),
+            ).pack(side="left")
+            price = tk.Label(info, bg="#fffdf7", fg=MENU_RED,
+                             font=("Malgun Gothic", 10, "bold"))
+            price.pack(side="right")
+            graph = tk.Canvas(card, width=250, height=55, bg="#fffdf7",
+                              highlightthickness=0)
+            graph.pack(side="left", padx=(8, 4), pady=(1, 7))
+            buttons = tk.Frame(card, bg="#fffdf7")
+            buttons.pack(side="right", padx=(0, 8), pady=(1, 7))
+            buy = self.make_button(buttons, "매수", MENU_RED,
+                                   lambda index=index: self.trade(index, True))
+            buy.pack(fill="x", pady=(0, 3))
+            sell = self.make_button(buttons, "매도", "#3a81c7",
+                                    lambda index=index: self.trade(index, False))
+            sell.pack(fill="x")
+            self.rows.append((price, graph, buy, sell))
+
+        tk.Label(
+            body, text="가격은 20초마다 변동합니다", bg=MENU_CREAM,
+            fg=MENU_DISABLED, font=("Malgun Gothic", 9), pady=4,
+        ).pack()
+        self.window.bind("<Escape>", lambda _event: self.close())
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.refresh()
+
+    @staticmethod
+    def make_button(parent, label, color, command):
+        return tk.Button(
+            parent, text=label, command=command, bg=color, fg="white",
+            activebackground=color, activeforeground="white", bd=0,
+            padx=10, pady=2, font=("Malgun Gothic", 9, "bold"), cursor="hand2",
+        )
+
+    def trade(self, index, buying):
+        if buying:
+            self.app.buy_stock(index)
+        else:
+            self.app.sell_stock(index)
+
+    @staticmethod
+    def draw_graph(canvas, values):
+        """최근 가격을 카드 안에 작은 선 그래프로 그린다."""
+        canvas.delete("all")
+        width = int(canvas.cget("width"))
+        height = int(canvas.cget("height"))
+        low, high = min(values), max(values)
+        spread = max(100, high - low)
+        for share in (0.25, 0.5, 0.75):
+            y = int(height * share)
+            canvas.create_line(0, y, width, y, fill="#f0dfc4")
+        points = []
+        for index, value in enumerate(values):
+            x = 4 if len(values) == 1 else 4 + (width - 8) * index / (len(values) - 1)
+            y = height - 5 - (height - 10) * (value - low) / spread
+            points.extend((x, y))
+        colour = "#2f9b67" if values[-1] >= values[0] else MENU_RED
+        if len(points) >= 4:
+            canvas.create_line(*points, fill=colour, width=3, smooth=True)
+        canvas.create_oval(points[-2] - 3, points[-1] - 3,
+                           points[-2] + 3, points[-1] + 3,
+                           fill=colour, outline=colour)
+
+    def refresh(self):
+        self.balance.configure(text="보유금  %s" % format_won(self.app.coins))
+        for index, (price_label, graph, buy, sell) in enumerate(self.rows):
+            price = self.app.stock_prices[index]
+            shares = self.app.stock_shares[index]
+            price_label.configure(text="%s  ·  보유 %d주" % (format_won(price), shares))
+            buy.configure(state="normal" if self.app.coins >= price else "disabled")
+            sell.configure(state="normal" if shares else "disabled")
+            self.draw_graph(graph, self.app.stock_history[index])
+
+    def close(self):
+        if self.app.stock_overlay is self:
+            self.app.stock_overlay = None
+        try:
+            self.window.destroy()
+        except tk.TclError:
+            pass
+
+
 class App:
     """펫 여러 마리를 관리하는 본체."""
 
@@ -1414,6 +1514,8 @@ class App:
         self.growth_drops = args.growth_drops
         self.stock_prices = list(args.stock_prices)
         self.stock_shares = list(args.stock_shares)
+        self.stock_history = [[price] for price in self.stock_prices]
+        self.stock_overlay = None
         self.market_seconds = 0.0
         self.coin_walk_progress = 0.0
         # 메뉴의 체크/선택 표시를 여러 창이 함께 쓰도록 앱이 들고 있는다.
@@ -1497,6 +1599,7 @@ class App:
         self.coins -= price
         self.stock_shares[index] += 1
         self.save_settings()
+        self.refresh_stock_overlay()
 
     def sell_stock(self, index):
         """현재 가격으로 가상 주식 한 주를 판다."""
@@ -1505,6 +1608,7 @@ class App:
         self.stock_shares[index] -= 1
         self.coins += self.stock_prices[index]
         self.save_settings()
+        self.refresh_stock_overlay()
 
     def update_market(self):
         """세 종목의 가상 가격을 조금씩 흔들고 저장한다."""
@@ -1512,7 +1616,33 @@ class App:
             max(100, price + random.choice((-200, -100, 0, 100, 200)))
             for price in self.stock_prices
         ]
+        for index, price in enumerate(self.stock_prices):
+            self.stock_history[index].append(price)
+            self.stock_history[index] = self.stock_history[index][-20:]
         self.save_settings()
+        self.refresh_stock_overlay()
+
+    def open_stock_overlay(self):
+        """주식시장 오버레이를 하나만 열고, 이미 열려 있으면 앞으로 가져온다."""
+        if self.stock_overlay is not None:
+            try:
+                self.stock_overlay.window.deiconify()
+                self.stock_overlay.window.lift()
+                self.stock_overlay.window.focus_force()
+                self.stock_overlay.refresh()
+                return
+            except tk.TclError:
+                self.stock_overlay = None
+        self.stock_overlay = StockOverlay(self)
+
+    def refresh_stock_overlay(self):
+        """열려 있는 주식시장에 최신 가격과 보유량을 반영한다."""
+        if self.stock_overlay is None:
+            return
+        try:
+            self.stock_overlay.refresh()
+        except tk.TclError:
+            self.stock_overlay = None
 
     def set_scale(self, scale):
         """크기를 바꾸고 지금 있는 포켓몬을 그대로 다시 만든다."""
@@ -1681,6 +1811,8 @@ class App:
         if self.quitting:
             return
         self.quitting = True
+        if self.stock_overlay is not None:
+            self.stock_overlay.close()
         for pet in list(self.pets):
             pet.destroy()
         self.pets.clear()

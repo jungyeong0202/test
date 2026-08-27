@@ -1058,30 +1058,7 @@ namespace PokemonTaskbar
             feed.Enabled = world.Options.Food > 0 && !this.evolving;
             menu.Items.Add(feed);
 
-            ToolStripMenuItem market = new ToolStripMenuItem("주식시장");
-            ToolStripMenuItem marketInfo = new ToolStripMenuItem("20초마다 가격 변동");
-            marketInfo.Enabled = false;
-            market.DropDownItems.Add(marketInfo);
-            for (int i = 0; i < PetWorld.StockNames.Length; i++)
-            {
-                int index = i;
-                string name = PetWorld.StockNames[index];
-                int price = world.Options.StockPrices[index];
-                int shares = world.Options.StockShares[index];
-                ToolStripMenuItem buy = new ToolStripMenuItem(
-                    string.Format("{0} 1주 매수 — {1} (보유 {2}주)", name,
-                        PetWorld.FormatWon(price), shares), null,
-                    delegate { world.BuyStock(index); });
-                buy.Enabled = world.Options.Coins >= price;
-                market.DropDownItems.Add(buy);
-                ToolStripMenuItem sell = new ToolStripMenuItem(
-                    string.Format("{0} 1주 매도 — {1} (보유 {2}주)", name,
-                        PetWorld.FormatWon(price), shares), null,
-                    delegate { world.SellStock(index); });
-                sell.Enabled = shares > 0;
-                market.DropDownItems.Add(sell);
-            }
-            menu.Items.Add(market);
+            menu.Items.Add("주식시장 열기", null, delegate { world.OpenStockOverlay(); });
 
             // 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
             if (this.nextKey != null)
@@ -2331,6 +2308,209 @@ namespace PokemonTaskbar
         }
     }
 
+    /// <summary>최근 주가를 작은 선 그래프로 보여 준다.</summary>
+    public class StockGraph : Panel
+    {
+        private int[] values = { 1 };
+
+        public StockGraph()
+        {
+            this.DoubleBuffered = true;
+            this.BackColor = Color.FromArgb(255, 253, 247);
+        }
+
+        public void SetValues(int[] source)
+        {
+            this.values = source == null || source.Length == 0 ? new int[] { 1 } : source;
+            this.Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            int low = this.values[0];
+            int high = this.values[0];
+            for (int i = 1; i < this.values.Length; i++)
+            {
+                low = Math.Min(low, this.values[i]);
+                high = Math.Max(high, this.values[i]);
+            }
+            int spread = Math.Max(100, high - low);
+            using (Pen grid = new Pen(Color.FromArgb(240, 223, 196)))
+            {
+                for (int i = 1; i < 4; i++)
+                {
+                    int y = this.Height * i / 4;
+                    e.Graphics.DrawLine(grid, 0, y, this.Width, y);
+                }
+            }
+            Point[] points = new Point[this.values.Length];
+            for (int i = 0; i < this.values.Length; i++)
+            {
+                int x = this.values.Length == 1 ? 4
+                    : 4 + (this.Width - 8) * i / (this.values.Length - 1);
+                int y = this.Height - 5 - (this.Height - 10) * (this.values[i] - low) / spread;
+                points[i] = new Point(x, y);
+            }
+            Color line = this.values[this.values.Length - 1] >= this.values[0]
+                ? Color.FromArgb(47, 155, 103) : Color.FromArgb(217, 52, 59);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (Pen pen = new Pen(line, 3))
+            {
+                if (points.Length > 1)
+                {
+                    e.Graphics.DrawLines(pen, points);
+                }
+            }
+            using (SolidBrush brush = new SolidBrush(line))
+            {
+                Point last = points[points.Length - 1];
+                e.Graphics.FillEllipse(brush, last.X - 3, last.Y - 3, 6, 6);
+            }
+        }
+    }
+
+    /// <summary>주식 거래와 최근 가격 흐름을 보여 주는 포켓몬풍 오버레이.</summary>
+    public class StockOverlayForm : Form
+    {
+        private readonly PetWorld world;
+        private readonly Label balance;
+        private readonly Label[] prices = new Label[3];
+        private readonly Button[] buys = new Button[3];
+        private readonly Button[] sells = new Button[3];
+        private readonly StockGraph[] graphs = new StockGraph[3];
+
+        public StockOverlayForm(PetWorld world)
+        {
+            this.world = world;
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.ShowInTaskbar = false;
+            this.TopMost = true;
+            this.BackColor = Color.FromArgb(217, 52, 59);
+            this.Padding = new Padding(3);
+            this.ClientSize = new Size(470, 440);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            Panel body = new Panel();
+            body.BackColor = Color.FromArgb(255, 247, 230);
+            body.Dock = DockStyle.Fill;
+            this.Controls.Add(body);
+
+            Panel header = new Panel();
+            header.BackColor = Color.FromArgb(217, 52, 59);
+            header.Location = new Point(0, 0);
+            header.Size = new Size(464, 48);
+            body.Controls.Add(header);
+            Label title = new Label();
+            title.Text = "●  포켓몬 주식시장  ●";
+            title.ForeColor = Color.White;
+            title.BackColor = header.BackColor;
+            title.Font = new Font("Malgun Gothic", 13.0f, FontStyle.Bold);
+            title.AutoSize = true;
+            title.Location = new Point(14, 10);
+            header.Controls.Add(title);
+            Button close = new Button();
+            close.Text = "×";
+            close.FlatStyle = FlatStyle.Flat;
+            close.FlatAppearance.BorderSize = 0;
+            close.BackColor = header.BackColor;
+            close.ForeColor = Color.White;
+            close.Font = new Font("Malgun Gothic", 13.0f, FontStyle.Bold);
+            close.Location = new Point(420, 4);
+            close.Size = new Size(36, 36);
+            close.Click += delegate { this.Close(); };
+            header.Controls.Add(close);
+
+            this.balance = new Label();
+            this.balance.ForeColor = Color.FromArgb(58, 45, 38);
+            this.balance.BackColor = body.BackColor;
+            this.balance.Font = new Font("Malgun Gothic", 11.0f, FontStyle.Bold);
+            this.balance.Location = new Point(15, 54);
+            this.balance.Size = new Size(430, 25);
+            body.Controls.Add(this.balance);
+
+            for (int i = 0; i < PetWorld.StockNames.Length; i++)
+            {
+                this.CreateStockCard(body, i, 82 + i * 103);
+            }
+            Label notice = new Label();
+            notice.Text = "가격은 20초마다 변동합니다";
+            notice.ForeColor = Color.FromArgb(168, 145, 125);
+            notice.BackColor = body.BackColor;
+            notice.Font = new Font("Malgun Gothic", 9.0f);
+            notice.AutoSize = true;
+            notice.Location = new Point(150, 402);
+            body.Controls.Add(notice);
+            this.RefreshMarket();
+        }
+
+        private void CreateStockCard(Panel parent, int index, int top)
+        {
+            Panel card = new Panel();
+            card.BackColor = Color.FromArgb(255, 253, 247);
+            card.BorderStyle = BorderStyle.FixedSingle;
+            card.Location = new Point(12, top);
+            card.Size = new Size(440, 96);
+            parent.Controls.Add(card);
+            Label name = new Label();
+            name.Text = PetWorld.StockNames[index];
+            name.ForeColor = Color.FromArgb(58, 45, 38);
+            name.BackColor = card.BackColor;
+            name.Font = new Font("Malgun Gothic", 10.0f, FontStyle.Bold);
+            name.AutoSize = true;
+            name.Location = new Point(8, 5);
+            card.Controls.Add(name);
+            this.prices[index] = new Label();
+            this.prices[index].ForeColor = Color.FromArgb(217, 52, 59);
+            this.prices[index].BackColor = card.BackColor;
+            this.prices[index].Font = new Font("Malgun Gothic", 10.0f, FontStyle.Bold);
+            this.prices[index].AutoSize = true;
+            this.prices[index].Location = new Point(210, 5);
+            card.Controls.Add(this.prices[index]);
+            this.graphs[index] = new StockGraph();
+            this.graphs[index].Location = new Point(8, 30);
+            this.graphs[index].Size = new Size(280, 58);
+            card.Controls.Add(this.graphs[index]);
+            this.buys[index] = CreateActionButton("매수", Color.FromArgb(217, 52, 59));
+            this.buys[index].Location = new Point(302, 34);
+            int buyIndex = index;
+            this.buys[index].Click += delegate { this.world.BuyStock(buyIndex); };
+            card.Controls.Add(this.buys[index]);
+            this.sells[index] = CreateActionButton("매도", Color.FromArgb(58, 129, 199));
+            this.sells[index].Location = new Point(368, 34);
+            int sellIndex = index;
+            this.sells[index].Click += delegate { this.world.SellStock(sellIndex); };
+            card.Controls.Add(this.sells[index]);
+        }
+
+        private static Button CreateActionButton(string text, Color color)
+        {
+            Button button = new Button();
+            button.Text = text;
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 0;
+            button.BackColor = color;
+            button.ForeColor = Color.White;
+            button.Font = new Font("Malgun Gothic", 9.0f, FontStyle.Bold);
+            button.Size = new Size(58, 30);
+            return button;
+        }
+
+        public void RefreshMarket()
+        {
+            this.balance.Text = "보유금  " + PetWorld.FormatWon(this.world.Options.Coins);
+            for (int i = 0; i < PetWorld.StockNames.Length; i++)
+            {
+                int price = this.world.Options.StockPrices[i];
+                int shares = this.world.Options.StockShares[i];
+                this.prices[i].Text = PetWorld.FormatWon(price) + "  ·  보유 " + shares + "주";
+                this.buys[i].Enabled = this.world.Options.Coins >= price;
+                this.sells[i].Enabled = shares > 0;
+                this.graphs[i].SetValues(this.world.StockHistory(i));
+            }
+        }
+    }
+
     /// <summary>펫 여러 마리를 관리한다.</summary>
     public class PetWorld : ApplicationContext
     {
@@ -2370,6 +2550,8 @@ namespace PokemonTaskbar
         public readonly Random Random = new Random();
         private readonly List<PetForm> pets = new List<PetForm>();
         private double coinWalkProgress;
+        private List<int>[] stockHistory;
+        private StockOverlayForm stockOverlay;
         private Timer marketTimer;
         private bool quitting;
         private bool rebuilding;
@@ -2380,6 +2562,12 @@ namespace PokemonTaskbar
         public PetWorld(Options options)
         {
             this.Options = options;
+            this.stockHistory = new List<int>[StockNames.Length];
+            for (int i = 0; i < StockNames.Length; i++)
+            {
+                this.stockHistory[i] = new List<int>();
+                this.stockHistory[i].Add(options.StockPrices[i]);
+            }
             foreach (string key in options.Species)
             {
                 this.Add(key);
@@ -2460,6 +2648,8 @@ namespace PokemonTaskbar
                 add.DropDownItems.Add(item);
             }
             menu.Items.Add(add);
+
+            menu.Items.Add("주식시장 열기", null, delegate { this.OpenStockOverlay(); });
 
             menu.Items.Add("화면 가운데로 데려오기", null, delegate { this.RecallAll(); });
 
@@ -2640,6 +2830,7 @@ namespace PokemonTaskbar
             this.Options.Coins -= price;
             this.Options.StockShares[index]++;
             this.SaveSettings();
+            this.RefreshStockOverlay();
         }
 
         /// <summary>현재 가격으로 가상 주식 한 주를 판다.</summary>
@@ -2652,6 +2843,7 @@ namespace PokemonTaskbar
             this.Options.StockShares[index]--;
             this.Options.Coins += this.Options.StockPrices[index];
             this.SaveSettings();
+            this.RefreshStockOverlay();
         }
 
         /// <summary>세 종목의 가상 가격을 조금씩 흔들고 저장한다.</summary>
@@ -2661,8 +2853,45 @@ namespace PokemonTaskbar
             {
                 this.Options.StockPrices[i] = Math.Max(100,
                     this.Options.StockPrices[i] + this.Random.Next(-2, 3) * 100);
+                this.stockHistory[i].Add(this.Options.StockPrices[i]);
+                if (this.stockHistory[i].Count > 20)
+                {
+                    this.stockHistory[i].RemoveAt(0);
+                }
             }
             this.SaveSettings();
+            this.RefreshStockOverlay();
+        }
+
+        /// <summary>현재 실행 중에 쌓인 최근 주가를 오버레이에 넘긴다.</summary>
+        public int[] StockHistory(int index)
+        {
+            return this.stockHistory[index].ToArray();
+        }
+
+        /// <summary>주식시장 오버레이를 하나만 열고, 이미 열려 있으면 앞으로 가져온다.</summary>
+        public void OpenStockOverlay()
+        {
+            if (this.stockOverlay != null && !this.stockOverlay.IsDisposed)
+            {
+                this.stockOverlay.Show();
+                this.stockOverlay.BringToFront();
+                this.stockOverlay.Activate();
+                this.stockOverlay.RefreshMarket();
+                return;
+            }
+            this.stockOverlay = new StockOverlayForm(this);
+            this.stockOverlay.FormClosed += delegate { this.stockOverlay = null; };
+            this.stockOverlay.Show();
+        }
+
+        private void RefreshStockOverlay()
+        {
+            if (this.stockOverlay == null || this.stockOverlay.IsDisposed)
+            {
+                return;
+            }
+            this.stockOverlay.RefreshMarket();
         }
 
         /// <summary>크기를 바꾸고 지금 있는 포켓몬을 그대로 다시 만든다.</summary>
@@ -2770,6 +2999,10 @@ namespace PokemonTaskbar
         public void QuitAll()
         {
             this.quitting = true;
+            if (this.stockOverlay != null && !this.stockOverlay.IsDisposed)
+            {
+                this.stockOverlay.Close();
+            }
             if (this.marketTimer != null)
             {
                 this.marketTimer.Stop();

@@ -105,8 +105,10 @@ WALK_STRIDE = 35.0     # 4프레임 한 바퀴에 나아가는 거리(px)
 WALK_ACCEL = 220.0     # 걷기 시작할 때 속도를 올리는 가속도
 WALK_DECEL = 420.0     # 멈추거나 돌아설 때 속도를 줄이는 감속도
 TURN_PAUSE_SEC = 0.12  # 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
-WALK_SUBSTEPS = 8      # 4장 도트를 더 부드럽게 보이게 나눈 보행 박자
-WALK_BOB = (0.0, 0.45, 1.0, 0.45, 0.0, 0.45, 1.0, 0.45)
+WALK_MIDDLE_FRAMES = 2  # 발 자세 사이에 넣을 도트 전환 프레임 수
+WALK_SUBSTEPS = 12     # 4개 발 자세와 중간 프레임을 합친 보행 박자
+WALK_BOB = (0.0, 0.30, 0.75, 1.0, 0.75, 0.30,
+            0.0, 0.30, 0.75, 1.0, 0.75, 0.30)
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
 COLOR_KEY = "#ff00ff"  # 투명 처리에 쓰는 색(윈도우 전용)
 
@@ -266,6 +268,56 @@ def make_photo(grid, scale, flip=False, master=None):
             out_x = end_x
         out_y = end_y
     return photo
+
+
+def smooth_walk_frames(frames):
+    """발을 든 두 자세 사이에 도트 전환 프레임을 넣는다.
+
+    원본 4프레임은 [디딤 / 왼발 듦 / 디딤 / 오른발 듦]이다. 서로 다른
+    도트만 위에서 아래(발을 들 때), 아래에서 위(다시 디딜 때) 순서로
+    넘겨 발목에서 발끝까지 이어 움직이는 중간 자세를 만든다. 원본의
+    팔·꼬리 같은 움직임도 같은 박자로 자연스럽게 따라간다.
+    """
+    if len(frames) < 2:
+        return frames
+
+    smooth = []
+    for index, source in enumerate(frames):
+        target = frames[(index + 1) % len(frames)]
+        smooth.append(source)
+        # 0->1, 2->3 은 발을 들고, 1->2, 3->0 은 바닥에 다시 디딘다.
+        rising = index % 2 == 0
+        for step in range(1, WALK_MIDDLE_FRAMES + 1):
+            smooth.append(walk_transition(source, target, step, rising))
+    return smooth
+
+
+def walk_transition(source, target, step, rising):
+    """두 보행 자세 사이의 ``step`` 번째 도트 전환 자세."""
+    changed = [
+        (x, y)
+        for y, (before_row, after_row) in enumerate(zip(source, target))
+        for x, (before, after) in enumerate(zip(before_row, after_row))
+        if before != after
+    ]
+    if not changed:
+        return [list(row) for row in source]
+
+    top = min(y for _, y in changed)
+    bottom = max(y for _, y in changed)
+    height = bottom - top + 1
+    progress = step / float(WALK_MIDDLE_FRAMES + 1)
+    middle = [list(row) for row in source]
+    for x, y in changed:
+        # 줄 끝이 한꺼번에 바뀌지 않게 한 도트씩 비껴 바꾼다. 덕분에
+        # 픽셀 아트의 계단진 윤곽은 유지하면서도 발끝이 자연스럽게 따라온다.
+        order = (y - top + 0.5) / height
+        if not rising:
+            order = 1.0 - order
+        order += ((x + y) % 3 - 1) * 0.08
+        if order <= progress:
+            middle[y][x] = target[y][x]
+    return middle
 
 
 class PokemonPet:
@@ -1202,6 +1254,8 @@ class App:
         """방향별 걷기 이미지(캐시)."""
         if pokemon.key not in self.image_cache:
             frames = pokemon.frames()
+            if pokemon.move == "walk":
+                frames = smooth_walk_frames(frames)
             scale = self.sprite_scale(pokemon)
             poses = pokemon.poses()
             self.image_cache[pokemon.key] = {

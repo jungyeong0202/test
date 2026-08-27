@@ -1436,8 +1436,8 @@ class StockOverlay:
         self.window.overrideredirect(True)
         self.window.wm_attributes("-topmost", True)
         self.window.configure(bg=MENU_RED, padx=3, pady=3)
-        self.window.geometry("710x585+%d+%d" % (
-            (app.screen_width - 710) // 2, max(20, (app.screen_height - 585) // 3)
+        self.window.geometry("740x660+%d+%d" % (
+            (app.screen_width - 740) // 2, max(20, (app.screen_height - 660) // 3)
         ))
 
         body = tk.Frame(self.window, bg=MENU_CREAM)
@@ -1469,13 +1469,25 @@ class StockOverlay:
             bg=MENU_CREAM, fg=MENU_DISABLED, anchor="w",
             font=("Malgun Gothic", 8), padx=16,
         ).pack(fill="x", pady=(0, 3))
+        event_box = tk.Frame(body, bg="#fff0d5", highlightbackground="#e2a754",
+                             highlightthickness=1)
+        event_box.pack(fill="x", padx=12, pady=(1, 5))
+        tk.Label(
+            event_box, text="시장 속보", bg="#fff0d5", fg=MENU_RED,
+            font=("Malgun Gothic", 9, "bold"), padx=8, pady=8,
+        ).pack(side="left")
+        self.market_event = tk.Label(
+            event_box, bg="#fff0d5", fg=MENU_DARK, anchor="w",
+            font=("Malgun Gothic", 10, "bold"), pady=8,
+        )
+        self.market_event.pack(side="left", fill="x", expand=True)
         cards = tk.Frame(body, bg=MENU_CREAM)
         cards.pack(fill="both", expand=True, padx=10)
         self.rows = []
         for index in range(STOCK_COUNT):
             name = app.stock_name(index)
             card = tk.Frame(cards, bg="#fffdf7", highlightbackground="#d9ad74",
-                            highlightthickness=1, width=335, height=140)
+                            highlightthickness=1, width=350, height=140)
             card.grid(row=index // 2, column=index % 2, padx=3, pady=3, sticky="nsew")
             card.grid_propagate(False)
             info = tk.Frame(card, bg="#fffdf7")
@@ -1491,7 +1503,7 @@ class StockOverlay:
             position = tk.Label(card, bg="#fffdf7", fg=MENU_DISABLED, anchor="w",
                                 font=("Malgun Gothic", 8), padx=8)
             position.pack(fill="x")
-            graph = tk.Canvas(card, width=205, height=58, bg="#fffdf7",
+            graph = tk.Canvas(card, width=220, height=58, bg="#fffdf7",
                               highlightthickness=0)
             graph.pack(side="left", padx=(8, 4), pady=(1, 7))
             buttons = tk.Frame(card, bg="#fffdf7")
@@ -1505,7 +1517,7 @@ class StockOverlay:
             self.rows.append((name_label, price, position, graph, buy, sell))
 
         self.notice = tk.Label(
-            body, text="가격은 20초마다 변동합니다", bg=MENU_CREAM,
+            body, text="최근 20회 가격 흐름 · 모든 거래에 수수료 2% 적용", bg=MENU_CREAM,
             fg=MENU_DISABLED, font=("Malgun Gothic", 9), pady=4,
         )
         self.notice.pack()
@@ -1569,12 +1581,16 @@ class StockOverlay:
     def refresh(self):
         self.balance.configure(text="보유금  %s" % format_won(self.app.coins))
         total_value = self.app.stock_portfolio_value()
+        portfolio_percent = self.app.stock_portfolio_change_percent()
         self.balance.configure(
-            text="현금  %s   ·   주식 평가액  %s   ·   총 자산  %s" % (
+            text="현금  %s   ·   주식 평가액  %s (%+.1f%%)   ·   총 자산  %s" % (
                 format_won(self.app.coins), format_won(total_value),
+                portfolio_percent,
                 format_won(self.app.coins + total_value),
             )
         )
+        event = self.app.stock_event or "특별 이벤트를 기다리는 중입니다."
+        self.market_event.configure(text=event)
         for index, (name_label, price_label, position, graph, buy, sell) in enumerate(self.rows):
             name_label.configure(text=self.app.stock_name(index))
             price = self.app.stock_prices[index]
@@ -1607,8 +1623,7 @@ class StockOverlay:
                 buy.configure(state="normal" if self.app.coins >= self.app.stock_buy_cost(index) else "disabled")
                 sell.configure(state="normal" if shares else "disabled")
             self.draw_graph(graph, self.app.stock_history[index])
-        self.notice.configure(text=(self.app.stock_event or "가격은 20초마다 변동합니다")
-                              + "  ·  거래 수수료 2%")
+        self.notice.configure(text="최근 20회 가격 흐름 · 모든 거래에 수수료 2% 적용")
 
     def close(self):
         if self.app.stock_overlay is self:
@@ -1808,6 +1823,19 @@ class App:
             for index, shares in enumerate(self.stock_shares)
             if not self.stock_delisted[index]
         )
+
+    def stock_portfolio_cost_basis(self):
+        return sum(
+            average * shares for average, shares, delisted in zip(
+                self.stock_average_prices, self.stock_shares, self.stock_delisted
+            ) if not delisted
+        )
+
+    def stock_portfolio_change_percent(self):
+        cost_basis = self.stock_portfolio_cost_basis()
+        if not cost_basis:
+            return 0.0
+        return (self.stock_portfolio_value() - cost_basis) * 100.0 / cost_basis
 
     def relist_stock(self, index):
         """상장폐지된 슬롯에 임의 성격의 새 포켓몬 종목을 상장한다."""

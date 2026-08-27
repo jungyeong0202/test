@@ -2470,6 +2470,7 @@ namespace PokemonTaskbar
         private readonly Button[] sells = new Button[PetWorld.StockSlotCount];
         private readonly StockGraph[] graphs = new StockGraph[PetWorld.StockSlotCount];
         private readonly Label notice;
+        private readonly Label marketEvent;
         private Point dragCursor;
         private Point dragLocation;
         private bool dragging;
@@ -2482,7 +2483,7 @@ namespace PokemonTaskbar
             this.TopMost = true;
             this.BackColor = Color.FromArgb(217, 52, 59);
             this.Padding = new Padding(3);
-            this.ClientSize = new Size(710, 585);
+            this.ClientSize = new Size(740, 660);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             Panel body = new Panel();
@@ -2493,7 +2494,7 @@ namespace PokemonTaskbar
             Panel header = new Panel();
             header.BackColor = Color.FromArgb(217, 52, 59);
             header.Location = new Point(0, 0);
-            header.Size = new Size(704, 48);
+            header.Size = new Size(734, 48);
             body.Controls.Add(header);
             header.MouseDown += this.BeginDrag;
             header.MouseMove += this.Drag;
@@ -2527,7 +2528,7 @@ namespace PokemonTaskbar
             close.BackColor = header.BackColor;
             close.ForeColor = Color.White;
             close.Font = new Font("Malgun Gothic", 13.0f, FontStyle.Bold);
-            close.Location = new Point(660, 4);
+            close.Location = new Point(690, 4);
             close.Size = new Size(36, 36);
             close.Click += delegate { this.Close(); };
             header.Controls.Add(close);
@@ -2537,7 +2538,7 @@ namespace PokemonTaskbar
             this.balance.BackColor = body.BackColor;
             this.balance.Font = new Font("Malgun Gothic", 11.0f, FontStyle.Bold);
             this.balance.Location = new Point(15, 54);
-            this.balance.Size = new Size(675, 25);
+            this.balance.Size = new Size(705, 25);
             body.Controls.Add(this.balance);
             Label rule = new Label();
             rule.Text = "매수·매도 수수료 2%  ·  뉴스 이벤트 종목은 40초간 거래 정지";
@@ -2545,12 +2546,35 @@ namespace PokemonTaskbar
             rule.BackColor = body.BackColor;
             rule.Font = new Font("Malgun Gothic", 8.0f);
             rule.Location = new Point(15, 79);
-            rule.Size = new Size(675, 17);
+            rule.Size = new Size(705, 17);
             body.Controls.Add(rule);
+
+            Panel eventBox = new Panel();
+            eventBox.BackColor = Color.FromArgb(255, 240, 213);
+            eventBox.BorderStyle = BorderStyle.FixedSingle;
+            eventBox.Location = new Point(12, 99);
+            eventBox.Size = new Size(710, 43);
+            body.Controls.Add(eventBox);
+            Label eventTitle = new Label();
+            eventTitle.Text = "시장 속보";
+            eventTitle.ForeColor = Color.FromArgb(217, 52, 59);
+            eventTitle.BackColor = eventBox.BackColor;
+            eventTitle.Font = new Font("Malgun Gothic", 9.0f, FontStyle.Bold);
+            eventTitle.Location = new Point(8, 11);
+            eventTitle.AutoSize = true;
+            eventBox.Controls.Add(eventTitle);
+            this.marketEvent = new Label();
+            this.marketEvent.ForeColor = Color.FromArgb(58, 45, 38);
+            this.marketEvent.BackColor = eventBox.BackColor;
+            this.marketEvent.Font = new Font("Malgun Gothic", 10.0f, FontStyle.Bold);
+            this.marketEvent.Location = new Point(74, 8);
+            this.marketEvent.Size = new Size(625, 26);
+            this.marketEvent.TextAlign = ContentAlignment.MiddleLeft;
+            eventBox.Controls.Add(this.marketEvent);
 
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
-                this.CreateStockCard(body, i, 12 + (i % 2) * 342, 102 + (i / 2) * 146);
+                this.CreateStockCard(body, i, 12 + (i % 2) * 360, 150 + (i / 2) * 146);
             }
             this.notice = new Label();
             this.notice.Text = "가격은 20초마다 변동합니다";
@@ -2558,7 +2582,7 @@ namespace PokemonTaskbar
             this.notice.BackColor = body.BackColor;
             this.notice.Font = new Font("Malgun Gothic", 9.0f);
             this.notice.AutoSize = true;
-            this.notice.Location = new Point(190, 552);
+            this.notice.Location = new Point(210, 615);
             body.Controls.Add(this.notice);
             this.RefreshMarket();
         }
@@ -2569,7 +2593,7 @@ namespace PokemonTaskbar
             card.BackColor = Color.FromArgb(255, 253, 247);
             card.BorderStyle = BorderStyle.FixedSingle;
             card.Location = new Point(left, top);
-            card.Size = new Size(330, 140);
+            card.Size = new Size(350, 140);
             parent.Controls.Add(card);
             this.names[index] = new Label();
             this.names[index].Text = this.world.StockName(index);
@@ -2595,15 +2619,15 @@ namespace PokemonTaskbar
             card.Controls.Add(this.positions[index]);
             this.graphs[index] = new StockGraph();
             this.graphs[index].Location = new Point(8, 67);
-            this.graphs[index].Size = new Size(190, 66);
+            this.graphs[index].Size = new Size(220, 66);
             card.Controls.Add(this.graphs[index]);
             this.buys[index] = CreateActionButton("매수", Color.FromArgb(217, 52, 59));
-            this.buys[index].Location = new Point(208, 72);
+            this.buys[index].Location = new Point(230, 72);
             int buyIndex = index;
             this.buys[index].Click += delegate { this.world.BuyStock(buyIndex); };
             card.Controls.Add(this.buys[index]);
             this.sells[index] = CreateActionButton("매도", Color.FromArgb(58, 129, 199));
-            this.sells[index].Location = new Point(268, 72);
+            this.sells[index].Location = new Point(290, 72);
             int sellIndex = index;
             this.sells[index].Click += delegate { this.world.SellStock(sellIndex); };
             card.Controls.Add(this.sells[index]);
@@ -2652,9 +2676,13 @@ namespace PokemonTaskbar
         public void RefreshMarket()
         {
             int portfolio = this.world.StockPortfolioValue();
+            double portfolioPercent = this.world.StockPortfolioChangePercent();
             this.balance.Text = "현금  " + PetWorld.FormatWon(this.world.Options.Coins)
                 + "   ·   주식 평가액  " + PetWorld.FormatWon(portfolio)
+                + string.Format(" ({0:+0.0;-0.0;0.0}%)", portfolioPercent)
                 + "   ·   총 자산  " + PetWorld.FormatWon(this.world.Options.Coins + portfolio);
+            this.marketEvent.Text = string.IsNullOrEmpty(this.world.StockEvent)
+                ? "특별 이벤트를 기다리는 중입니다." : this.world.StockEvent;
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
                 int price = this.world.Options.StockPrices[i];
@@ -2696,9 +2724,7 @@ namespace PokemonTaskbar
                 this.sells[i].Enabled = shares > 0;
                 this.graphs[i].SetValues(this.world.StockHistory(i));
             }
-            this.notice.Text = string.IsNullOrEmpty(this.world.StockEvent)
-                ? "가격은 20초마다 변동합니다" : this.world.StockEvent;
-            this.notice.Text += "  ·  거래 수수료 2%";
+            this.notice.Text = "최근 20회 가격 흐름 · 모든 거래에 수수료 2% 적용";
         }
     }
 
@@ -3244,6 +3270,29 @@ namespace PokemonTaskbar
                 }
             }
             return total;
+        }
+
+        public int StockPortfolioCostBasis()
+        {
+            int total = 0;
+            for (int i = 0; i < StockSlotCount; i++)
+            {
+                if (!this.IsStockDelisted(i))
+                {
+                    total += this.Options.StockAveragePrices[i] * this.Options.StockShares[i];
+                }
+            }
+            return total;
+        }
+
+        public double StockPortfolioChangePercent()
+        {
+            int costBasis = this.StockPortfolioCostBasis();
+            if (costBasis <= 0)
+            {
+                return 0.0;
+            }
+            return (this.StockPortfolioValue() - costBasis) * 100.0 / costBasis;
         }
 
         public string StockEvent

@@ -2466,6 +2466,7 @@ namespace PokemonTaskbar
         private readonly Label[] names = new Label[PetWorld.StockSlotCount];
         private readonly Label[] prices = new Label[PetWorld.StockSlotCount];
         private readonly Label[] positions = new Label[PetWorld.StockSlotCount];
+        private readonly NumericUpDown[] quantities = new NumericUpDown[PetWorld.StockSlotCount];
         private readonly Button[] buys = new Button[PetWorld.StockSlotCount];
         private readonly Button[] sells = new Button[PetWorld.StockSlotCount];
         private readonly StockGraph[] graphs = new StockGraph[PetWorld.StockSlotCount];
@@ -2483,7 +2484,7 @@ namespace PokemonTaskbar
             this.TopMost = true;
             this.BackColor = Color.FromArgb(217, 52, 59);
             this.Padding = new Padding(3);
-            this.ClientSize = new Size(740, 660);
+            this.ClientSize = new Size(740, 720);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             Panel body = new Panel();
@@ -2574,7 +2575,7 @@ namespace PokemonTaskbar
 
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
-                this.CreateStockCard(body, i, 12 + (i % 2) * 360, 150 + (i / 2) * 146);
+                this.CreateStockCard(body, i, 12 + (i % 2) * 360, 150 + (i / 2) * 166);
             }
             this.notice = new Label();
             this.notice.Text = "가격은 20초마다 변동합니다";
@@ -2582,7 +2583,7 @@ namespace PokemonTaskbar
             this.notice.BackColor = body.BackColor;
             this.notice.Font = new Font("Malgun Gothic", 9.0f);
             this.notice.AutoSize = true;
-            this.notice.Location = new Point(210, 615);
+            this.notice.Location = new Point(210, 680);
             body.Controls.Add(this.notice);
             this.RefreshMarket();
         }
@@ -2593,7 +2594,7 @@ namespace PokemonTaskbar
             card.BackColor = Color.FromArgb(255, 253, 247);
             card.BorderStyle = BorderStyle.FixedSingle;
             card.Location = new Point(left, top);
-            card.Size = new Size(350, 140);
+            card.Size = new Size(350, 160);
             parent.Controls.Add(card);
             this.names[index] = new Label();
             this.names[index].Text = this.world.StockName(index);
@@ -2615,21 +2616,43 @@ namespace PokemonTaskbar
             this.positions[index].BackColor = card.BackColor;
             this.positions[index].Font = new Font("Malgun Gothic", 8.0f);
             this.positions[index].Location = new Point(8, 47);
-            this.positions[index].Size = new Size(310, 17);
+            this.positions[index].Size = new Size(220, 17);
             card.Controls.Add(this.positions[index]);
             this.graphs[index] = new StockGraph();
             this.graphs[index].Location = new Point(8, 67);
-            this.graphs[index].Size = new Size(220, 66);
+            this.graphs[index].Size = new Size(220, 86);
             card.Controls.Add(this.graphs[index]);
+            Label quantityLabel = new Label();
+            quantityLabel.Text = "거래 수량";
+            quantityLabel.ForeColor = Color.FromArgb(168, 145, 125);
+            quantityLabel.BackColor = card.BackColor;
+            quantityLabel.Font = new Font("Malgun Gothic", 8.0f);
+            quantityLabel.Location = new Point(238, 49);
+            quantityLabel.AutoSize = true;
+            card.Controls.Add(quantityLabel);
+            this.quantities[index] = new NumericUpDown();
+            this.quantities[index].Minimum = 1;
+            this.quantities[index].Maximum = 99;
+            this.quantities[index].Value = 1;
+            this.quantities[index].Font = new Font("Malgun Gothic", 8.0f, FontStyle.Bold);
+            this.quantities[index].TextAlign = HorizontalAlignment.Center;
+            this.quantities[index].Location = new Point(286, 47);
+            this.quantities[index].Size = new Size(56, 22);
+            this.quantities[index].ValueChanged += delegate { this.RefreshMarket(); };
+            card.Controls.Add(this.quantities[index]);
             this.buys[index] = CreateActionButton("매수", Color.FromArgb(217, 52, 59));
-            this.buys[index].Location = new Point(230, 72);
+            this.buys[index].Location = new Point(238, 74);
             int buyIndex = index;
-            this.buys[index].Click += delegate { this.world.BuyStock(buyIndex); };
+            this.buys[index].Click += delegate {
+                this.world.BuyStock(buyIndex, (int)this.quantities[buyIndex].Value);
+            };
             card.Controls.Add(this.buys[index]);
             this.sells[index] = CreateActionButton("매도", Color.FromArgb(58, 129, 199));
-            this.sells[index].Location = new Point(290, 72);
+            this.sells[index].Location = new Point(238, 116);
             int sellIndex = index;
-            this.sells[index].Click += delegate { this.world.SellStock(sellIndex); };
+            this.sells[index].Click += delegate {
+                this.world.SellStock(sellIndex, (int)this.quantities[sellIndex].Value);
+            };
             card.Controls.Add(this.sells[index]);
         }
 
@@ -2641,8 +2664,8 @@ namespace PokemonTaskbar
             button.FlatAppearance.BorderSize = 0;
             button.BackColor = color;
             button.ForeColor = Color.White;
-            button.Font = new Font("Malgun Gothic", 9.0f, FontStyle.Bold);
-            button.Size = new Size(58, 55);
+            button.Font = new Font("Malgun Gothic", 8.0f, FontStyle.Bold);
+            button.Size = new Size(104, 37);
             return button;
         }
 
@@ -2687,6 +2710,7 @@ namespace PokemonTaskbar
             {
                 int price = this.world.Options.StockPrices[i];
                 int shares = this.world.Options.StockShares[i];
+                int quantity = (int)this.quantities[i].Value;
                 double percent = this.world.StockChangePercent(i);
                 this.names[i].Text = this.world.StockName(i);
                 if (this.world.IsStockDelisted(i))
@@ -2696,6 +2720,7 @@ namespace PokemonTaskbar
                     this.positions[i].Text = "보유 주식 소멸 · 새 종목을 준비하고 있습니다";
                     this.buys[i].Text = "매수 불가";
                     this.sells[i].Text = "매도 불가";
+                    this.quantities[i].Enabled = false;
                     this.buys[i].Enabled = false;
                     this.sells[i].Enabled = false;
                     this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2708,6 +2733,7 @@ namespace PokemonTaskbar
                     this.positions[i].Text = this.world.StockPositionText(i);
                     this.buys[i].Text = "거래 정지";
                     this.sells[i].Text = "거래 정지";
+                    this.quantities[i].Enabled = false;
                     this.buys[i].Enabled = false;
                     this.sells[i].Enabled = false;
                     this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2718,10 +2744,13 @@ namespace PokemonTaskbar
                 this.prices[i].ForeColor = percent > 0 ? Color.FromArgb(47, 155, 103)
                     : percent < 0 ? Color.FromArgb(217, 52, 59) : Color.FromArgb(58, 45, 38);
                 this.positions[i].Text = this.world.StockPositionText(i);
-                this.buys[i].Text = "매수\r\n" + PetWorld.FormatWon(this.world.StockBuyCost(i));
-                this.sells[i].Text = "매도\r\n" + PetWorld.FormatWon(this.world.StockSellProceeds(i));
-                this.buys[i].Enabled = this.world.Options.Coins >= this.world.StockBuyCost(i);
-                this.sells[i].Enabled = shares > 0;
+                this.quantities[i].Enabled = true;
+                this.buys[i].Text = string.Format("매수 {0}주\r\n{1}", quantity,
+                    PetWorld.FormatWon(this.world.StockBuyCost(i) * quantity));
+                this.sells[i].Text = string.Format("매도 {0}주\r\n{1}", quantity,
+                    PetWorld.FormatWon(this.world.StockSellProceeds(i) * quantity));
+                this.buys[i].Enabled = this.world.Options.Coins >= this.world.StockBuyCost(i) * quantity;
+                this.sells[i].Enabled = shares >= quantity;
                 this.graphs[i].SetValues(this.world.StockHistory(i));
             }
             this.notice.Text = "최근 20회 가격 흐름 · 모든 거래에 수수료 2% 적용";
@@ -3081,37 +3110,39 @@ namespace PokemonTaskbar
         }
 
         /// <summary>현재 가격으로 가상 주식 한 주를 산다.</summary>
-        public void BuyStock(int index)
+        public void BuyStock(int index, int quantity)
         {
             if (this.IsStockDelisted(index) || this.IsStockHalted(index))
             {
                 return;
             }
+            quantity = Math.Max(1, quantity);
             int shares = this.Options.StockShares[index];
-            int cost = this.StockBuyCost(index);
+            int cost = this.StockBuyCost(index) * quantity;
             if (this.Options.Coins < cost)
             {
                 return;
             }
             this.Options.Coins -= cost;
             this.Options.StockAveragePrices[index] = (int)Math.Round(
-                (this.Options.StockAveragePrices[index] * (double)shares + cost) / (shares + 1),
+                (this.Options.StockAveragePrices[index] * (double)shares + cost) / (shares + quantity),
                 MidpointRounding.AwayFromZero);
-            this.Options.StockShares[index] = shares + 1;
+            this.Options.StockShares[index] = shares + quantity;
             this.SaveSettings();
             this.RefreshStockOverlay();
         }
 
         /// <summary>현재 가격으로 가상 주식 한 주를 판다.</summary>
-        public void SellStock(int index)
+        public void SellStock(int index, int quantity)
         {
+            quantity = Math.Max(1, quantity);
             if (this.IsStockDelisted(index) || this.IsStockHalted(index)
-                || this.Options.StockShares[index] <= 0)
+                || this.Options.StockShares[index] < quantity)
             {
                 return;
             }
-            this.Options.StockShares[index]--;
-            this.Options.Coins += this.StockSellProceeds(index);
+            this.Options.StockShares[index] -= quantity;
+            this.Options.Coins += this.StockSellProceeds(index) * quantity;
             if (this.Options.StockShares[index] == 0)
             {
                 this.Options.StockAveragePrices[index] = 0;

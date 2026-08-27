@@ -1436,8 +1436,8 @@ class StockOverlay:
         self.window.overrideredirect(True)
         self.window.wm_attributes("-topmost", True)
         self.window.configure(bg=MENU_RED, padx=3, pady=3)
-        self.window.geometry("740x660+%d+%d" % (
-            (app.screen_width - 740) // 2, max(20, (app.screen_height - 660) // 3)
+        self.window.geometry("740x720+%d+%d" % (
+            (app.screen_width - 740) // 2, max(20, (app.screen_height - 720) // 3)
         ))
 
         body = tk.Frame(self.window, bg=MENU_CREAM)
@@ -1487,7 +1487,7 @@ class StockOverlay:
         for index in range(STOCK_COUNT):
             name = app.stock_name(index)
             card = tk.Frame(cards, bg="#fffdf7", highlightbackground="#d9ad74",
-                            highlightthickness=1, width=350, height=140)
+                            highlightthickness=1, width=350, height=160)
             card.grid(row=index // 2, column=index % 2, padx=3, pady=3, sticky="nsew")
             card.grid_propagate(False)
             info = tk.Frame(card, bg="#fffdf7")
@@ -1503,18 +1503,26 @@ class StockOverlay:
             position = tk.Label(card, bg="#fffdf7", fg=MENU_DISABLED, anchor="w",
                                 font=("Malgun Gothic", 8), padx=8)
             position.pack(fill="x")
-            graph = tk.Canvas(card, width=220, height=58, bg="#fffdf7",
+            graph = tk.Canvas(card, width=195, height=80, bg="#fffdf7",
                               highlightthickness=0)
             graph.pack(side="left", padx=(8, 4), pady=(1, 7))
             buttons = tk.Frame(card, bg="#fffdf7")
             buttons.pack(side="right", padx=(0, 8), pady=(1, 7))
+            tk.Label(buttons, text="거래 수량", bg="#fffdf7", fg=MENU_DISABLED,
+                     font=("Malgun Gothic", 8)).pack()
+            quantity = tk.Spinbox(
+                buttons, from_=1, to=99, width=4, justify="center",
+                font=("Malgun Gothic", 9, "bold"), command=self.refresh,
+            )
+            quantity.pack(fill="x", pady=(0, 2))
+            quantity.bind("<KeyRelease>", lambda _event: self.refresh())
             buy = self.make_button(buttons, "매수", MENU_RED,
                                    lambda index=index: self.trade(index, True))
-            buy.pack(side="left", fill="y", padx=(0, 3))
+            buy.pack(fill="x", pady=(0, 2))
             sell = self.make_button(buttons, "매도", "#3a81c7",
                                     lambda index=index: self.trade(index, False))
-            sell.pack(side="right", fill="y")
-            self.rows.append((name_label, price, position, graph, buy, sell))
+            sell.pack(fill="x")
+            self.rows.append((name_label, price, position, graph, quantity, buy, sell))
 
         self.notice = tk.Label(
             body, text="최근 20회 가격 흐름 · 모든 거래에 수수료 2% 적용", bg=MENU_CREAM,
@@ -1538,10 +1546,19 @@ class StockOverlay:
         )
 
     def trade(self, index, buying):
+        quantity = self.selected_quantity(index)
         if buying:
-            self.app.buy_stock(index)
+            self.app.buy_stock(index, quantity)
         else:
-            self.app.sell_stock(index)
+            self.app.sell_stock(index, quantity)
+
+    def selected_quantity(self, index):
+        """카드 수량 입력값을 1~99주 범위의 정수로 정리한다."""
+        quantity = self.rows[index][4]
+        try:
+            return min(99, max(1, int(quantity.get())))
+        except (ValueError, tk.TclError):
+            return 1
 
     def begin_drag(self, event):
         """빨간 제목 영역을 잡은 위치를 기억한다."""
@@ -1591,10 +1608,11 @@ class StockOverlay:
         )
         event = self.app.stock_event or "특별 이벤트를 기다리는 중입니다."
         self.market_event.configure(text=event)
-        for index, (name_label, price_label, position, graph, buy, sell) in enumerate(self.rows):
+        for index, (name_label, price_label, position, graph, quantity_box, buy, sell) in enumerate(self.rows):
             name_label.configure(text=self.app.stock_name(index))
             price = self.app.stock_prices[index]
             shares = self.app.stock_shares[index]
+            quantity = self.selected_quantity(index)
             percent = self.app.stock_change_percent(index)
             colour = "#2f9b67" if percent > 0 else MENU_RED if percent < 0 else MENU_DARK
             if self.app.stock_delisted[index]:
@@ -1603,6 +1621,7 @@ class StockOverlay:
                 position.configure(text="보유 주식 소멸 · 새 종목을 준비하고 있습니다")
                 buy.configure(text="매수 불가")
                 sell.configure(text="매도 불가")
+                quantity_box.configure(state="disabled")
                 buy.configure(state="disabled")
                 sell.configure(state="disabled")
             elif self.app.stock_halt_seconds[index]:
@@ -1610,6 +1629,7 @@ class StockOverlay:
                 position.configure(text=self.app.stock_position_text(index))
                 buy.configure(text="거래 정지")
                 sell.configure(text="거래 정지")
+                quantity_box.configure(state="disabled")
                 buy.configure(state="disabled")
                 sell.configure(state="disabled")
             else:
@@ -1618,10 +1638,15 @@ class StockOverlay:
                     fg=colour,
                 )
                 position.configure(text=self.app.stock_position_text(index))
-                buy.configure(text="매수\n%s" % format_won(self.app.stock_buy_cost(index)))
-                sell.configure(text="매도\n%s" % format_won(self.app.stock_sell_proceeds(index)))
-                buy.configure(state="normal" if self.app.coins >= self.app.stock_buy_cost(index) else "disabled")
-                sell.configure(state="normal" if shares else "disabled")
+                quantity_box.configure(state="normal")
+                buy.configure(text="매수 %d주\n%s" % (
+                    quantity, format_won(self.app.stock_buy_cost(index) * quantity)
+                ))
+                sell.configure(text="매도 %d주\n%s" % (
+                    quantity, format_won(self.app.stock_sell_proceeds(index) * quantity)
+                ))
+                buy.configure(state="normal" if self.app.coins >= self.app.stock_buy_cost(index) * quantity else "disabled")
+                sell.configure(state="normal" if shares >= quantity else "disabled")
             self.draw_graph(graph, self.app.stock_history[index])
         self.notice.configure(text="최근 20회 가격 흐름 · 모든 거래에 수수료 2% 적용")
 
@@ -1753,28 +1778,31 @@ class App:
         pet.fed()
         self.save_settings()
 
-    def buy_stock(self, index):
-        """현재 가격으로 가상 주식 한 주를 산다."""
+    def buy_stock(self, index, quantity=1):
+        """현재 가격으로 선택한 수량의 가상 주식을 산다."""
         if self.stock_delisted[index] or self.stock_halt_seconds[index]:
             return
+        quantity = max(1, int(quantity))
         shares = self.stock_shares[index]
-        cost = self.stock_buy_cost(index)
+        cost = self.stock_buy_cost(index) * quantity
         if self.coins < cost:
             return
         self.coins -= cost
         self.stock_average_prices[index] = int(round(
-            (self.stock_average_prices[index] * shares + cost) / float(shares + 1)
+            (self.stock_average_prices[index] * shares + cost) / float(shares + quantity)
         ))
-        self.stock_shares[index] = shares + 1
+        self.stock_shares[index] = shares + quantity
         self.save_settings()
         self.refresh_stock_overlay()
 
-    def sell_stock(self, index):
-        """현재 가격으로 가상 주식 한 주를 판다."""
-        if self.stock_delisted[index] or self.stock_halt_seconds[index] or not self.stock_shares[index]:
+    def sell_stock(self, index, quantity=1):
+        """현재 가격으로 선택한 수량의 가상 주식을 판다."""
+        quantity = max(1, int(quantity))
+        if (self.stock_delisted[index] or self.stock_halt_seconds[index]
+                or self.stock_shares[index] < quantity):
             return
-        self.stock_shares[index] -= 1
-        self.coins += self.stock_sell_proceeds(index)
+        self.stock_shares[index] -= quantity
+        self.coins += self.stock_sell_proceeds(index) * quantity
         if not self.stock_shares[index]:
             self.stock_average_prices[index] = 0
         self.save_settings()

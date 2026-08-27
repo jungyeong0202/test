@@ -891,6 +891,17 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.coins, 980)
         self.assertEqual(self.app.stock_shares, [0, 0, 0, 0, 0, 0])
 
+    def test_stock_can_trade_multiple_shares_at_once(self):
+        self.app.coins = 3060
+        self.app.stock_prices[0] = 1000
+        self.app.buy_stock(0, 3)
+        self.assertEqual(self.app.coins, 0)
+        self.assertEqual(self.app.stock_shares[0], 3)
+        self.assertEqual(self.app.stock_average_prices[0], 1020)
+        self.app.sell_stock(0, 2)
+        self.assertEqual(self.app.coins, 1960)
+        self.assertEqual(self.app.stock_shares[0], 1)
+
     def test_portfolio_percent_uses_average_purchase_cost_and_sell_fee(self):
         self.app.stock_prices[0] = 1000
         self.app.stock_shares[0] = 2

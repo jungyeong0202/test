@@ -529,6 +529,8 @@ namespace PokemonTaskbar
         private const double WalkAccel = 220.0;     // 걷기 시작할 때 속도를 올리는 가속도
         private const double WalkDecel = 420.0;     // 멈추거나 돌아설 때 속도를 줄이는 감속도
         private const double TurnPauseSeconds = 0.12; // 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
+        private const int WalkSubsteps = 8;         // 4장 도트를 더 부드럽게 보이게 나눈 보행 박자
+        private static readonly double[] WalkBob = { 0.0, 0.45, 1.0, 0.45, 0.0, 0.45, 1.0, 0.45 };
 
         // 효과에 쓰는 아주 작은 도트 그림
         private static readonly int[,] HeartDots = {
@@ -903,8 +905,8 @@ namespace PokemonTaskbar
             // 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
             bool walkingNow = !this.hops && !this.floats
                 && (this.walking || this.stopKind != null) && !this.dragging;
-            int bounce = (walkingNow && image != null && pose == null && frame % 2 == 1)
-                ? this.bouncePixels : 0;
+            int bounce = (walkingNow && image != null && pose == null)
+                ? this.WalkBobPixels() : 0;
             // 들려 있으면 버둥거린다.
             int sway = (this.dragging && (int)(this.wiggle / WiggleSeconds) % 2 == 1)
                 ? this.dot : 0;
@@ -1539,7 +1541,20 @@ namespace PokemonTaskbar
         /// <summary>실제 걸은 거리에 맞는 보행 프레임.</summary>
         private int WalkFrame()
         {
-            return (int)(this.gaitDistance / WalkStride * this.frameCount) % this.frameCount;
+            int phase = this.WalkPhase();
+            return phase * this.frameCount / WalkSubsteps;
+        }
+
+        /// <summary>한 걸음 안에서 몸이 어디까지 올라왔는지(8단계).</summary>
+        private int WalkPhase()
+        {
+            return (int)(this.gaitDistance / WalkStride * WalkSubsteps) % WalkSubsteps;
+        }
+
+        /// <summary>발을 드는 중에는 부드럽게 올라갔다가, 디딜 때 다시 내려온다.</summary>
+        private int WalkBobPixels()
+        {
+            return (int)Math.Floor(this.bouncePixels * WalkBob[this.WalkPhase()] + 0.5);
         }
 
         /// <summary>올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다.</summary>

@@ -105,6 +105,8 @@ WALK_STRIDE = 35.0     # 4프레임 한 바퀴에 나아가는 거리(px)
 WALK_ACCEL = 220.0     # 걷기 시작할 때 속도를 올리는 가속도
 WALK_DECEL = 420.0     # 멈추거나 돌아설 때 속도를 줄이는 감속도
 TURN_PAUSE_SEC = 0.12  # 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
+WALK_SUBSTEPS = 8      # 4장 도트를 더 부드럽게 보이게 나눈 보행 박자
+WALK_BOB = (0.0, 0.45, 1.0, 0.45, 0.0, 0.45, 1.0, 0.45)
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
 COLOR_KEY = "#ff00ff"  # 투명 처리에 쓰는 색(윈도우 전용)
 
@@ -992,7 +994,16 @@ class PokemonPet:
 
     def walk_frame(self):
         """실제 걸은 거리에 맞는 보행 프레임."""
-        return int(self.gait_distance / WALK_STRIDE * self.frame_count) % self.frame_count
+        phase = self.walk_phase()
+        return int(phase * self.frame_count / WALK_SUBSTEPS)
+
+    def walk_phase(self):
+        """한 걸음 안에서 몸이 어디까지 올라왔는지(8단계)."""
+        return int(self.gait_distance / WALK_STRIDE * WALK_SUBSTEPS) % WALK_SUBSTEPS
+
+    def walk_bob(self):
+        """발을 드는 중에는 부드럽게 올라갔다가, 디딜 때 다시 내려온다."""
+        return int(self.bounce_px * WALK_BOB[self.walk_phase()] + 0.5)
 
     def raise_above_all(self):
         """포커스를 빼앗지 않으면서 창을 최상위로 올린다."""
@@ -1047,7 +1058,7 @@ class PokemonPet:
         # 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
         # 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
         walking = self.move == "walk" and self.state in ("walk", "slow_stop")
-        bounce = self.bounce_px if (walking and pose is None and frame % 2 == 1) else 0
+        bounce = self.walk_bob() if walking and pose is None else 0
         # 들려 있으면 버둥거린다.
         sway = self.dot if (self.dragging and int(self.wiggle / WIGGLE_SEC) % 2) else 0
         self.canvas.coords(

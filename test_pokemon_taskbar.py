@@ -408,6 +408,13 @@ class PetMovementTest(unittest.TestCase):
         pet.gait_distance = pt.WALK_STRIDE / pet.frame_count
         self.assertEqual(pet.walk_frame(), 1)
 
+    def test_walk_bob_rises_between_footsteps(self):
+        pet = self.app.pets[0]
+        pet.gait_distance = 0.0
+        self.assertEqual(pet.walk_bob(), 0)
+        pet.gait_distance = pt.WALK_STRIDE * 2 / pt.WALK_SUBSTEPS
+        self.assertEqual(pet.walk_bob(), pet.bounce_px)
+
     def test_turn_slows_before_changing_direction(self):
         pet = self.app.pets[0]
         pet.x = pet.max_x

@@ -69,7 +69,7 @@ git add dist/ && git commit
 | `tools/gen_sprites_cs.py` | `sprites.py` → `csharp/Sprites.cs` |
 | `tools/check_net48.py` | 만든 exe 가 .NET Framework 4.8 API 만 쓰는지 검사 |
 | `tools/build_exe.sh` | 리눅스/맥에서 윈도우용 exe 빌드 |
-| `test_pokemon_taskbar.py` | 파이썬 테스트 (120개) |
+| `test_pokemon_taskbar.py` | 파이썬 테스트 (123개) |
 
 ## 규칙
 
@@ -193,8 +193,8 @@ C# `OnTick`/`OnPaint`, 그리고 `tools/gen_sprites_cs.py` 를 모두 손봐야 
 `sprites.py` 의 `EVOLUTIONS` 표에 적는다. 도트는 자동 생성 구역 안에 들어가므로,
 진화 관계는 **그 바깥**에 두어 그림을 다시 들여와도 지워지지 않게 했다.
 
-- 12번 쓰다듬으면 그 자리에서 진화한다. **시간이 흘렀다고 저절로 진화하지는 않는다**
-  (아끼던 모습이 예고 없이 바뀌면 안 되므로 의도한 것이다).
+- 8번 쓰다듬고 600px를 산책하면 진화할 준비가 된다. **시간이 흘렀다고 저절로 진화하지는 않는다**.
+  조건을 채운 뒤에도 메뉴에서 직접 선택해야 진화하므로, 아끼던 모습이 예고 없이 바뀌지 않는다.
 - 진화체는 `포켓몬 추가` 메뉴, 무작위, `--count` 어디에도 나오면 안 된다.
   이름을 직접 댈 때만(`-p wartortle`) 쓸 수 있다.
 - 진화하는 포켓몬의 창은 **두 모습이 모두 들어갈 크기**로 잡고 그림을 아래쪽에 맞춰
@@ -215,7 +215,7 @@ python3 tools/import_sprite.py 그림.png --key 키 --name 한글이름 \
 
 고치고 나서 아래가 전부 통과해야 한다.
 
-- `python3 -m unittest test_pokemon_taskbar -q` (120개)
+- `python3 -m unittest test_pokemon_taskbar -q` (123개)
 - `sh tools/build_exe.sh` — 경고 없이 빌드되고 API 검사를 통과
 - 파이썬과 C# 의 도트 데이터가 완전히 일치 (양쪽에서 덤프해 `diff`)
 - 실제로 앱을 띄워 눈으로 확인 — 테스트가 잡지 못하는 문제가 많다

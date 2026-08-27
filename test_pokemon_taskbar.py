@@ -664,7 +664,7 @@ class FloatTest(unittest.TestCase):
 
 @needs_display
 class EvolutionTest(unittest.TestCase):
-    """아껴 주면 진화한다."""
+    """함께 산책하고 아껴 준 뒤, 직접 선택해서 진화한다."""
 
     def setUp(self):
         self.app = pt.App(pt.parse_args(["-p", "squirtle"]))
@@ -677,6 +677,17 @@ class EvolutionTest(unittest.TestCase):
         for _ in range(int(seconds / (pt.TICK_MS / 1000.0))):
             self.app.pets[0].tick()
 
+    def _meet_requirements(self):
+        for _ in range(int(pt.EVOLVE_PET_NEED)):
+            self.pet.petted()
+        self.pet.walked = pt.EVOLVE_WALK_NEED
+
+    def _start_evolving(self):
+        self._meet_requirements()
+        self.assertTrue(self.pet.can_evolve())
+        self.pet.start_evolving()
+        self.assertTrue(self.pet.evolving)
+
     def test_squirtle_evolves_into_wartortle(self):
         self.assertEqual(sprites.POKEMON["squirtle"].evolves_to, "wartortle")
         self.assertEqual(self.pet.next_key, "wartortle")
@@ -686,36 +697,60 @@ class EvolutionTest(unittest.TestCase):
 
     def test_it_is_not_ready_at_the_start(self):
         self.assertFalse(self.pet.can_evolve())
-        self.assertEqual(self.pet.pets_left(), int(pt.EVOLVE_NEED))
+        self.assertEqual(self.pet.pets_left(), int(pt.EVOLVE_PET_NEED))
+        self.assertEqual(self.pet.walk_left(), int(pt.EVOLVE_WALK_NEED))
 
-    def test_petting_enough_starts_it(self):
-        for _ in range(int(pt.EVOLVE_NEED)):
+    def test_petting_needs_a_walk_and_manual_choice(self):
+        for _ in range(int(pt.EVOLVE_PET_NEED)):
             self.pet.petted()
-        self.assertTrue(self.pet.evolving)
-        self.assertEqual(self.pet.pets_left(), 0)
-
-    def test_one_pet_short_does_nothing(self):
-        for _ in range(int(pt.EVOLVE_NEED) - 1):
-            self.pet.petted()
+        self.assertFalse(self.pet.can_evolve())
         self.assertFalse(self.pet.evolving)
-        self.assertEqual(self.pet.pets_left(), 1)
+        self.assertEqual(self.pet.pets_left(), 0)
+        self.assertEqual(self.pet.walk_left(), int(pt.EVOLVE_WALK_NEED))
+
+    def test_walking_needs_petting(self):
+        self.pet.walked = pt.EVOLVE_WALK_NEED
+        self.assertFalse(self.pet.evolving)
+        self.assertFalse(self.pet.can_evolve())
+        self.assertEqual(self.pet.pets_left(), int(pt.EVOLVE_PET_NEED))
+        self.assertEqual(self.pet.walk_left(), 0)
+
+    def test_ready_pet_waits_for_manual_choice(self):
+        self._meet_requirements()
+        self.assertTrue(self.pet.can_evolve())
+        self.assertFalse(self.pet.evolving)
+        self.pet.start_evolving()
+        self.assertTrue(self.pet.evolving)
+
+    def test_start_evolving_rejects_unmet_conditions(self):
+        self.pet.start_evolving()
+        self.assertFalse(self.pet.evolving)
+
+    def test_walking_counts_toward_evolution(self):
+        self.pet.x = self.pet.max_x / 2.0
+        self.pet.direction = 1
+        self.pet.speed = 200.0
+        before = self.pet.walked
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            self.pet.tick()
+        self.assertGreater(self.pet.walked, before)
 
     def test_time_alone_never_evolves_it(self):
         """아끼던 모습이 예고 없이 바뀌면 안 된다. 시간만으로는 진화하지 않는다."""
         self._run(30.0)
         self.assertEqual(self.pet.friendship, 0.0)
+        self.assertGreater(self.pet.walked, 0.0)
         self.assertFalse(self.pet.evolving)
 
-    def test_petting_more_does_not_restart_it(self):
-        for _ in range(int(pt.EVOLVE_NEED) * 3):
+    def test_petting_more_does_not_start_or_overfill_it(self):
+        for _ in range(int(pt.EVOLVE_PET_NEED) * 3):
             self.pet.petted()
-        self.assertEqual(self.pet.friendship, pt.EVOLVE_NEED)
+        self.assertEqual(self.pet.friendship, pt.EVOLVE_PET_NEED)
+        self.assertFalse(self.pet.evolving)
         self.assertEqual(self.pet.evolve_step, 0)
 
     def test_the_flash_ends_with_the_evolved_form(self):
-        for _ in range(int(pt.EVOLVE_NEED)):
-            self.pet.petted()
-        self.assertTrue(self.pet.evolving)
+        self._start_evolving()
         # 번쩍임이 다 끝날 만큼 돌린다.
         for _ in range(400):
             if self.app.pets and self.app.pets[0].pokemon.key == "wartortle":
@@ -728,8 +763,7 @@ class EvolutionTest(unittest.TestCase):
     def test_it_stays_where_it_was(self):
         self.pet.x = 200.0
         self.pet.direction = -1
-        for _ in range(int(pt.EVOLVE_NEED)):
-            self.pet.petted()
+        self._start_evolving()
         for _ in range(400):
             if self.app.pets[0].pokemon.key == "wartortle":
                 break
@@ -740,16 +774,14 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(grown.direction, -1)
 
     def test_it_does_not_move_while_evolving(self):
-        for _ in range(int(pt.EVOLVE_NEED)):
-            self.pet.petted()
+        self._start_evolving()
         start = self.pet.x
         for _ in range(5):
             self.pet.tick()
         self.assertEqual(self.pet.x, start)
 
     def test_it_cannot_be_dragged_while_evolving(self):
-        for _ in range(int(pt.EVOLVE_NEED)):
-            self.pet.petted()
+        self._start_evolving()
         self.pet.on_press(FakeMouse(100, self.pet.base_y))
         self.assertFalse(self.pet.dragging)
 
@@ -782,8 +814,7 @@ class EvolutionTest(unittest.TestCase):
             self.assertEqual(tuple(colour), (255, 255, 255))
 
     def test_the_evolved_form_is_saved(self):
-        for _ in range(int(pt.EVOLVE_NEED)):
-            self.pet.petted()
+        self._start_evolving()
         for _ in range(400):
             if self.app.pets[0].pokemon.key == "wartortle":
                 break

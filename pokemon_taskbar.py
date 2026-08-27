@@ -58,12 +58,13 @@ FLOAT_TURN_CHANCE = 0.003      # 틱마다 이 확률로 방향을 바꾼다
 FLOAT_STOP_CHANCE = 0.004      # 틱마다 이 확률로 잠깐 멈춘다
 FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라간다
 
-# 진화. 쓰다듬은 만큼 친밀도가 차고, 다 차면 그 자리에서 진화한다.
+# 진화. 함께 걸은 거리와 쓰다듬은 횟수를 채운 뒤, 메뉴에서 직접 진화한다.
 #
 # 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이 바뀌면
 # 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
-EVOLVE_NEED = 12.0          # 이만큼 채우면 진화한다
+EVOLVE_PET_NEED = 8.0       # 이만큼 쓰다듬으면 친밀도 조건을 채운다
 EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
+EVOLVE_WALK_NEED = 600.0    # 이만큼 걸으면 산책 조건을 채운다(px)
 EVOLVE_FLASHES = 7          # 두 모습을 번갈아 번쩍이는 횟수
 EVOLVE_FIRST_SEC = 0.30     # 처음 번쩍임 간격
 EVOLVE_LAST_SEC = 0.07      # 마지막 번쩍임 간격 (점점 빨라진다)
@@ -333,7 +334,8 @@ class PokemonPet:
         self.float_target = self.float_base
         self.float_timer = random.uniform(*FLOAT_RETARGET)
         self.float_phase = random.uniform(0.0, FLOAT_BOB_SEC)
-        self.friendship = 0.0      # 아껴 준 만큼 찬다. 다 차면 진화할 수 있다.
+        self.friendship = 0.0      # 아껴 준 만큼 찬다.
+        self.walked = 0.0          # 스스로 걸은 거리(px). 끌어다 놓은 거리는 세지 않는다.
         self.evolving = False
         self.evolve_step = 0
         self.evolve_timer = 0.0
@@ -390,7 +392,7 @@ class PokemonPet:
         # 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
         self.evolve_index = None
         if self.next_key:
-            menu.add_command(label="", state="disabled")
+            menu.add_command(label="", state="disabled", command=self.start_evolving)
             self.evolve_index = menu.index("end")
             menu.configure(postcommand=self.refresh_menu)
         menu.add_separator()
@@ -492,16 +494,11 @@ class PokemonPet:
             self.petted()
 
     def petted(self):
-        """쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다.
-
-        다 채우면 그 자리에서 바로 진화가 시작된다.
-        """
+        """쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다."""
         self.spawn_emote("heart")
         if not self.next_key or self.evolving:
             return
-        self.friendship = min(EVOLVE_NEED, self.friendship + EVOLVE_PER_PET)
-        if self.can_evolve():
-            self.start_evolving()
+        self.friendship = min(EVOLVE_PET_NEED, self.friendship + EVOLVE_PER_PET)
 
     def refresh_menu(self):
         """메뉴를 열 때마다 진화 항목을 지금 상태로 고쳐 쓴다."""
@@ -510,9 +507,19 @@ class PokemonPet:
         name = POKEMON[self.next_key].name_ko
         if self.evolving:
             label = "진화하는 중..."
+            state = "disabled"
+        elif self.can_evolve():
+            label = "%s로 진화하기" % name
+            state = "normal"
         else:
-            label = "%s까지 %d번 더 쓰다듬기" % (name, self.pets_left())
-        self.menu.entryconfigure(self.evolve_index, label=label)
+            needs = []
+            if self.pets_left():
+                needs.append("%d번 더 쓰다듬기" % self.pets_left())
+            if self.walk_left():
+                needs.append("%dpx 더 산책" % self.walk_left())
+            label = "%s까지 %s" % (name, " · ".join(needs))
+            state = "disabled"
+        self.menu.entryconfigure(self.evolve_index, label=label, state=state)
 
     def on_menu(self, event):
         try:
@@ -607,6 +614,7 @@ class PokemonPet:
             self.play_step(dt)
         elif self.state == "walk":
             self.anim_time += dt
+            before_x = self.x
             self.x += self.direction * self.speed * dt
             if self.x <= 0:
                 self.x = 0
@@ -616,6 +624,7 @@ class PokemonPet:
                 self.direction = -1
             elif random.random() < 0.004:
                 self.direction = -self.direction
+            self.walked = min(EVOLVE_WALK_NEED, self.walked + abs(self.x - before_x))
             if random.random() < 0.005:
                 if random.random() < PLAY_CHANCE:
                     self.start_playing()
@@ -781,15 +790,24 @@ class PokemonPet:
 
     def can_evolve(self):
         """진화할 준비가 됐는지."""
-        return bool(self.next_key) and self.friendship >= EVOLVE_NEED
+        return (
+            bool(self.next_key)
+            and self.friendship >= EVOLVE_PET_NEED
+            and self.walked >= EVOLVE_WALK_NEED
+            and not self.evolving
+        )
 
     def pets_left(self):
         """진화까지 몇 번 더 쓰다듬어야 하는지."""
-        return max(0, int(-(-(EVOLVE_NEED - self.friendship) // EVOLVE_PER_PET)))
+        return max(0, int(-(-(EVOLVE_PET_NEED - self.friendship) // EVOLVE_PER_PET)))
+
+    def walk_left(self):
+        """진화까지 몇 픽셀을 더 산책해야 하는지."""
+        return max(0, int(math.ceil(EVOLVE_WALK_NEED - self.walked)))
 
     def start_evolving(self):
         """진화 연출을 시작한다. 끝나면 앱이 새 포켓몬으로 갈아 끼운다."""
-        if self.evolving or not self.next_key:
+        if not self.can_evolve():
             return
         self.evolution_images()
         self.evolving = True

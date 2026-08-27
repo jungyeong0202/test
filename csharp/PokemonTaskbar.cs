@@ -502,12 +502,13 @@ namespace PokemonTaskbar
         private const double FloatStopChance = 0.004;
         private const double FloatNudge = 30.0;       // 쓰다듬으면 이만큼 위로
 
-        // 진화. 쓰다듬은 만큼 친밀도가 차고, 다 차면 그 자리에서 진화한다.
+        // 진화. 함께 걸은 거리와 쓰다듬은 횟수를 채운 뒤, 메뉴에서 직접 진화한다.
         //
         // 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이
         // 바뀌면 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
-        private const double EvolveNeed = 12.0;        // 이만큼 채우면 진화한다
+        private const double EvolvePetNeed = 8.0;      // 이만큼 쓰다듬으면 친밀도 조건을 채운다
         private const double EvolvePerPet = 1.0;       // 한 번 쓰다듬을 때마다
+        private const double EvolveWalkNeed = 600.0;   // 이만큼 걸으면 산책 조건을 채운다(px)
         private const int EvolveFlashes = 7;           // 두 모습을 번갈아 번쩍이는 횟수
         private const double EvolveFirstSeconds = 0.30;
         private const double EvolveLastSeconds = 0.07; // 갈수록 빨라진다
@@ -598,6 +599,7 @@ namespace PokemonTaskbar
         private readonly bool floats;
         private readonly string nextKey;      // 진화하면 무엇이 되는지
         private double friendship;
+        private double walked;                 // 스스로 걸은 거리(px). 끌어다 놓은 거리는 세지 않는다.
         private bool evolving;
         private int evolveStep;
         private double evolveTimer;
@@ -762,10 +764,31 @@ namespace PokemonTaskbar
             {
                 string name = Sprites.Find(this.nextKey).NameKo;
                 this.evolveItem = new ToolStripMenuItem();
-                this.evolveItem.Enabled = false;      // 진행 상황을 보여 주기만 한다
-                this.evolveItem.Text = this.evolving
-                    ? "진화하는 중..."
-                    : string.Format("{0}까지 {1}번 더 쓰다듬기", name, this.PetsLeft());
+                if (this.evolving)
+                {
+                    this.evolveItem.Enabled = false;
+                    this.evolveItem.Text = "진화하는 중...";
+                }
+                else if (this.CanEvolve())
+                {
+                    this.evolveItem.Text = string.Format("{0}로 진화하기", name);
+                    this.evolveItem.Click += delegate { this.StartEvolving(); };
+                }
+                else
+                {
+                    List<string> needs = new List<string>();
+                    if (this.PetsLeft() > 0)
+                    {
+                        needs.Add(string.Format("{0}번 더 쓰다듬기", this.PetsLeft()));
+                    }
+                    if (this.WalkLeft() > 0)
+                    {
+                        needs.Add(string.Format("{0}px 더 산책", this.WalkLeft()));
+                    }
+                    this.evolveItem.Enabled = false;
+                    this.evolveItem.Text = string.Format("{0}까지 {1}", name,
+                        string.Join(" · ", needs.ToArray()));
+                }
                 menu.Items.Add(this.evolveItem);
             }
             menu.Items.Add(new ToolStripSeparator());
@@ -1014,6 +1037,7 @@ namespace PokemonTaskbar
             else if (this.walking)
             {
                 this.animTime += dt;
+                double beforeX = this.x;
                 this.x += this.direction * this.speedValue * dt;
                 if (this.x <= 0)
                 {
@@ -1029,6 +1053,7 @@ namespace PokemonTaskbar
                 {
                     this.direction = -this.direction;
                 }
+                this.walked = Math.Min(EvolveWalkNeed, this.walked + Math.Abs(this.x - beforeX));
 
                 if (this.random.NextDouble() < 0.005)
                 {
@@ -1347,20 +1372,29 @@ namespace PokemonTaskbar
         /// <summary>진화할 준비가 됐는지.</summary>
         public bool CanEvolve()
         {
-            return this.nextKey != null && this.friendship >= EvolveNeed && !this.evolving;
+            return this.nextKey != null
+                && this.friendship >= EvolvePetNeed
+                && this.walked >= EvolveWalkNeed
+                && !this.evolving;
         }
 
         /// <summary>진화까지 몇 번 더 쓰다듬어야 하는지.</summary>
         public int PetsLeft()
         {
-            double left = (EvolveNeed - this.friendship) / EvolvePerPet;
+            double left = (EvolvePetNeed - this.friendship) / EvolvePerPet;
             return Math.Max(0, (int)Math.Ceiling(left));
+        }
+
+        /// <summary>진화까지 몇 픽셀을 더 산책해야 하는지.</summary>
+        public int WalkLeft()
+        {
+            return Math.Max(0, (int)Math.Ceiling(EvolveWalkNeed - this.walked));
         }
 
         /// <summary>진화 연출을 시작한다. 끝나면 세계가 새 포켓몬으로 갈아 끼운다.</summary>
         public void StartEvolving()
         {
-            if (this.evolving || this.nextKey == null)
+            if (!this.CanEvolve())
             {
                 return;
             }
@@ -1413,7 +1447,6 @@ namespace PokemonTaskbar
 
         /// <summary>쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다.
         ///
-        /// 다 채우면 그 자리에서 바로 진화가 시작된다.
         /// </summary>
         private void Petted()
         {
@@ -1422,11 +1455,7 @@ namespace PokemonTaskbar
             {
                 return;
             }
-            this.friendship = Math.Min(EvolveNeed, this.friendship + EvolvePerPet);
-            if (this.CanEvolve())
-            {
-                this.StartEvolving();
-            }
+            this.friendship = Math.Min(EvolvePetNeed, this.friendship + EvolvePerPet);
         }
 
         /// <summary>올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다.</summary>

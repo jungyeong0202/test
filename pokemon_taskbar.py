@@ -533,7 +533,10 @@ class PokemonPet:
         """우클릭 메뉴. 명령줄 없이도 웬만한 건 여기서 다 된다."""
         menu = pokemon_menu(self.window)
         menu.add_command(label="●  포켓몬 센터  ●", state="disabled")
+        menu.add_command(label="", state="disabled")
+        self.menu_status_index = menu.index("end")
         menu.add_separator()
+        menu.add_command(label="━━ 포켓몬 관리 ━━", state="disabled")
 
         choose = pokemon_menu(menu)
         self.pet_purchase_indices = []
@@ -548,10 +551,12 @@ class PokemonPet:
         choose.add_command(label="", command=app.buy_random_pet)
         self.random_purchase_index = choose.index("end")
         self.pet_purchase_menu = choose
-        menu.add_cascade(label="포켓몬 구매", menu=choose)
+        menu.add_cascade(label="◆ 새 포켓몬 영입", menu=choose)
         menu.add_command(label="이 포켓몬 보내주기", command=self.release)
 
         # 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 갱신한다.
+        menu.add_separator()
+        menu.add_command(label="━━ 생활 · 경제 ━━", state="disabled")
         shop = pokemon_menu(menu)
         shop.add_command(label="", command=app.buy_food)
         self.food_buy_index = shop.index("end")
@@ -562,7 +567,8 @@ class PokemonPet:
         menu.add_command(label="", command=lambda: app.feed_pet(self))
         self.feed_index = menu.index("end")
 
-        menu.add_command(label="주식시장 열기", command=app.open_stock_overlay)
+        menu.add_command(label="", command=app.open_stock_overlay)
+        self.stock_index = menu.index("end")
 
         # 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
         self.evolve_index = None
@@ -571,6 +577,7 @@ class PokemonPet:
             self.evolve_index = menu.index("end")
         menu.configure(postcommand=self.refresh_menu)
         menu.add_separator()
+        menu.add_command(label="━━ 움직임 · 설정 ━━", state="disabled")
 
         sizes = pokemon_menu(menu)
         for label, value in SIZE_CHOICES:
@@ -578,7 +585,7 @@ class PokemonPet:
                 label=label, value=value, variable=app.scale_var,
                 command=lambda v=value: app.set_scale(v),
             )
-        menu.add_cascade(label="크기", menu=sizes)
+        menu.add_cascade(label="크기 조절", menu=sizes)
 
         speeds = pokemon_menu(menu)
         for label, value in SPEED_CHOICES:
@@ -586,7 +593,7 @@ class PokemonPet:
                 label=label, value=value, variable=app.speed_var,
                 command=lambda v=value: app.set_speed(v),
             )
-        menu.add_cascade(label="속도", menu=speeds)
+        menu.add_cascade(label="산책 속도", menu=speeds)
 
         menu.add_checkbutton(
             label="잠시 멈춤", variable=app.pause_var, command=app.toggle_pause
@@ -685,20 +692,28 @@ class PokemonPet:
     def refresh_menu(self):
         """메뉴를 열 때마다 상점과 진화 항목을 지금 상태로 고쳐 쓴다."""
         self.menu.entryconfigure(
-            self.shop_index, label="상점 (보유 %s)" % format_won(self.app.coins)
+            self.menu_status_index,
+            label="보유금 %s  ·  포켓푸드 %d개  ·  성장 물방울 %d개" % (
+                format_won(self.app.coins), self.app.food, self.app.growth_drops
+            ),
+        )
+        self.menu.entryconfigure(
+            self.shop_index, label="◆ 상점 · 보유금 %s" % format_won(self.app.coins)
         )
         self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
             self.food_buy_index,
-            label="포켓푸드 구매 — %s" % format_won(FOOD_COST),
+            label="포켓푸드  ·  %s  ·  현재 %d개" % (format_won(FOOD_COST), self.app.food),
             state="normal" if self.app.coins >= FOOD_COST else "disabled",
         )
         self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
             self.drop_buy_index,
-            label="성장의 물방울 구매 — %s" % format_won(GROWTH_DROP_COST),
+            label="성장의 물방울  ·  %s  ·  현재 %d개" % (
+                format_won(GROWTH_DROP_COST), self.app.growth_drops
+            ),
             state="normal" if self.app.coins >= GROWTH_DROP_COST else "disabled",
         )
         self.menu.entryconfigure(
-            self.feed_index, label="포켓푸드 주기 (%d개)" % self.app.food,
+            self.feed_index, label="▶ 이 포켓몬에게 먹이 주기  ·  %d개 보유" % self.app.food,
             state="normal" if self.app.food else "disabled",
         )
         for key, index in self.pet_purchase_indices:
@@ -709,6 +724,10 @@ class PokemonPet:
         self.pet_purchase_menu.entryconfigure(
             self.random_purchase_index, label="무작위 — %s" % format_won(POKEMON_PRICE),
             state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
+        )
+        self.menu.entryconfigure(
+            self.stock_index,
+            label="▶ 주식시장 열기  ·  평가액 %s" % format_won(self.app.stock_portfolio_value()),
         )
         if self.evolve_index is None:
             return
@@ -1409,6 +1428,10 @@ class StockOverlay:
             font=("Malgun Gothic", 13, "bold"), pady=9,
         )
         title_label.pack(side="left", padx=14)
+        tk.Label(
+            title, text="20초마다 갱신 · 제목을 끌어 이동", bg=MENU_RED, fg="#ffe6c7",
+            font=("Malgun Gothic", 8), pady=13,
+        ).pack(side="right", padx=(0, 8))
         tk.Button(
             title, text="×", command=self.close, bg=MENU_RED, fg="white",
             activebackground="#aa2028", activeforeground="white", bd=0,
@@ -1420,6 +1443,11 @@ class StockOverlay:
             font=("Malgun Gothic", 11, "bold"), padx=16, pady=8,
         )
         self.balance.pack(fill="x")
+        tk.Label(
+            body, text="매수·매도 수수료 2%  ·  뉴스 이벤트 종목은 40초간 거래 정지",
+            bg=MENU_CREAM, fg=MENU_DISABLED, anchor="w",
+            font=("Malgun Gothic", 8), padx=16,
+        ).pack(fill="x", pady=(0, 3))
         cards = tk.Frame(body, bg=MENU_CREAM)
         cards.pack(fill="both", expand=True, padx=10)
         self.rows = []
@@ -1449,10 +1477,10 @@ class StockOverlay:
             buttons.pack(side="right", padx=(0, 8), pady=(1, 7))
             buy = self.make_button(buttons, "매수", MENU_RED,
                                    lambda index=index: self.trade(index, True))
-            buy.pack(fill="x", pady=(0, 3))
+            buy.pack(side="left", fill="y", padx=(0, 3))
             sell = self.make_button(buttons, "매도", "#3a81c7",
                                     lambda index=index: self.trade(index, False))
-            sell.pack(fill="x")
+            sell.pack(side="right", fill="y")
             self.rows.append((name_label, price, position, graph, buy, sell))
 
         self.notice = tk.Label(
@@ -1521,12 +1549,15 @@ class StockOverlay:
         self.balance.configure(text="보유금  %s" % format_won(self.app.coins))
         total_value = self.app.stock_portfolio_value()
         self.balance.configure(
-            text="보유금  %s   ·   주식 평가액  %s" % (
-                format_won(self.app.coins), format_won(total_value)
+            text="현금  %s   ·   주식 평가액  %s   ·   총 자산  %s" % (
+                format_won(self.app.coins), format_won(total_value),
+                format_won(self.app.coins + total_value),
             )
         )
         for index, (name_label, price_label, position, graph, buy, sell) in enumerate(self.rows):
-            name_label.configure(text=self.app.stock_name(index))
+            name_label.configure(text="%s  ·  %s" % (
+                self.app.stock_name(index), self.app.stock_profile(index)
+            ))
             price = self.app.stock_prices[index]
             shares = self.app.stock_shares[index]
             percent = self.app.stock_change_percent(index)
@@ -1535,11 +1566,15 @@ class StockOverlay:
                 minutes = max(1, int(math.ceil(self.app.stock_relist_seconds[index] / 60.0)))
                 price_label.configure(text="상장폐지 · 신규 상장까지 %d분" % minutes, fg=MENU_RED)
                 position.configure(text="보유 주식 소멸 · 새 종목을 준비하고 있습니다")
+                buy.configure(text="매수 불가")
+                sell.configure(text="매도 불가")
                 buy.configure(state="disabled")
                 sell.configure(state="disabled")
             elif self.app.stock_halt_seconds[index]:
                 price_label.configure(text="거래 일시정지 · %d초" % self.app.stock_halt_seconds[index], fg=MENU_RED)
                 position.configure(text=self.app.stock_position_text(index))
+                buy.configure(text="거래 정지")
+                sell.configure(text="거래 정지")
                 buy.configure(state="disabled")
                 sell.configure(state="disabled")
             else:
@@ -1548,6 +1583,8 @@ class StockOverlay:
                     fg=colour,
                 )
                 position.configure(text=self.app.stock_position_text(index))
+                buy.configure(text="매수\n%s" % format_won(self.app.stock_buy_cost(index)))
+                sell.configure(text="매도\n%s" % format_won(self.app.stock_sell_proceeds(index)))
                 buy.configure(state="normal" if self.app.coins >= self.app.stock_buy_cost(index) else "disabled")
                 sell.configure(state="normal" if shares else "disabled")
             self.draw_graph(graph, self.app.stock_history[index])

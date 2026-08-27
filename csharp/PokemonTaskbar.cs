@@ -1074,9 +1074,11 @@ namespace PokemonTaskbar
         {
             menu.Items.Clear();
             menu.Items.Add(PetWorld.CreateMenuTitle());
+            menu.Items.Add(PetWorld.CreateMenuStatus(world.Options));
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(PetWorld.CreateMenuSection("━━ 포켓몬 관리 ━━"));
 
-            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 구매");
+            ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
             // 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
             foreach (PokemonSprite sprite in Sprites.BaseSpecies())
             {
@@ -1098,27 +1100,31 @@ namespace PokemonTaskbar
             menu.Items.Add("이 포켓몬 보내주기", null, delegate { world.Remove(this); });
 
             // 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 새로 만든다.
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(PetWorld.CreateMenuSection("━━ 생활 · 경제 ━━"));
             ToolStripMenuItem shop = new ToolStripMenuItem(
-                string.Format("상점 (보유 {0})", PetWorld.FormatWon(world.Options.Coins)));
+                string.Format("◆ 상점 · 보유금 {0}", PetWorld.FormatWon(world.Options.Coins)));
             ToolStripMenuItem buyFood = new ToolStripMenuItem(
-                string.Format("포켓푸드 구매 — {0}", PetWorld.FormatWon(PetWorld.FoodCost)), null,
+                string.Format("포켓푸드 · {0} · 현재 {1}개", PetWorld.FormatWon(PetWorld.FoodCost), world.Options.Food), null,
                 delegate { world.BuyFood(); });
             buyFood.Enabled = world.Options.Coins >= PetWorld.FoodCost;
             shop.DropDownItems.Add(buyFood);
             ToolStripMenuItem buyGrowthDrop = new ToolStripMenuItem(
-                string.Format("성장의 물방울 구매 — {0}", PetWorld.FormatWon(PetWorld.GrowthDropCost)), null,
+                string.Format("성장의 물방울 · {0} · 현재 {1}개", PetWorld.FormatWon(PetWorld.GrowthDropCost), world.Options.GrowthDrops), null,
                 delegate { world.BuyGrowthDrop(); });
             buyGrowthDrop.Enabled = world.Options.Coins >= PetWorld.GrowthDropCost;
             shop.DropDownItems.Add(buyGrowthDrop);
             menu.Items.Add(shop);
 
             ToolStripMenuItem feed = new ToolStripMenuItem(
-                string.Format("포켓푸드 주기 ({0}개)", world.Options.Food), null,
+                string.Format("▶ 이 포켓몬에게 먹이 주기 · {0}개 보유", world.Options.Food), null,
                 delegate { world.Feed(this); });
             feed.Enabled = world.Options.Food > 0 && !this.evolving;
             menu.Items.Add(feed);
 
-            menu.Items.Add("주식시장 열기", null, delegate { world.OpenStockOverlay(); });
+            menu.Items.Add(string.Format("▶ 주식시장 열기 · 평가액 {0}",
+                PetWorld.FormatWon(world.StockPortfolioValue())), null,
+                delegate { world.OpenStockOverlay(); });
 
             // 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
             if (this.nextKey != null)
@@ -1157,8 +1163,9 @@ namespace PokemonTaskbar
                 menu.Items.Add(this.evolveItem);
             }
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(PetWorld.CreateMenuSection("━━ 움직임 · 설정 ━━"));
 
-            ToolStripMenuItem sizes = new ToolStripMenuItem("크기");
+            ToolStripMenuItem sizes = new ToolStripMenuItem("크기 조절");
             string[] sizeNames = { "작게", "보통", "크게", "아주 크게" };
             double[] sizeValues = { 3.0, 4.5, 6.0, 9.0 };
             for (int i = 0; i < sizeNames.Length; i++)
@@ -1171,7 +1178,7 @@ namespace PokemonTaskbar
             }
             menu.Items.Add(sizes);
 
-            ToolStripMenuItem speeds = new ToolStripMenuItem("속도");
+            ToolStripMenuItem speeds = new ToolStripMenuItem("산책 속도");
             string[] speedNames = { "느리게", "보통", "빠르게" };
             double[] speedValues = { 30.0, 55.0, 95.0 };
             for (int i = 0; i < speedNames.Length; i++)
@@ -2454,7 +2461,7 @@ namespace PokemonTaskbar
             this.TopMost = true;
             this.BackColor = Color.FromArgb(217, 52, 59);
             this.Padding = new Padding(3);
-            this.ClientSize = new Size(710, 525);
+            this.ClientSize = new Size(710, 570);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             Panel body = new Panel();
@@ -2481,6 +2488,17 @@ namespace PokemonTaskbar
             title.MouseDown += this.BeginDrag;
             title.MouseMove += this.Drag;
             title.MouseUp += this.EndDrag;
+            Label hint = new Label();
+            hint.Text = "20초마다 갱신 · 제목을 끌어 이동";
+            hint.ForeColor = Color.FromArgb(255, 230, 199);
+            hint.BackColor = header.BackColor;
+            hint.Font = new Font("Malgun Gothic", 8.0f);
+            hint.AutoSize = true;
+            hint.Location = new Point(430, 15);
+            header.Controls.Add(hint);
+            hint.MouseDown += this.BeginDrag;
+            hint.MouseMove += this.Drag;
+            hint.MouseUp += this.EndDrag;
             Button close = new Button();
             close.Text = "×";
             close.FlatStyle = FlatStyle.Flat;
@@ -2500,10 +2518,18 @@ namespace PokemonTaskbar
             this.balance.Location = new Point(15, 54);
             this.balance.Size = new Size(675, 25);
             body.Controls.Add(this.balance);
+            Label rule = new Label();
+            rule.Text = "매수·매도 수수료 2%  ·  뉴스 이벤트 종목은 40초간 거래 정지";
+            rule.ForeColor = Color.FromArgb(168, 145, 125);
+            rule.BackColor = body.BackColor;
+            rule.Font = new Font("Malgun Gothic", 8.0f);
+            rule.Location = new Point(15, 79);
+            rule.Size = new Size(675, 17);
+            body.Controls.Add(rule);
 
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
-                this.CreateStockCard(body, i, 12 + (i % 2) * 342, 82 + (i / 2) * 128);
+                this.CreateStockCard(body, i, 12 + (i % 2) * 342, 102 + (i / 2) * 128);
             }
             this.notice = new Label();
             this.notice.Text = "가격은 20초마다 변동합니다";
@@ -2511,7 +2537,7 @@ namespace PokemonTaskbar
             this.notice.BackColor = body.BackColor;
             this.notice.Font = new Font("Malgun Gothic", 9.0f);
             this.notice.AutoSize = true;
-            this.notice.Location = new Point(190, 482);
+            this.notice.Location = new Point(190, 532);
             body.Controls.Add(this.notice);
             this.RefreshMarket();
         }
@@ -2571,7 +2597,7 @@ namespace PokemonTaskbar
             button.BackColor = color;
             button.ForeColor = Color.White;
             button.Font = new Font("Malgun Gothic", 9.0f, FontStyle.Bold);
-            button.Size = new Size(58, 30);
+            button.Size = new Size(58, 55);
             return button;
         }
 
@@ -2604,19 +2630,23 @@ namespace PokemonTaskbar
 
         public void RefreshMarket()
         {
-            this.balance.Text = "보유금  " + PetWorld.FormatWon(this.world.Options.Coins)
-                + "   ·   주식 평가액  " + PetWorld.FormatWon(this.world.StockPortfolioValue());
+            int portfolio = this.world.StockPortfolioValue();
+            this.balance.Text = "현금  " + PetWorld.FormatWon(this.world.Options.Coins)
+                + "   ·   주식 평가액  " + PetWorld.FormatWon(portfolio)
+                + "   ·   총 자산  " + PetWorld.FormatWon(this.world.Options.Coins + portfolio);
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
                 int price = this.world.Options.StockPrices[i];
                 int shares = this.world.Options.StockShares[i];
                 double percent = this.world.StockChangePercent(i);
-                this.names[i].Text = this.world.StockName(i);
+                this.names[i].Text = this.world.StockName(i) + "  ·  " + this.world.StockProfile(i);
                 if (this.world.IsStockDelisted(i))
                 {
                     this.prices[i].Text = "상장폐지 · 신규 상장까지 " + this.world.RelistingMinutes(i) + "분";
                     this.prices[i].ForeColor = Color.FromArgb(217, 52, 59);
                     this.positions[i].Text = "보유 주식 소멸 · 새 종목을 준비하고 있습니다";
+                    this.buys[i].Text = "매수 불가";
+                    this.sells[i].Text = "매도 불가";
                     this.buys[i].Enabled = false;
                     this.sells[i].Enabled = false;
                     this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2627,6 +2657,8 @@ namespace PokemonTaskbar
                     this.prices[i].Text = "거래 일시정지 · " + this.world.Options.StockHaltSeconds[i] + "초";
                     this.prices[i].ForeColor = Color.FromArgb(217, 52, 59);
                     this.positions[i].Text = this.world.StockPositionText(i);
+                    this.buys[i].Text = "거래 정지";
+                    this.sells[i].Text = "거래 정지";
                     this.buys[i].Enabled = false;
                     this.sells[i].Enabled = false;
                     this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2637,6 +2669,8 @@ namespace PokemonTaskbar
                 this.prices[i].ForeColor = percent > 0 ? Color.FromArgb(47, 155, 103)
                     : percent < 0 ? Color.FromArgb(217, 52, 59) : Color.FromArgb(58, 45, 38);
                 this.positions[i].Text = this.world.StockPositionText(i);
+                this.buys[i].Text = "매수\r\n" + PetWorld.FormatWon(this.world.StockBuyCost(i));
+                this.sells[i].Text = "매도\r\n" + PetWorld.FormatWon(this.world.StockSellProceeds(i));
                 this.buys[i].Enabled = this.world.Options.Coins >= this.world.StockBuyCost(i);
                 this.sells[i].Enabled = shares > 0;
                 this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2686,6 +2720,27 @@ namespace PokemonTaskbar
             title.Font = PokemonMenuTitleFont;
             title.Margin = new Padding(6, 4, 6, 4);
             return title;
+        }
+
+        /// <summary>메뉴 맨 위에서 돈과 소모품을 바로 확인하게 한다.</summary>
+        public static ToolStripLabel CreateMenuStatus(Options options)
+        {
+            ToolStripLabel status = new ToolStripLabel(string.Format(
+                "보유금 {0}  ·  포켓푸드 {1}개  ·  성장 물방울 {2}개",
+                FormatWon(options.Coins), options.Food, options.GrowthDrops));
+            status.ForeColor = Color.FromArgb(168, 145, 125);
+            status.Margin = new Padding(6, 1, 6, 4);
+            return status;
+        }
+
+        /// <summary>긴 메뉴를 행동 단위로 나누는 구분 제목.</summary>
+        public static ToolStripLabel CreateMenuSection(string text)
+        {
+            ToolStripLabel section = new ToolStripLabel(text);
+            section.ForeColor = Color.FromArgb(217, 52, 59);
+            section.Font = PokemonMenuTitleFont;
+            section.Margin = new Padding(6, 3, 6, 2);
+            return section;
         }
 
         /// <summary>게임 안의 돈을 천 단위 쉼표가 있는 원 단위로 표시한다.</summary>
@@ -2789,9 +2844,11 @@ namespace PokemonTaskbar
         {
             menu.Items.Clear();
             menu.Items.Add(CreateMenuTitle());
+            menu.Items.Add(CreateMenuStatus(this.Options));
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(CreateMenuSection("━━ 빠른 실행 ━━"));
 
-            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 구매");
+            ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
             foreach (PokemonSprite sprite in Sprites.BaseSpecies())
             {
                 string key = sprite.Key;
@@ -2802,8 +2859,8 @@ namespace PokemonTaskbar
                 add.DropDownItems.Add(item);
             }
             menu.Items.Add(add);
-
-            menu.Items.Add("주식시장 열기", null, delegate { this.OpenStockOverlay(); });
+            menu.Items.Add(string.Format("▶ 주식시장 열기 · 평가액 {0}",
+                FormatWon(this.StockPortfolioValue())), null, delegate { this.OpenStockOverlay(); });
 
             menu.Items.Add("화면 가운데로 데려오기", null, delegate { this.RecallAll(); });
 
@@ -2813,6 +2870,7 @@ namespace PokemonTaskbar
             menu.Items.Add(pause);
 
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(CreateMenuSection("━━ 도움말 · 종료 ━━"));
             menu.Items.Add("어디에 있는지 보기", null, delegate
             {
                 MessageBox.Show(Program.Diagnose(this.Options), "하단바 포켓몬 - 진단");

@@ -1361,7 +1361,7 @@ class MenuTest(unittest.TestCase):
 
     def _add_menu_labels(self, pet):
         labels = []
-        submenu = pet.menu.nametowidget(pet.menu.entrycget(0, "menu"))
+        submenu = pet.pet_purchase_menu
         for index in range(submenu.index("end") + 1):
             if submenu.type(index) == "command":
                 labels.append(submenu.entrycget(index, "label"))

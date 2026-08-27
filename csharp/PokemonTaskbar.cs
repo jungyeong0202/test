@@ -334,91 +334,6 @@ namespace PokemonTaskbar
             return frames;
         }
 
-        public const int WalkMiddleFrames = 2;
-
-        /// <summary>발을 든 두 자세 사이에 도트 전환 프레임을 넣는다.
-        ///
-        /// 원본 4프레임은 [디딤 / 왼발 듦 / 디딤 / 오른발 듦]이다. 서로 다른
-        /// 도트만 위에서 아래(발을 들 때), 아래에서 위(다시 디딜 때) 순서로
-        /// 넘겨 발목에서 발끝까지 이어 움직이는 중간 자세를 만든다.</summary>
-        public static List<Color?[][]> SmoothWalkFrames(List<Color?[][]> frames)
-        {
-            if (frames.Count < 2)
-            {
-                return frames;
-            }
-
-            List<Color?[][]> smooth = new List<Color?[][]>();
-            for (int index = 0; index < frames.Count; index++)
-            {
-                Color?[][] source = frames[index];
-                Color?[][] target = frames[(index + 1) % frames.Count];
-                smooth.Add(source);
-                // 0->1, 2->3 은 발을 들고, 1->2, 3->0 은 바닥에 다시 디딘다.
-                bool rising = index % 2 == 0;
-                for (int step = 1; step <= WalkMiddleFrames; step++)
-                {
-                    smooth.Add(WalkTransition(source, target, step, WalkMiddleFrames, rising));
-                }
-            }
-            return smooth;
-        }
-
-        /// <summary>두 보행 자세 사이의 step 번째 도트 전환 자세.</summary>
-        private static Color?[][] WalkTransition(Color?[][] source, Color?[][] target,
-            int step, int middleFrames, bool rising)
-        {
-            int top = source.Length;
-            int bottom = -1;
-            for (int y = 0; y < source.Length; y++)
-            {
-                for (int x = 0; x < source[y].Length; x++)
-                {
-                    if (source[y][x] != target[y][x])
-                    {
-                        top = Math.Min(top, y);
-                        bottom = Math.Max(bottom, y);
-                    }
-                }
-            }
-
-            Color?[][] middle = new Color?[source.Length][];
-            for (int y = 0; y < source.Length; y++)
-            {
-                middle[y] = new Color?[source[y].Length];
-                Array.Copy(source[y], middle[y], source[y].Length);
-            }
-            if (bottom < top)
-            {
-                return middle;
-            }
-
-            int height = bottom - top + 1;
-            double progress = step / (double)(middleFrames + 1);
-            for (int y = 0; y < source.Length; y++)
-            {
-                for (int x = 0; x < source[y].Length; x++)
-                {
-                    if (source[y][x] == target[y][x])
-                    {
-                        continue;
-                    }
-                    double order = (y - top + 0.5) / height;
-                    if (!rising)
-                    {
-                        order = 1.0 - order;
-                    }
-                    // 줄 끝이 한꺼번에 바뀌지 않게 한 도트씩 비껴 바꾼다.
-                    order += ((x + y) % 3 - 1) * 0.08;
-                    if (order <= progress)
-                    {
-                        middle[y][x] = target[y][x];
-                    }
-                }
-            }
-            return middle;
-        }
-
         /// <summary>프레임과 자세를 통틀어 가장 넓은 줄의 길이.</summary>
         public static int SpriteWidth(PokemonSprite sprite)
         {
@@ -614,11 +529,8 @@ namespace PokemonTaskbar
         private const double WalkAccel = 220.0;     // 걷기 시작할 때 속도를 올리는 가속도
         private const double WalkDecel = 420.0;     // 멈추거나 돌아설 때 속도를 줄이는 감속도
         private const double TurnPauseSeconds = 0.12; // 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
-        private const int WalkSubsteps = 12;        // 4개 발 자세와 중간 프레임을 합친 보행 박자
-        private static readonly double[] WalkBob = {
-            0.0, 0.30, 0.75, 1.0, 0.75, 0.30,
-            0.0, 0.30, 0.75, 1.0, 0.75, 0.30
-        };
+        private const int WalkSubsteps = 8;         // 4장 도트를 더 부드럽게 보이게 나눈 보행 박자
+        private static readonly double[] WalkBob = { 0.0, 0.45, 1.0, 0.45, 0.0, 0.45, 1.0, 0.45 };
 
         // 효과에 쓰는 아주 작은 도트 그림
         private static readonly int[,] HeartDots = {
@@ -737,10 +649,6 @@ namespace PokemonTaskbar
             this.random = world.Random;
 
             List<Color?[][]> frames = SpriteFactory.Frames(sprite);
-            if (!sprite.Hops && !sprite.Floats)
-            {
-                frames = SpriteFactory.SmoothWalkFrames(frames);
-            }
             this.frameCount = frames.Count;
             double scale = Math.Max(MinSpriteScale, world.Options.Scale * sprite.ScaleFactor);
             this.images = new Bitmap[2][];

@@ -133,15 +133,6 @@ class SpriteTest(unittest.TestCase):
                 frames[0], frames[1], "%s: 걷기 프레임이 동일합니다" % pokemon.key
             )
 
-    def test_walk_transition_adds_two_foot_inbetweens(self):
-        frames = sprites.POKEMON["pikachu"].frames()
-        smooth = pt.smooth_walk_frames(frames)
-        self.assertEqual(len(smooth), len(frames) * (pt.WALK_MIDDLE_FRAMES + 1))
-        self.assertEqual(smooth[0], frames[0])
-        self.assertEqual(smooth[3], frames[1])
-        self.assertNotEqual(smooth[1], frames[0])
-        self.assertNotEqual(smooth[1], frames[1])
-
     def test_facing_is_declared(self):
         for pokemon in sprites.POKEMON.values():
             self.assertIn(pokemon.facing, ("left", "right"), pokemon.key)

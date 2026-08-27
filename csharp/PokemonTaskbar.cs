@@ -3431,6 +3431,7 @@ namespace PokemonTaskbar
             this.haltTimer.Tick += delegate { this.TickMarketClock(); };
             this.haltTimer.Start();
             this.BuildTray();
+            this.OpenGameMenu();
         }
 
         /// <summary>알림 영역 아이콘. 포켓몬이 안 보여도 여기서 부르거나 끌 수 있다.</summary>

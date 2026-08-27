@@ -1503,6 +1503,19 @@ class GameMenuOverlay:
             button.pack(fill="x", pady=2, ipady=5)
         self.stock = self.button(actions, "주식시장 열기", "#18794e", app.open_stock_overlay)
         self.stock.pack(fill="x", pady=(7, 2), ipady=5)
+        tk.Label(self.window, text="선택 포켓몬 관리", bg="#f5f6f8", fg="#4b5563",
+                 font=("Malgun Gothic", 9, "bold"), anchor="w", pady=5).pack(fill="x")
+        self.pet_choice = tk.StringVar(self.window)
+        self.pet_select = tk.OptionMenu(self.window, self.pet_choice, "")
+        self.pet_select.configure(font=("Malgun Gothic", 9), bg="white")
+        self.pet_select.pack(fill="x")
+        pet_actions = tk.Frame(self.window, bg="#f5f6f8")
+        pet_actions.pack(fill="x", pady=(3, 2))
+        self.feed = self.button(pet_actions, "먹이 주기", "#3182ce", self.feed_selected)
+        self.evolve = self.button(pet_actions, "진화", "#805ad5", self.evolve_selected)
+        self.release = self.button(pet_actions, "보내주기", "#6b7280", self.release_selected)
+        for button in (self.feed, self.evolve, self.release):
+            button.pack(side="left", fill="x", expand=True, padx=1, ipady=3)
         window_controls = tk.Frame(self.window, bg="#f5f6f8")
         window_controls.pack(fill="x", pady=(7, 0))
         self.topmost = True
@@ -1533,6 +1546,17 @@ class GameMenuOverlay:
                             state="normal" if self.app.coins >= FOOD_COST else "disabled")
         self.drop.configure(text="성장의 물방울  %s" % format_won(GROWTH_DROP_COST),
                             state="normal" if self.app.coins >= GROWTH_DROP_COST else "disabled")
+        labels = ["%d. %s" % (index + 1, pet.pokemon.name_ko) for index, pet in enumerate(self.app.pets)]
+        menu = self.pet_select["menu"]
+        menu.delete(0, "end")
+        for label in labels:
+            menu.add_command(label=label, command=lambda value=label: self.pet_choice.set(value))
+        if self.pet_choice.get() not in labels:
+            self.pet_choice.set(labels[0] if labels else "")
+        pet = self.selected_pet()
+        self.feed.configure(state="normal" if pet and self.app.food else "disabled")
+        self.evolve.configure(state="normal" if pet and pet.can_evolve() else "disabled")
+        self.release.configure(state="normal" if pet and len(self.app.pets) > 1 else "disabled")
         self.pets.configure(text="\n".join("%s  ·  %s  ·  산책 수입 x%.2g" % (
             pet.pokemon.name_ko, pokemon_grade(pet.pokemon.key)[0], pet.income_multiplier())
             for pet in self.app.pets))
@@ -1540,6 +1564,24 @@ class GameMenuOverlay:
     def run_action(self, action):
         action()
         self.refresh()
+
+    def selected_pet(self):
+        try:
+            return self.app.pets[int(self.pet_choice.get().split(".", 1)[0]) - 1]
+        except (ValueError, IndexError):
+            return None
+
+    def feed_selected(self):
+        pet = self.selected_pet()
+        if pet: self.run_action(lambda: self.app.feed_pet(pet))
+
+    def evolve_selected(self):
+        pet = self.selected_pet()
+        if pet: self.run_action(pet.start_evolving)
+
+    def release_selected(self):
+        pet = self.selected_pet()
+        if pet: self.run_action(lambda: self.app.remove_pet(pet))
 
     def toggle_topmost(self):
         self.topmost = not self.topmost
@@ -2749,6 +2791,7 @@ class App:
                 self.refresh_stock_overlay()
             self.heartbeat_id = self.root.after(200, heartbeat)
 
+        self.root.after(120, self.open_game_menu)
         heartbeat()
         self.root.mainloop()
 

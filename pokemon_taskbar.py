@@ -88,6 +88,7 @@ IDLE_EFFECT_EVERY = 0.55        # 대기 효과를 다시 띄우는 간격
 GREETING_DISTANCE = 150.0       # 이 거리 안에서 마주치면 인사한다(px)
 GREETING_SECONDS = 1.15         # 서로 바라보며 인사하는 시간
 GREETING_COOLDOWN = 5.0         # 같은 둘이 연달아 인사하지 않게 쉬는 시간
+GREETING_TALK_EVERY = 0.34      # 서로 말풍선을 주고받는 박자
 
 # 효과에 쓰는 아주 작은 도트 그림
 HEART_DOTS = (
@@ -103,6 +104,13 @@ ZZZ_DOTS = (
     (2, 1),
     (1, 2),
     (0, 3), (1, 3), (2, 3), (3, 3),
+)
+TALK_DOTS = (
+    (1, 0), (2, 0), (3, 0),
+    (0, 1), (4, 1),
+    (0, 2), (4, 2),
+    (1, 3), (2, 3), (3, 3),
+    (1, 4),
 )
 IDLE_DOTS = {
     "spark": ((1, 0), (1, 1), (0, 1), (2, 1), (1, 2)),
@@ -376,6 +384,8 @@ class PokemonPet:
         self.greeting_left = 0.0
         self.greeting_phase = 0.0
         self.greeting_cooldown = 0.0
+        self.greeting_leads = False
+        self.greeting_talk_turn = -1
 
         self.window = tk.Toplevel(app.root)
         self.window.overrideredirect(True)
@@ -701,12 +711,23 @@ class PokemonPet:
         self.greeting_left = GREETING_SECONDS
         self.greeting_phase = 0.0
         self.greeting_cooldown = GREETING_COOLDOWN
+        self.greeting_leads = self.x < partner.x
+        self.greeting_talk_turn = -1
         self.direction = 1 if partner.x > self.x else -1
-        self.spawn_emote("heart")
+
+    def greeting_speaking(self):
+        """대화 박자에서 지금 말풍선을 띄울 쪽인지."""
+        turn = int(self.greeting_phase / GREETING_TALK_EVERY) % 2
+        return self.greeting_left > 0 and (turn == 0) == self.greeting_leads
 
     def greeting_step(self, dt):
         self.greeting_left -= dt
         self.greeting_phase += dt
+        turn = int(self.greeting_phase / GREETING_TALK_EVERY)
+        if turn != self.greeting_talk_turn:
+            self.greeting_talk_turn = turn
+            if self.greeting_speaking():
+                self.spawn_emote("talk")
         if self.greeting_left <= 0:
             self.set_state("walk")
 
@@ -885,7 +906,7 @@ class PokemonPet:
             })
 
     def spawn_emote(self, kind):
-        """머리 위로 하트나 Zzz 를 띄운다."""
+        """머리 위로 하트·Zzz·말풍선을 띄운다."""
         self.effects.append({
             "kind": kind,
             "x": self.margin_x + self.width * (0.55 + random.random() * 0.2),
@@ -933,7 +954,7 @@ class PokemonPet:
         if self.napping and int(self.breath / BREATH_SEC) % 2 == 1:
             return "squash"
         if self.greeting_left > 0:
-            return "squash" if int(self.greeting_phase / 0.18) % 2 else "stretch"
+            return "stretch" if self.greeting_speaking() else "squash"
         if self.idle_action is not None and int(self.idle_phase / 0.22) % 2:
             return "stretch" if self.idle_action in ("spark", "flame", "twinkle") else "squash"
         if self.blinking > 0:
@@ -969,7 +990,9 @@ class PokemonPet:
 
             dots = IDLE_DOTS.get(effect["kind"])
             if dots is None:
-                dots = HEART_DOTS if effect["kind"] == "heart" else ZZZ_DOTS
+                dots = HEART_DOTS if effect["kind"] == "heart" else (
+                    TALK_DOTS if effect["kind"] == "talk" else ZZZ_DOTS
+                )
             # 절반쯤 남으면 깜빡이며 사라진다
             if effect["life"] < EMOTE_LIFE * 0.35 and int(effect["life"] * 20) % 2 == 0:
                 continue
@@ -1217,9 +1240,7 @@ class PokemonPet:
         sway = self.dot if (self.dragging and int(self.wiggle / WIGGLE_SEC) % 2) else 0
         if self.idle_action == "wiggle" and int(self.idle_phase / WIGGLE_SEC) % 2:
             sway += self.dot
-        greet_bob = int(self.dot * 0.45) if self.greeting_left > 0 and int(
-            self.greeting_phase / 0.18
-        ) % 2 else 0
+        greet_bob = int(self.dot * 0.45) if self.greeting_speaking() else 0
         self.canvas.coords(
             self.sprite,
             self.margin_x + self.own_dx + sway,

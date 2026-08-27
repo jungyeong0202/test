@@ -454,6 +454,8 @@ class PetMovementTest(unittest.TestCase):
         self.assertGreater(second.greeting_left, 0)
         self.assertEqual(first.direction, 1)
         self.assertEqual(second.direction, -1)
+        first.greeting_step(pt.TICK_MS / 1000.0)
+        self.assertIn("talk", [effect["kind"] for effect in first.effects])
 
     def test_turn_slows_before_changing_direction(self):
         pet = self.app.pets[0]

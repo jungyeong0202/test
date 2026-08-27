@@ -596,6 +596,7 @@ namespace PokemonTaskbar
         public const double GreetingDistance = 150.0;
         private const double GreetingSeconds = 1.15;
         private const double GreetingCooldown = 5.0;
+        private const double GreetingTalkEvery = 0.34;
         // 걸음 프레임은 시간 대신 실제 이동 거리에 맞춘다. 속도가 바뀌어도 발이 미끄러지지 않는다.
         private const double WalkStride = 35.0;     // 4프레임 한 바퀴에 나아가는 거리(px)
         private const double WalkAccel = 220.0;     // 걷기 시작할 때 속도를 올리는 가속도
@@ -624,6 +625,13 @@ namespace PokemonTaskbar
         private static readonly int[,] LeafDots = { {1,0},{2,0},{0,1},{1,1},{2,1},{1,2} };
         private static readonly int[,] BubbleDots = { {0,0},{1,0},{0,1},{1,1} };
         private static readonly int[,] TwinkleDots = { {1,0},{0,1},{1,1},{2,1},{1,2} };
+        private static readonly int[,] TalkDots = {
+            {1,0},{2,0},{3,0},
+            {0,1},{4,1},
+            {0,2},{4,2},
+            {1,3},{2,3},{3,3},
+            {1,4},
+        };
         private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
         private const double MinSpriteScale = 0.5;  // 도트 하나가 이보다 작아지지는 않는다
 
@@ -714,6 +722,8 @@ namespace PokemonTaskbar
         private double greetingLeft;
         private double greetingPhase;
         private double greetingCooldown;
+        private bool greetingLeads;
+        private int greetingTalkTurn = -1;
         private string playState;
         private double playLeft;
         private int playHops;
@@ -1012,8 +1022,7 @@ namespace PokemonTaskbar
             {
                 sway += this.dot;
             }
-            int greetBob = this.greetingLeft > 0
-                && (int)(this.greetingPhase / 0.18) % 2 == 1
+            int greetBob = this.GreetingSpeaking()
                 ? (int)Math.Floor(this.dot * 0.45) : 0;
             e.Graphics.DrawImageUnscaled(
                 image,
@@ -1302,7 +1311,7 @@ namespace PokemonTaskbar
             }
         }
 
-        /// <summary>머리 위로 하트나 Zzz 를 띄운다.</summary>
+        /// <summary>머리 위로 하트·Zzz·말풍선을 띄운다.</summary>
         private void SpawnEmote(string kind)
         {
             Effect emote = new Effect();
@@ -1421,14 +1430,31 @@ namespace PokemonTaskbar
             this.greetingLeft = GreetingSeconds;
             this.greetingPhase = 0.0;
             this.greetingCooldown = GreetingCooldown;
+            this.greetingLeads = this.x < partner.x;
+            this.greetingTalkTurn = -1;
             this.direction = partner.x > this.x ? 1 : -1;
-            this.SpawnEmote("heart");
+        }
+
+        /// <summary>대화 박자에서 지금 말풍선을 띄울 쪽인지.</summary>
+        private bool GreetingSpeaking()
+        {
+            int turn = (int)(this.greetingPhase / GreetingTalkEvery) % 2;
+            return this.greetingLeft > 0 && (turn == 0) == this.greetingLeads;
         }
 
         private void GreetingStep(double dt)
         {
             this.greetingLeft -= dt;
             this.greetingPhase += dt;
+            int turn = (int)(this.greetingPhase / GreetingTalkEvery);
+            if (turn != this.greetingTalkTurn)
+            {
+                this.greetingTalkTurn = turn;
+                if (this.GreetingSpeaking())
+                {
+                    this.SpawnEmote("talk");
+                }
+            }
             if (this.greetingLeft <= 0)
             {
                 this.walking = true;
@@ -1488,7 +1514,7 @@ namespace PokemonTaskbar
             }
             if (this.greetingLeft > 0)
             {
-                return (int)(this.greetingPhase / 0.18) % 2 == 1 ? "squash" : "stretch";
+                return this.GreetingSpeaking() ? "stretch" : "squash";
             }
             if (this.idleAction != null && (int)(this.idlePhase / 0.22) % 2 == 1)
             {
@@ -1565,6 +1591,7 @@ namespace PokemonTaskbar
                 case "leaf": return LeafDots;
                 case "bubble": return BubbleDots;
                 case "twinkle": return TwinkleDots;
+                case "talk": return TalkDots;
                 default: return ZzzDots;
             }
         }

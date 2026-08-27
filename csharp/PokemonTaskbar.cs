@@ -22,10 +22,10 @@ namespace PokemonTaskbar
         public double Speed = 55.0;
         public int Offset = 0;
         public bool OnTaskbar = false;
-        public int Coins = 30;
+        public int Coins = 3000;
         public int Food = 0;
         public int GrowthDrops = 0;
-        public int[] StockPrices = { 10, 18, 27 };
+        public int[] StockPrices = { 1000, 1800, 2700 };
         public int[] StockShares = { 0, 0, 0 };
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
@@ -138,6 +138,8 @@ namespace PokemonTaskbar
     public static class SettingsFile
     {
         public const string EnvOverride = "POKEMON_TASKBAR_SETTINGS";
+        public const int CurrencyVersion = 2;
+        public const int CurrencyScale = 100;
 
         public static string DefaultPath()
         {
@@ -170,6 +172,12 @@ namespace PokemonTaskbar
             return numbers;
         }
 
+        private static int ScaleLegacyMoney(int amount)
+        {
+            return amount > int.MaxValue / CurrencyScale
+                ? int.MaxValue : amount * CurrencyScale;
+        }
+
         /// <summary>저장된 값을 options 에 채운다. 명령줄로 이미 정한 항목은 건드리지 않는다.</summary>
         public static void Load(Options options, HashSet<string> givenOnCommandLine)
         {
@@ -183,6 +191,10 @@ namespace PokemonTaskbar
             {
                 return;                     // 파일이 없거나 읽을 수 없으면 기본값 그대로
             }
+
+            int storedCurrencyVersion = 1;
+            bool sawCoins = false;
+            bool sawStockPrices = false;
 
             foreach (string raw in lines)
             {
@@ -252,6 +264,7 @@ namespace PokemonTaskbar
                                 CultureInfo.InvariantCulture, out whole) && whole >= 0)
                         {
                             options.Coins = whole;
+                            sawCoins = true;
                         }
                         break;
                     case "food":
@@ -273,6 +286,7 @@ namespace PokemonTaskbar
                         if (prices != null)
                         {
                             options.StockPrices = prices;
+                            sawStockPrices = true;
                         }
                         break;
                     case "stock_shares":
@@ -282,6 +296,27 @@ namespace PokemonTaskbar
                             options.StockShares = shares;
                         }
                         break;
+                    case "currency_version":
+                        if (int.TryParse(value, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out whole) && whole > 0)
+                        {
+                            storedCurrencyVersion = whole;
+                        }
+                        break;
+                }
+            }
+            if (storedCurrencyVersion < CurrencyVersion)
+            {
+                if (sawCoins)
+                {
+                    options.Coins = ScaleLegacyMoney(options.Coins);
+                }
+                if (sawStockPrices)
+                {
+                    for (int i = 0; i < options.StockPrices.Length; i++)
+                    {
+                        options.StockPrices[i] = ScaleLegacyMoney(options.StockPrices[i]);
+                    }
                 }
             }
         }
@@ -308,6 +343,7 @@ namespace PokemonTaskbar
                 lines.Add("coins = " + options.Coins.ToString(CultureInfo.InvariantCulture));
                 lines.Add("food = " + options.Food.ToString(CultureInfo.InvariantCulture));
                 lines.Add("growth_drops = " + options.GrowthDrops.ToString(CultureInfo.InvariantCulture));
+                lines.Add("currency_version = " + CurrencyVersion.ToString(CultureInfo.InvariantCulture));
                 lines.Add("stock_prices = " + string.Join(", ", Array.ConvertAll(
                     options.StockPrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_shares = " + string.Join(", ", Array.ConvertAll(
@@ -948,14 +984,14 @@ namespace PokemonTaskbar
 
             // 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 새로 만든다.
             ToolStripMenuItem shop = new ToolStripMenuItem(
-                string.Format("상점 (포켓코인 {0})", world.Options.Coins));
+                string.Format("상점 (보유 {0})", PetWorld.FormatWon(world.Options.Coins)));
             ToolStripMenuItem buyFood = new ToolStripMenuItem(
-                string.Format("포켓푸드 구매 — {0}코인", PetWorld.FoodCost), null,
+                string.Format("포켓푸드 구매 — {0}", PetWorld.FormatWon(PetWorld.FoodCost)), null,
                 delegate { world.BuyFood(); });
             buyFood.Enabled = world.Options.Coins >= PetWorld.FoodCost;
             shop.DropDownItems.Add(buyFood);
             ToolStripMenuItem buyGrowthDrop = new ToolStripMenuItem(
-                string.Format("성장의 물방울 구매 — {0}코인", PetWorld.GrowthDropCost), null,
+                string.Format("성장의 물방울 구매 — {0}", PetWorld.FormatWon(PetWorld.GrowthDropCost)), null,
                 delegate { world.BuyGrowthDrop(); });
             buyGrowthDrop.Enabled = world.Options.Coins >= PetWorld.GrowthDropCost;
             shop.DropDownItems.Add(buyGrowthDrop);
@@ -978,12 +1014,14 @@ namespace PokemonTaskbar
                 int price = world.Options.StockPrices[index];
                 int shares = world.Options.StockShares[index];
                 ToolStripMenuItem buy = new ToolStripMenuItem(
-                    string.Format("{0} 1주 매수 — {1}코인 (보유 {2}주)", name, price, shares), null,
+                    string.Format("{0} 1주 매수 — {1} (보유 {2}주)", name,
+                        PetWorld.FormatWon(price), shares), null,
                     delegate { world.BuyStock(index); });
                 buy.Enabled = world.Options.Coins >= price;
                 market.DropDownItems.Add(buy);
                 ToolStripMenuItem sell = new ToolStripMenuItem(
-                    string.Format("{0} 1주 매도 — {1}코인 (보유 {2}주)", name, price, shares), null,
+                    string.Format("{0} 1주 매도 — {1} (보유 {2}주)", name,
+                        PetWorld.FormatWon(price), shares), null,
                     delegate { world.SellStock(index); });
                 sell.Enabled = shares > 0;
                 market.DropDownItems.Add(sell);
@@ -2242,15 +2280,22 @@ namespace PokemonTaskbar
     /// <summary>펫 여러 마리를 관리한다.</summary>
     public class PetWorld : ApplicationContext
     {
-        public const int CoinsPerPet = 1;          // 한 번 쓰다듬을 때마다 받는 포켓코인
-        public const double CoinWalkDistance = 100.0; // 이만큼 걸을 때마다 받는 포켓코인
-        public const int FoodCost = 4;             // 포켓푸드 한 개 가격
+        public const int CoinsPerPet = 100;        // 한 번 쓰다듬을 때마다 받는 돈(원)
+        public const int CoinsPerWalk = 100;       // 100px를 걸을 때마다 받는 돈(원)
+        public const double CoinWalkDistance = 100.0; // 이만큼 걸을 때마다 돈을 받는다
+        public const int FoodCost = 400;           // 포켓푸드 한 개 가격(원)
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
-        public const int GrowthDropCost = 25;      // 성장의 물방울 한 개 가격
+        public const int GrowthDropCost = 2500;    // 성장의 물방울 한 개 가격(원)
         public const int MarketUpdateMilliseconds = 20000;
         public static readonly string[] StockNames = {
             "피카츄전기", "꼬부기워터", "이상해씨농장"
         };
+
+        /// <summary>게임 안의 돈을 천 단위 쉼표가 있는 원 단위로 표시한다.</summary>
+        public static string FormatWon(int amount)
+        {
+            return amount.ToString("N0", CultureInfo.InvariantCulture) + "원";
+        }
 
         public readonly Options Options;
         public readonly Random Random = new Random();
@@ -2432,7 +2477,7 @@ namespace PokemonTaskbar
             SettingsFile.Save(this.Options, species);
         }
 
-        /// <summary>포켓코인을 얻고 설정 파일에도 남긴다.</summary>
+        /// <summary>돈을 얻고 설정 파일에도 남긴다.</summary>
         public void EarnCoins(int amount)
         {
             if (amount <= 0)
@@ -2443,7 +2488,7 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
-        /// <summary>스스로 걸은 100px마다 포켓코인 하나를 얻는다.</summary>
+        /// <summary>스스로 걸은 100px마다 100원을 얻는다.</summary>
         public void EarnWalkCoins(double distance)
         {
             this.coinWalkProgress += distance;
@@ -2451,7 +2496,7 @@ namespace PokemonTaskbar
             if (amount > 0)
             {
                 this.coinWalkProgress -= amount * CoinWalkDistance;
-                this.EarnCoins(amount);
+                this.EarnCoins(amount * CoinsPerWalk);
             }
         }
 
@@ -2521,8 +2566,8 @@ namespace PokemonTaskbar
         {
             for (int i = 0; i < this.Options.StockPrices.Length; i++)
             {
-                this.Options.StockPrices[i] = Math.Max(1,
-                    this.Options.StockPrices[i] + this.Random.Next(-2, 3));
+                this.Options.StockPrices[i] = Math.Max(100,
+                    this.Options.StockPrices[i] + this.Random.Next(-2, 3) * 100);
             }
             this.SaveSettings();
         }

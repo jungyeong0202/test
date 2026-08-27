@@ -90,6 +90,14 @@ class SettingsTest(unittest.TestCase):
         )
         self.assertEqual(values["species"], settings_file.DEFAULTS["species"])
 
+    def test_old_coin_settings_are_moved_to_won_once(self):
+        values = settings_file.parse_text(
+            "coins = 30\nstock_prices = 10, 18, 27"
+        )
+        self.assertEqual(values["coins"], 3000)
+        self.assertEqual(values["stock_prices"], [1000, 1800, 2700])
+        self.assertEqual(settings_file.parse_text(settings_file.format_text(values)), values)
+
     def test_saving_into_a_new_folder(self):
         deep = os.path.join(_SETTINGS_DIR, "새폴더", "settings.txt")
         self.assertTrue(settings_file.save(dict(settings_file.DEFAULTS), deep))
@@ -823,7 +831,7 @@ class EvolutionTest(unittest.TestCase):
         self.pet.x = self.pet.max_x / 2.0
         self.pet.direction = 1
         self.pet.advance_walk(pt.COIN_WALK_DISTANCE)
-        self.assertEqual(self.app.coins, before + pt.COINS_PER_PET + 1)
+        self.assertEqual(self.app.coins, before + pt.COINS_PER_PET + pt.COINS_PER_WALK)
 
     def test_food_can_be_bought_and_fed(self):
         self.app.coins = pt.FOOD_COST
@@ -841,20 +849,20 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.growth_drops, 1)
 
     def test_stock_can_be_bought_and_sold(self):
-        self.app.coins = 10
-        self.app.stock_prices = [10, 18, 27]
+        self.app.coins = 1000
+        self.app.stock_prices = [1000, 1800, 2700]
         self.app.buy_stock(0)
         self.assertEqual(self.app.coins, 0)
         self.assertEqual(self.app.stock_shares, [1, 0, 0])
         self.app.sell_stock(0)
-        self.assertEqual(self.app.coins, 10)
+        self.assertEqual(self.app.coins, 1000)
         self.assertEqual(self.app.stock_shares, [0, 0, 0])
 
     def test_stock_prices_move_but_never_reach_zero(self):
-        self.app.stock_prices = [1, 18, 27]
-        with mock.patch("pokemon_taskbar.random.choice", return_value=-2):
+        self.app.stock_prices = [100, 1800, 2700]
+        with mock.patch("pokemon_taskbar.random.choice", return_value=-200):
             self.app.update_market()
-        self.assertEqual(self.app.stock_prices, [1, 16, 25])
+        self.assertEqual(self.app.stock_prices, [100, 1600, 2500])
 
     def test_start_evolving_rejects_unmet_conditions(self):
         self.pet.start_evolving()

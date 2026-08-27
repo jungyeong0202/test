@@ -65,17 +65,25 @@ FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라
 EVOLVE_PET_NEED = 8.0       # 이만큼 쓰다듬으면 친밀도 조건을 채운다
 EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
 EVOLVE_WALK_NEED = 600.0    # 이만큼 걸으면 산책 조건을 채운다(px)
-COINS_PER_PET = 1           # 한 번 쓰다듬을 때마다 받는 포켓코인
-COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 받는 포켓코인
-FOOD_COST = 4               # 포켓푸드 한 개 가격
+COINS_PER_PET = 100         # 한 번 쓰다듬을 때마다 받는 돈(원)
+COINS_PER_WALK = 100        # 100px를 걸을 때마다 받는 돈(원)
+COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 돈을 받는다
+FOOD_COST = 400             # 포켓푸드 한 개 가격(원)
 FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
-GROWTH_DROP_COST = 25       # 성장의 물방울 한 개 가격
+GROWTH_DROP_COST = 2500     # 성장의 물방울 한 개 가격(원)
 MARKET_UPDATE_SEC = 20.0    # 이 간격마다 모의 주가가 한 번 변한다
 STOCK_NAMES = ("피카츄전기", "꼬부기워터", "이상해씨농장")
 EVOLVE_FLASHES = 7          # 두 모습을 번갈아 번쩍이는 횟수
 EVOLVE_FIRST_SEC = 0.30     # 처음 번쩍임 간격
 EVOLVE_LAST_SEC = 0.07      # 마지막 번쩍임 간격 (점점 빨라진다)
 EVOLVE_HOLD_SEC = 0.55      # 다 끝나고 새하얗게 머무는 시간
+
+
+def format_won(amount):
+    """게임 안의 돈을 천 단위 쉼표가 있는 원 단위로 표시한다."""
+    return "{:,}원".format(amount)
+
+
 SIZE_CHOICES = (("작게", 3.0), ("보통", 4.5), ("크게", 6.0), ("아주 크게", 9.0))
 EFFECT_GRAVITY = 260.0   # 먼지가 떨어지는 가속도
 DUST_LIFE = 0.40         # 먼지가 사라지기까지
@@ -637,16 +645,16 @@ class PokemonPet:
     def refresh_menu(self):
         """메뉴를 열 때마다 상점과 진화 항목을 지금 상태로 고쳐 쓴다."""
         self.menu.entryconfigure(
-            self.shop_index, label="상점 (포켓코인 %d)" % self.app.coins
+            self.shop_index, label="상점 (보유 %s)" % format_won(self.app.coins)
         )
         self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
             self.food_buy_index,
-            label="포켓푸드 구매 — %d코인" % FOOD_COST,
+            label="포켓푸드 구매 — %s" % format_won(FOOD_COST),
             state="normal" if self.app.coins >= FOOD_COST else "disabled",
         )
         self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
             self.drop_buy_index,
-            label="성장의 물방울 구매 — %d코인" % GROWTH_DROP_COST,
+            label="성장의 물방울 구매 — %s" % format_won(GROWTH_DROP_COST),
             state="normal" if self.app.coins >= GROWTH_DROP_COST else "disabled",
         )
         self.menu.entryconfigure(
@@ -658,11 +666,11 @@ class PokemonPet:
             price = self.app.stock_prices[index]
             shares = self.app.stock_shares[index]
             self.market_menu.entryconfigure(
-                buy_index, label="%s 1주 매수 — %d코인 (보유 %d주)" % (name, price, shares),
+                buy_index, label="%s 1주 매수 — %s (보유 %d주)" % (name, format_won(price), shares),
                 state="normal" if self.app.coins >= price else "disabled",
             )
             self.market_menu.entryconfigure(
-                sell_index, label="%s 1주 매도 — %d코인 (보유 %d주)" % (name, price, shares),
+                sell_index, label="%s 1주 매도 — %s (보유 %d주)" % (name, format_won(price), shares),
                 state="normal" if shares else "disabled",
             )
         if self.evolve_index is None:
@@ -1409,19 +1417,19 @@ class App:
         settings_file.save(self.current_settings(), self.settings_path)
 
     def earn_coins(self, amount):
-        """포켓코인을 얻고 설정 파일에도 남긴다."""
+        """돈을 얻고 설정 파일에도 남긴다."""
         if amount <= 0:
             return
         self.coins += amount
         self.save_settings()
 
     def earn_walk_coins(self, distance):
-        """스스로 걸은 100px마다 포켓코인 하나를 얻는다."""
+        """스스로 걸은 100px마다 100원을 얻는다."""
         self.coin_walk_progress += distance
         amount = int(self.coin_walk_progress // COIN_WALK_DISTANCE)
         if amount:
             self.coin_walk_progress -= amount * COIN_WALK_DISTANCE
-            self.earn_coins(amount)
+            self.earn_coins(amount * COINS_PER_WALK)
 
     def buy_food(self):
         """포켓푸드를 한 개 산다."""
@@ -1467,7 +1475,7 @@ class App:
     def update_market(self):
         """세 종목의 가상 가격을 조금씩 흔들고 저장한다."""
         self.stock_prices = [
-            max(1, price + random.choice((-2, -1, 0, 1, 2)))
+            max(100, price + random.choice((-200, -100, 0, 100, 200)))
             for price in self.stock_prices
         ]
         self.save_settings()

@@ -10,6 +10,8 @@ import os
 
 APP_NAME = "PokemonTaskbar"
 FILE_NAME = "settings.txt"
+CURRENCY_VERSION = 2
+CURRENCY_SCALE = 100
 
 DEFAULTS = {
     "species": ["pikachu"],
@@ -17,11 +19,12 @@ DEFAULTS = {
     "speed": 55.0,
     "offset": 0,
     "on_taskbar": False,
-    "coins": 30,
+    "coins": 3000,
     "food": 0,
     "growth_drops": 0,
-    "stock_prices": [10, 18, 27],
+    "stock_prices": [1000, 1800, 2700],
     "stock_shares": [0, 0, 0],
+    "currency_version": CURRENCY_VERSION,
 }
 
 
@@ -53,6 +56,9 @@ def parse_text(text, known_species=None):
     values["species"] = list(DEFAULTS["species"])
     values["stock_prices"] = list(DEFAULTS["stock_prices"])
     values["stock_shares"] = list(DEFAULTS["stock_shares"])
+    stored_currency_version = None
+    saw_coins = False
+    saw_stock_prices = False
 
     for line in text.splitlines():
         line = line.strip()
@@ -86,13 +92,30 @@ def parse_text(text, known_species=None):
                 number = int(raw)
                 if number >= 0:
                     values[name] = number
+                    if name == "coins":
+                        saw_coins = True
+            elif name == "currency_version":
+                number = int(raw)
+                if number > 0:
+                    stored_currency_version = number
+                    values[name] = number
             elif name in ("stock_prices", "stock_shares"):
                 numbers = [int(part.strip()) for part in raw.split(",")]
                 if len(numbers) == 3 and all(number >= 0 for number in numbers):
                     if name != "stock_prices" or all(numbers):
                         values[name] = numbers
+                        if name == "stock_prices":
+                            saw_stock_prices = True
         except ValueError:
             continue          # 숫자가 아니면 기본값을 그대로 둔다
+    if stored_currency_version is None or stored_currency_version < CURRENCY_VERSION:
+        if saw_coins:
+            values["coins"] *= CURRENCY_SCALE
+        if saw_stock_prices:
+            values["stock_prices"] = [
+                price * CURRENCY_SCALE for price in values["stock_prices"]
+            ]
+        values["currency_version"] = CURRENCY_VERSION
     return values
 
 
@@ -108,6 +131,7 @@ def format_text(values):
         "coins = %d" % values["coins"],
         "food = %d" % values["food"],
         "growth_drops = %d" % values["growth_drops"],
+        "currency_version = %d" % values["currency_version"],
         "stock_prices = %s" % ", ".join(str(price) for price in values["stock_prices"]),
         "stock_shares = %s" % ", ".join(str(shares) for shares in values["stock_shares"]),
         "",

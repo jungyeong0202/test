@@ -376,6 +376,13 @@ rows=[
 윈도우에서 `csharp/run.bat` 이나 GitHub Actions 로 빌드할 때는 진짜 `csc.exe` 를 쓰므로
 이 문제가 없습니다. Actions 는 빌드한 exe 를 실제로 한 번 실행해 보는 단계까지 돕니다.
 
+## 코드를 고칠 때
+
+작업 지침은 **`AGENTS.md`** 에 있습니다. 파일 구성, 명령, 그리고 그동안 실제로 사고가
+났던 것들(윈도우에서 조용히 죽는 exe, 뭉개지는 도트 등)과 그 이유가 적혀 있습니다.
+Codex 는 이 파일을, Claude Code 는 `AGENTS.md` 를 가져다 쓰는 `CLAUDE.md` 를 읽으므로
+**지침은 `AGENTS.md` 한 곳에만** 두면 됩니다.
+
 ## 테스트
 
 ```bash

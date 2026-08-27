@@ -22,8 +22,11 @@ DEFAULTS = {
     "coins": 3000,
     "food": 0,
     "growth_drops": 0,
-    "stock_prices": [1000, 1800, 2700],
-    "stock_shares": [0, 0, 0],
+    "stock_prices": [1000, 1800, 2700, 1300, 2200, 3500],
+    "stock_shares": [0, 0, 0, 0, 0, 0],
+    "stock_listing_ids": [0, 1, 2, 3, 4, 5],
+    "stock_delisted": [0, 0, 0, 0, 0, 0],
+    "stock_relist_seconds": [0, 0, 0, 0, 0, 0],
     "currency_version": CURRENCY_VERSION,
 }
 
@@ -54,11 +57,12 @@ def parse_text(text, known_species=None):
     """설정 텍스트를 딕셔너리로. 이상한 줄은 조용히 무시한다."""
     values = dict(DEFAULTS)
     values["species"] = list(DEFAULTS["species"])
-    values["stock_prices"] = list(DEFAULTS["stock_prices"])
-    values["stock_shares"] = list(DEFAULTS["stock_shares"])
+    for name in ("stock_prices", "stock_shares", "stock_listing_ids",
+                 "stock_delisted", "stock_relist_seconds"):
+        values[name] = list(DEFAULTS[name])
     stored_currency_version = None
     saw_coins = False
-    saw_stock_prices = False
+    loaded_stock_prices = 0
 
     for line in text.splitlines():
         line = line.strip()
@@ -99,22 +103,21 @@ def parse_text(text, known_species=None):
                 if number > 0:
                     stored_currency_version = number
                     values[name] = number
-            elif name in ("stock_prices", "stock_shares"):
+            elif name in ("stock_prices", "stock_shares", "stock_listing_ids",
+                          "stock_delisted", "stock_relist_seconds"):
                 numbers = [int(part.strip()) for part in raw.split(",")]
-                if len(numbers) == 3 and all(number >= 0 for number in numbers):
+                if 1 <= len(numbers) <= len(DEFAULTS[name]) and all(number >= 0 for number in numbers):
                     if name != "stock_prices" or all(numbers):
-                        values[name] = numbers
+                        values[name][:len(numbers)] = numbers
                         if name == "stock_prices":
-                            saw_stock_prices = True
+                            loaded_stock_prices = len(numbers)
         except ValueError:
             continue          # 숫자가 아니면 기본값을 그대로 둔다
     if stored_currency_version is None or stored_currency_version < CURRENCY_VERSION:
         if saw_coins:
             values["coins"] *= CURRENCY_SCALE
-        if saw_stock_prices:
-            values["stock_prices"] = [
-                price * CURRENCY_SCALE for price in values["stock_prices"]
-            ]
+        for index in range(loaded_stock_prices):
+            values["stock_prices"][index] *= CURRENCY_SCALE
         values["currency_version"] = CURRENCY_VERSION
     return values
 
@@ -134,6 +137,9 @@ def format_text(values):
         "currency_version = %d" % values["currency_version"],
         "stock_prices = %s" % ", ".join(str(price) for price in values["stock_prices"]),
         "stock_shares = %s" % ", ".join(str(shares) for shares in values["stock_shares"]),
+        "stock_listing_ids = %s" % ", ".join(str(value) for value in values["stock_listing_ids"]),
+        "stock_delisted = %s" % ", ".join(str(value) for value in values["stock_delisted"]),
+        "stock_relist_seconds = %s" % ", ".join(str(value) for value in values["stock_relist_seconds"]),
         "",
     ])
 
@@ -147,8 +153,9 @@ def load(path=None, known_species=None):
     except (OSError, UnicodeDecodeError):
         values = dict(DEFAULTS)
         values["species"] = list(DEFAULTS["species"])
-        values["stock_prices"] = list(DEFAULTS["stock_prices"])
-        values["stock_shares"] = list(DEFAULTS["stock_shares"])
+        for name in ("stock_prices", "stock_shares", "stock_listing_ids",
+                     "stock_delisted", "stock_relist_seconds"):
+            values[name] = list(DEFAULTS[name])
         return values
 
 

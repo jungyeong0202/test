@@ -66,8 +66,8 @@ class SettingsTest(unittest.TestCase):
         values["coins"] = 41
         values["food"] = 3
         values["growth_drops"] = 2
-        values["stock_prices"] = [11, 19, 28]
-        values["stock_shares"] = [2, 0, 4]
+        values["stock_prices"] = [11, 19, 28, 31, 37, 41]
+        values["stock_shares"] = [2, 0, 4, 1, 3, 0]
         self.assertTrue(settings_file.save(values, self.path))
         self.assertEqual(settings_file.load(self.path), values)
 
@@ -95,7 +95,8 @@ class SettingsTest(unittest.TestCase):
             "coins = 30\nstock_prices = 10, 18, 27"
         )
         self.assertEqual(values["coins"], 3000)
-        self.assertEqual(values["stock_prices"], [1000, 1800, 2700])
+        self.assertEqual(values["stock_prices"][:3], [1000, 1800, 2700])
+        self.assertEqual(values["stock_prices"][3:], [1300, 2200, 3500])
         self.assertEqual(settings_file.parse_text(settings_file.format_text(values)), values)
 
     def test_saving_into_a_new_folder(self):
@@ -866,31 +867,49 @@ class EvolutionTest(unittest.TestCase):
 
     def test_stock_can_be_bought_and_sold(self):
         self.app.coins = 1000
-        self.app.stock_prices = [1000, 1800, 2700]
+        self.app.stock_prices = [1000, 1800, 2700, 1300, 2200, 3500]
         self.app.buy_stock(0)
         self.assertEqual(self.app.coins, 0)
-        self.assertEqual(self.app.stock_shares, [1, 0, 0])
+        self.assertEqual(self.app.stock_shares, [1, 0, 0, 0, 0, 0])
         self.app.sell_stock(0)
         self.assertEqual(self.app.coins, 1000)
-        self.assertEqual(self.app.stock_shares, [0, 0, 0])
+        self.assertEqual(self.app.stock_shares, [0, 0, 0, 0, 0, 0])
 
-    def test_stock_prices_move_but_never_reach_zero(self):
-        self.app.stock_prices = [100, 1800, 2700]
-        with mock.patch("pokemon_taskbar.random.choice", return_value=-200):
+    def test_stock_can_be_delisted_below_100_won(self):
+        self.app.stock_prices = [101, 1800, 2700, 1300, 2200, 3500]
+        self.app.stock_shares[0] = 3
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
+                mock.patch("pokemon_taskbar.random.randint", return_value=-12):
             self.app.update_market()
-        self.assertEqual(self.app.stock_prices, [100, 1600, 2500])
+        self.assertTrue(self.app.stock_delisted[0])
+        self.assertEqual(self.app.stock_prices[0], 0)
+        self.assertEqual(self.app.stock_shares[0], 0)
+        self.assertEqual(self.app.stock_relist_seconds[0], pt.STOCK_RELIST_SECONDS)
+
+    def test_delisted_stock_relists_with_a_random_personality(self):
+        self.app.stock_delisted[0] = True
+        self.app.stock_relist_seconds[0] = int(pt.MARKET_UPDATE_SEC)
+        self.app.stock_listing_ids[0] = 0
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
+                mock.patch("pokemon_taskbar.random.choice", return_value=7):
+            self.app.update_market()
+        self.assertFalse(self.app.stock_delisted[0])
+        self.assertEqual(self.app.stock_listing_ids[0], 7)
+        self.assertEqual(self.app.stock_prices[0], pt.STOCK_LISTINGS[7][1])
 
     def test_stock_history_keeps_the_latest_twenty_prices(self):
-        with mock.patch("pokemon_taskbar.random.choice", return_value=100):
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
+                mock.patch("pokemon_taskbar.random.randint", return_value=7):
             for _ in range(24):
                 self.app.update_market()
         self.assertEqual(len(self.app.stock_history[0]), 20)
         self.assertGreater(self.app.stock_history[0][-1], self.app.stock_history[0][0])
 
     def test_stock_change_percent_uses_the_visible_graph_period(self):
-        self.app.stock_prices = [1000, 1800, 2700]
-        self.app.stock_history = [[1000], [1800], [2700]]
-        with mock.patch("pokemon_taskbar.random.choice", return_value=100):
+        self.app.stock_prices = [1000, 1800, 2700, 1300, 2200, 3500]
+        self.app.stock_history = [[1000], [1800], [2700], [1300], [2200], [3500]]
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
+                mock.patch("pokemon_taskbar.random.randint", return_value=10):
             self.app.update_market()
         self.assertAlmostEqual(self.app.stock_change_percent(0), 10.0)
 
@@ -899,7 +918,7 @@ class EvolutionTest(unittest.TestCase):
         overlay = self.app.stock_overlay
         self.assertIsNotNone(overlay)
         self.assertTrue(overlay.window.winfo_exists())
-        self.assertTrue(overlay.rows[0][1].find_all(), "그래프가 그려지지 않습니다")
+        self.assertTrue(overlay.rows[0][2].find_all(), "그래프가 그려지지 않습니다")
         old_x = overlay.window.winfo_x()
         old_y = overlay.window.winfo_y()
         overlay.begin_drag(FakeMouse(old_x + 10, old_y + 10))

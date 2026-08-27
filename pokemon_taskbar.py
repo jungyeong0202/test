@@ -75,7 +75,31 @@ FOOD_COST = 400             # 포켓푸드 한 개 가격(원)
 FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
 GROWTH_DROP_COST = 2500     # 성장의 물방울 한 개 가격(원)
 MARKET_UPDATE_SEC = 20.0    # 이 간격마다 모의 주가가 한 번 변한다
-STOCK_NAMES = ("피카츄전기", "꼬부기워터", "이상해씨농장")
+STOCK_RELIST_SECONDS = 30 * 60
+STOCK_LISTINGS = (
+    ("피카츄전기", 1000, 12), ("꼬부기워터", 1800, 7),
+    ("이상해씨농장", 2700, 10), ("파이리화력", 1300, 18),
+    ("메타몽랩", 2200, 24), ("뮤테크", 3500, 30),
+    ("이브이패션", 1600, 15), ("고라파덕물류", 1200, 20),
+    ("럭키메디컬", 2400, 9), ("갸라도스해운", 3000, 22),
+    ("잠만보식품", 1900, 11), ("팬텀게임즈", 2800, 28),
+)
+STOCK_COUNT = 6
+STOCK_EVENT_CHANCE = 0.25
+STOCK_EVENTS = (
+    (("번개 발전소 증설", 18), ("송전탑 고장", -16)),
+    (("정수장 장기 계약", 11), ("가뭄 경보", -12)),
+    (("친환경 농장 수확", 15), ("병충해 주의보", -14)),
+    (("화력 발전 수요 급증", 24), ("화산재 공급 차질", -22)),
+    (("변신 연구 특허", 30), ("실험 결과 논란", -28)),
+    (("신기술 발표", 38), ("연구소 보안 사고", -35)),
+    (("신작 컬렉션 완판", 20), ("유행 변화", -18)),
+    (("물류 허브 확장", 26), ("배송 지연", -23)),
+    (("건강식 수요 증가", 14), ("진료비 규제", -13)),
+    (("해운 노선 확대", 29), ("폭풍 운항 중단", -27)),
+    (("간식 판매 호조", 17), ("원재료 가격 급등", -16)),
+    (("대형 게임 출시", 34), ("서버 장애", -31)),
+)
 EVOLVE_FLASHES = 7          # 두 모습을 번갈아 번쩍이는 횟수
 EVOLVE_FIRST_SEC = 0.30     # 처음 번쩍임 간격
 EVOLVE_LAST_SEC = 0.07      # 마지막 번쩍임 간격 (점점 빨라진다)
@@ -1370,8 +1394,8 @@ class StockOverlay:
         self.window.overrideredirect(True)
         self.window.wm_attributes("-topmost", True)
         self.window.configure(bg=MENU_RED, padx=3, pady=3)
-        self.window.geometry("460x450+%d+%d" % (
-            (app.screen_width - 460) // 2, max(20, (app.screen_height - 450) // 3)
+        self.window.geometry("710x475+%d+%d" % (
+            (app.screen_width - 710) // 2, max(20, (app.screen_height - 475) // 3)
         ))
 
         body = tk.Frame(self.window, bg=MENU_CREAM)
@@ -1394,21 +1418,26 @@ class StockOverlay:
             font=("Malgun Gothic", 11, "bold"), padx=16, pady=8,
         )
         self.balance.pack(fill="x")
+        cards = tk.Frame(body, bg=MENU_CREAM)
+        cards.pack(fill="both", expand=True, padx=10)
         self.rows = []
-        for index, name in enumerate(STOCK_NAMES):
-            card = tk.Frame(body, bg="#fffdf7", highlightbackground="#d9ad74",
-                            highlightthickness=1)
-            card.pack(fill="x", padx=12, pady=4)
+        for index in range(STOCK_COUNT):
+            name = app.stock_name(index)
+            card = tk.Frame(cards, bg="#fffdf7", highlightbackground="#d9ad74",
+                            highlightthickness=1, width=335, height=108)
+            card.grid(row=index // 2, column=index % 2, padx=3, pady=3, sticky="nsew")
+            card.grid_propagate(False)
             info = tk.Frame(card, bg="#fffdf7")
             info.pack(fill="x", padx=8, pady=(5, 0))
-            tk.Label(
+            name_label = tk.Label(
                 info, text=name, bg="#fffdf7", fg=MENU_DARK,
                 font=("Malgun Gothic", 10, "bold"),
-            ).pack(side="left")
+            )
+            name_label.pack(side="left")
             price = tk.Label(info, bg="#fffdf7", fg=MENU_RED,
                              font=("Malgun Gothic", 10, "bold"))
             price.pack(side="right")
-            graph = tk.Canvas(card, width=250, height=55, bg="#fffdf7",
+            graph = tk.Canvas(card, width=205, height=55, bg="#fffdf7",
                               highlightthickness=0)
             graph.pack(side="left", padx=(8, 4), pady=(1, 7))
             buttons = tk.Frame(card, bg="#fffdf7")
@@ -1419,12 +1448,13 @@ class StockOverlay:
             sell = self.make_button(buttons, "매도", "#3a81c7",
                                     lambda index=index: self.trade(index, False))
             sell.pack(fill="x")
-            self.rows.append((price, graph, buy, sell))
+            self.rows.append((name_label, price, graph, buy, sell))
 
-        tk.Label(
+        self.notice = tk.Label(
             body, text="가격은 20초마다 변동합니다", bg=MENU_CREAM,
             fg=MENU_DISABLED, font=("Malgun Gothic", 9), pady=4,
-        ).pack()
+        )
+        self.notice.pack()
         self.window.bind("<Escape>", lambda _event: self.close())
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.drag_origin = None
@@ -1484,18 +1514,32 @@ class StockOverlay:
 
     def refresh(self):
         self.balance.configure(text="보유금  %s" % format_won(self.app.coins))
-        for index, (price_label, graph, buy, sell) in enumerate(self.rows):
+        total_value = self.app.stock_portfolio_value()
+        self.balance.configure(
+            text="보유금  %s   ·   주식 평가액  %s" % (
+                format_won(self.app.coins), format_won(total_value)
+            )
+        )
+        for index, (name_label, price_label, graph, buy, sell) in enumerate(self.rows):
+            name_label.configure(text=self.app.stock_name(index))
             price = self.app.stock_prices[index]
             shares = self.app.stock_shares[index]
             percent = self.app.stock_change_percent(index)
             colour = "#2f9b67" if percent > 0 else MENU_RED if percent < 0 else MENU_DARK
-            price_label.configure(
-                text="%s  ·  %+.1f%%  ·  보유 %d주" % (format_won(price), percent, shares),
-                fg=colour,
-            )
-            buy.configure(state="normal" if self.app.coins >= price else "disabled")
-            sell.configure(state="normal" if shares else "disabled")
+            if self.app.stock_delisted[index]:
+                minutes = max(1, int(math.ceil(self.app.stock_relist_seconds[index] / 60.0)))
+                price_label.configure(text="상장폐지 · 신규 상장까지 %d분" % minutes, fg=MENU_RED)
+                buy.configure(state="disabled")
+                sell.configure(state="disabled")
+            else:
+                price_label.configure(
+                    text="%s  ·  %+.1f%%  ·  보유 %d주" % (format_won(price), percent, shares),
+                    fg=colour,
+                )
+                buy.configure(state="normal" if self.app.coins >= price else "disabled")
+                sell.configure(state="normal" if shares else "disabled")
             self.draw_graph(graph, self.app.stock_history[index])
+        self.notice.configure(text=self.app.stock_event or "가격은 20초마다 변동합니다")
 
     def close(self):
         if self.app.stock_overlay is self:
@@ -1536,7 +1580,11 @@ class App:
         self.growth_drops = args.growth_drops
         self.stock_prices = list(args.stock_prices)
         self.stock_shares = list(args.stock_shares)
+        self.stock_listing_ids = list(args.stock_listing_ids)
+        self.stock_delisted = [bool(value) for value in args.stock_delisted]
+        self.stock_relist_seconds = list(args.stock_relist_seconds)
         self.stock_history = [[price] for price in self.stock_prices]
+        self.stock_event = ""
         self.stock_overlay = None
         self.market_seconds = 0.0
         self.coin_walk_progress = 0.0
@@ -1568,6 +1616,9 @@ class App:
             "growth_drops": self.growth_drops,
             "stock_prices": list(self.stock_prices),
             "stock_shares": list(self.stock_shares),
+            "stock_listing_ids": list(self.stock_listing_ids),
+            "stock_delisted": [int(value) for value in self.stock_delisted],
+            "stock_relist_seconds": list(self.stock_relist_seconds),
         }
 
     def save_settings(self):
@@ -1615,6 +1666,8 @@ class App:
 
     def buy_stock(self, index):
         """현재 가격으로 가상 주식 한 주를 산다."""
+        if self.stock_delisted[index]:
+            return
         price = self.stock_prices[index]
         if self.coins < price:
             return
@@ -1625,21 +1678,75 @@ class App:
 
     def sell_stock(self, index):
         """현재 가격으로 가상 주식 한 주를 판다."""
-        if not self.stock_shares[index]:
+        if self.stock_delisted[index] or not self.stock_shares[index]:
             return
         self.stock_shares[index] -= 1
         self.coins += self.stock_prices[index]
         self.save_settings()
         self.refresh_stock_overlay()
 
+    def stock_listing(self, index):
+        """현재 슬롯에 상장된 종목의 이름·시작가·변동폭을 돌려준다."""
+        return STOCK_LISTINGS[self.stock_listing_ids[index] % len(STOCK_LISTINGS)]
+
+    def stock_name(self, index):
+        return self.stock_listing(index)[0]
+
+    def stock_portfolio_value(self):
+        return sum(
+            price * shares for price, shares, delisted in zip(
+                self.stock_prices, self.stock_shares, self.stock_delisted
+            ) if not delisted
+        )
+
+    def relist_stock(self, index):
+        """상장폐지된 슬롯에 임의 성격의 새 포켓몬 종목을 상장한다."""
+        candidates = [listing_id for listing_id in range(len(STOCK_LISTINGS))
+                      if listing_id != self.stock_listing_ids[index]]
+        self.stock_listing_ids[index] = random.choice(candidates)
+        _name, starting_price, _volatility = self.stock_listing(index)
+        self.stock_prices[index] = starting_price
+        self.stock_shares[index] = 0
+        self.stock_delisted[index] = False
+        self.stock_relist_seconds[index] = 0
+        self.stock_history[index] = [starting_price]
+        self.stock_event = "%s 신규 상장!" % self.stock_name(index)
+
     def update_market(self):
-        """세 종목의 가상 가격을 조금씩 흔들고 저장한다."""
-        self.stock_prices = [
-            max(100, price + random.choice((-200, -100, 0, 100, 200)))
-            for price in self.stock_prices
-        ]
-        for index, price in enumerate(self.stock_prices):
-            self.stock_history[index].append(price)
+        """종목 성격별 등락과 이벤트, 상장폐지·신규 상장을 처리한다."""
+        self.stock_event = ""
+        event_index = None
+        event_percent = 0
+        active = [index for index in range(STOCK_COUNT) if not self.stock_delisted[index]]
+        if active and random.random() < STOCK_EVENT_CHANCE:
+            event_index = random.choice(active)
+            event_name, event_percent = random.choice(
+                STOCK_EVENTS[self.stock_listing_ids[event_index] % len(STOCK_EVENTS)]
+            )
+            self.stock_event = "%s %s  %+.0f%%" % (
+                self.stock_name(event_index), event_name, event_percent
+            )
+
+        for index in range(STOCK_COUNT):
+            if self.stock_delisted[index]:
+                self.stock_relist_seconds[index] -= int(MARKET_UPDATE_SEC)
+                if self.stock_relist_seconds[index] <= 0:
+                    self.relist_stock(index)
+                continue
+            _name, _starting_price, volatility = self.stock_listing(index)
+            change = random.randint(-volatility, volatility)
+            if index == event_index:
+                change += event_percent
+            price = max(1, int(round(self.stock_prices[index] * (100 + change) / 100.0)))
+            if price < 100:
+                self.stock_prices[index] = 0
+                self.stock_shares[index] = 0
+                self.stock_delisted[index] = True
+                self.stock_relist_seconds[index] = STOCK_RELIST_SECONDS
+                self.stock_event = "%s 상장폐지! 보유 주식은 소멸했습니다." % self.stock_name(index)
+            else:
+                self.stock_prices[index] = price
+            self.stock_history[index].append(self.stock_prices[index])
             self.stock_history[index] = self.stock_history[index][-20:]
         self.save_settings()
         self.refresh_stock_overlay()
@@ -1941,6 +2048,9 @@ def parse_args(argv=None):
     args.growth_drops = saved["growth_drops"]
     args.stock_prices = saved["stock_prices"]
     args.stock_shares = saved["stock_shares"]
+    args.stock_listing_ids = saved["stock_listing_ids"]
+    args.stock_delisted = saved["stock_delisted"]
+    args.stock_relist_seconds = saved["stock_relist_seconds"]
 
     if args.scale <= 0:
         parser.error("--scale 은 0보다 커야 합니다")

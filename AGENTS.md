@@ -14,11 +14,47 @@
 
 - 지침은 **이 파일(`AGENTS.md`) 한 곳에만** 둔다. `CLAUDE.md` 는 이 파일을 가져다 쓸
   뿐이므로, 새 규칙은 여기에 적어야 두 도구가 함께 본다.
-- **도구를 바꾸기 전에 커밋한다.** 커밋하지 않은 변경은 넘어가지 않는다.
-- 넘기기 전에 `python3 tools/gen_sprites_cs.py` 를 돌려 자동 생성물을 맞춰 둔다.
-  안 맞으면 다음 사람이 영문 모를 테스트 실패부터 만난다.
 - 한 번씩 상대 도구를 불러 쓸 수도 있다(`codex exec "..."`, `claude -p "..."`).
   `codex exec` 는 기본이 승인 없이 실행되므로 `--sandbox workspace-write` 를 같이 준다.
+
+### 켤 때 pull, 떠날 때 push
+
+```bash
+git pull                 # 시작할 때: 상대가 올린 것을 먼저 받는다
+# ... 작업 ...
+git add -A && git commit && git push    # 끝낼 때: 여기까지 해야 넘어간다
+```
+
+**떠날 때가 더 중요하다.** 커밋만 하고 푸시하지 않으면 그 기기에만 남아, 다음 도구는
+옛 코드 위에 작업하게 되고 나중에 크게 엉킨다. 커밋조차 안 한 변경은 아무 데도 안 남는다.
+원격 컨테이너에서 작업하는 도구도 있는데, 그 폴더는 세션이 끝나면 사라진다.
+
+넘기기 전에 `python3 tools/gen_sprites_cs.py` 를 돌려 자동 생성물을 맞춰 둔다.
+안 맞으면 다음 사람이 영문 모를 테스트 실패부터 만난다.
+
+### exe 는 자동으로 합쳐지지 않는다
+
+`dist/PokemonTaskbar.exe` 와 `dist/PokemonTaskbar-debug.exe` 는 git 에 들어 있고 빌드할
+때마다 바뀐다. **바이너리라서 git 이 합치지 못한다.** 양쪽에서 빌드했다면 pull 할 때
+거의 매번 충돌한다.
+
+```
+CONFLICT (content): Merge conflict in dist/PokemonTaskbar.exe
+```
+
+**어느 쪽 exe 를 고를지 고민할 필요 없다.** exe 는 소스에서 다시 만드는 것이므로,
+소스 충돌부터 풀고 새로 빌드해 덮으면 그것으로 끝난다.
+
+```bash
+# 1. 소스 충돌을 먼저 해결한다 (이게 진짜 일이다)
+# 2. 합쳐진 소스로 exe 를 새로 만든다 — 충돌 난 파일을 덮어쓴다
+sh tools/build_exe.sh
+# 3. 새로 만든 파일로 충돌이 풀린다
+git add dist/ && git commit
+```
+
+`git checkout --ours/--theirs` 로 한쪽을 고를 필요는 없다. 어차피 다시 만들 파일이고,
+소스 충돌이 남아 있으면 빌드부터 실패한다.
 
 ## 무엇이 어디에 있나
 
@@ -33,7 +69,7 @@
 | `tools/gen_sprites_cs.py` | `sprites.py` → `csharp/Sprites.cs` |
 | `tools/check_net48.py` | 만든 exe 가 .NET Framework 4.8 API 만 쓰는지 검사 |
 | `tools/build_exe.sh` | 리눅스/맥에서 윈도우용 exe 빌드 |
-| `test_pokemon_taskbar.py` | 파이썬 테스트 (119개) |
+| `test_pokemon_taskbar.py` | 파이썬 테스트 (120개) |
 
 ## 규칙
 
@@ -179,7 +215,7 @@ python3 tools/import_sprite.py 그림.png --key 키 --name 한글이름 \
 
 고치고 나서 아래가 전부 통과해야 한다.
 
-- `python3 -m unittest test_pokemon_taskbar -q` (119개)
+- `python3 -m unittest test_pokemon_taskbar -q` (120개)
 - `sh tools/build_exe.sh` — 경고 없이 빌드되고 API 검사를 통과
 - 파이썬과 C# 의 도트 데이터가 완전히 일치 (양쪽에서 덤프해 `diff`)
 - 실제로 앱을 띄워 눈으로 확인 — 테스트가 잡지 못하는 문제가 많다

@@ -36,6 +36,50 @@ namespace PokemonTaskbar
         public string Error = null;
     }
 
+    /// <summary>포켓볼 색 조합으로 메뉴를 그린다.</summary>
+    public class PokemonMenuColors : ProfessionalColorTable
+    {
+        private static readonly Color Cream = Color.FromArgb(255, 247, 230);
+        private static readonly Color Red = Color.FromArgb(217, 52, 59);
+        private static readonly Color DarkRed = Color.FromArgb(151, 34, 42);
+        private static readonly Color Brown = Color.FromArgb(58, 45, 38);
+
+        public override Color ToolStripDropDownBackground { get { return Cream; } }
+        public override Color ToolStripBorder { get { return DarkRed; } }
+        public override Color MenuBorder { get { return DarkRed; } }
+        public override Color MenuItemBorder { get { return DarkRed; } }
+        public override Color MenuItemSelected { get { return Red; } }
+        public override Color MenuItemSelectedGradientBegin { get { return Red; } }
+        public override Color MenuItemSelectedGradientEnd { get { return Red; } }
+        public override Color MenuItemPressedGradientBegin { get { return Cream; } }
+        public override Color MenuItemPressedGradientEnd { get { return Cream; } }
+        public override Color ImageMarginGradientBegin { get { return Cream; } }
+        public override Color ImageMarginGradientMiddle { get { return Cream; } }
+        public override Color ImageMarginGradientEnd { get { return Cream; } }
+        public override Color SeparatorDark { get { return DarkRed; } }
+        public override Color SeparatorLight { get { return Brown; } }
+    }
+
+    /// <summary>선택 항목은 포켓볼 빨강 위에 흰 글씨로 보여 준다.</summary>
+    public class PokemonMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public PokemonMenuRenderer() : base(new PokemonMenuColors())
+        {
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            if (e.Item is ToolStripLabel)
+            {
+                base.OnRenderItemText(e);
+                return;
+            }
+            e.TextColor = !e.Item.Enabled ? Color.FromArgb(168, 145, 125)
+                : e.Item.Selected ? Color.White : Color.FromArgb(58, 45, 38);
+            base.OnRenderItemText(e);
+        }
+    }
+
     /// <summary>사용자 설정을 파일에 저장하고 불러온다.
     ///
     /// 파이썬 판과 같은 파일을 읽고 쓰므로 형식(한 줄에 `이름 = 값`)과
@@ -953,6 +997,7 @@ namespace PokemonTaskbar
             this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
 
             ContextMenuStrip menu = new ContextMenuStrip();
+            menu.Renderer = PetWorld.PokemonMenuRenderer;
             menu.Opening += delegate { this.BuildMenu(menu, world); };
             this.ContextMenuStrip = menu;
 
@@ -968,6 +1013,8 @@ namespace PokemonTaskbar
         private void BuildMenu(ContextMenuStrip menu, PetWorld world)
         {
             menu.Items.Clear();
+            menu.Items.Add(PetWorld.CreateMenuTitle());
+            menu.Items.Add(new ToolStripSeparator());
 
             ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 구매");
             // 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
@@ -2298,6 +2345,20 @@ namespace PokemonTaskbar
         public static readonly string[] StockNames = {
             "피카츄전기", "꼬부기워터", "이상해씨농장"
         };
+        public static readonly ToolStripRenderer PokemonMenuRenderer =
+            new PokemonMenuRenderer();
+        private static readonly Font PokemonMenuTitleFont =
+            new Font("Malgun Gothic", 10.0f, FontStyle.Bold);
+
+        /// <summary>모든 메뉴 위에 보이는 포켓몬 센터 제목.</summary>
+        public static ToolStripLabel CreateMenuTitle()
+        {
+            ToolStripLabel title = new ToolStripLabel("●  포켓몬 센터  ●");
+            title.ForeColor = Color.FromArgb(217, 52, 59);
+            title.Font = PokemonMenuTitleFont;
+            title.Margin = new Padding(6, 4, 6, 4);
+            return title;
+        }
 
         /// <summary>게임 안의 돈을 천 단위 쉼표가 있는 원 단위로 표시한다.</summary>
         public static string FormatWon(int amount)
@@ -2353,6 +2414,7 @@ namespace PokemonTaskbar
                 this.tray.Visible = true;
 
                 ContextMenuStrip menu = new ContextMenuStrip();
+                menu.Renderer = PokemonMenuRenderer;
                 menu.Opening += delegate { this.BuildTrayMenu(menu); };
                 this.tray.ContextMenuStrip = menu;
                 this.tray.DoubleClick += delegate { this.RecallAll(); };
@@ -2384,6 +2446,8 @@ namespace PokemonTaskbar
         private void BuildTrayMenu(ContextMenuStrip menu)
         {
             menu.Items.Clear();
+            menu.Items.Add(CreateMenuTitle());
+            menu.Items.Add(new ToolStripSeparator());
 
             ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 구매");
             foreach (PokemonSprite sprite in Sprites.BaseSpecies())

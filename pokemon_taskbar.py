@@ -87,6 +87,23 @@ def format_won(amount):
     return "{:,}원".format(amount)
 
 
+MENU_CREAM = "#fff7e6"
+MENU_RED = "#d9343b"
+MENU_DARK = "#3a2d26"
+MENU_DISABLED = "#a8917d"
+
+
+def pokemon_menu(parent):
+    """포켓볼의 빨강과 크림색을 쓰는 우클릭 메뉴를 만든다."""
+    return tk.Menu(
+        parent, tearoff=0, bg=MENU_CREAM, fg=MENU_DARK,
+        activebackground=MENU_RED, activeforeground="#ffffff",
+        disabledforeground=MENU_DISABLED, selectcolor=MENU_RED,
+        relief=tk.RAISED, borderwidth=2, activeborderwidth=0,
+        font=("Malgun Gothic", 10, "bold"),
+    )
+
+
 SIZE_CHOICES = (("작게", 3.0), ("보통", 4.5), ("크게", 6.0), ("아주 크게", 9.0))
 EFFECT_GRAVITY = 260.0   # 먼지가 떨어지는 가속도
 DUST_LIFE = 0.40         # 먼지가 사라지기까지
@@ -488,9 +505,11 @@ class PokemonPet:
     # --- 조작 -----------------------------------------------------------
     def build_menu(self, app):
         """우클릭 메뉴. 명령줄 없이도 웬만한 건 여기서 다 된다."""
-        menu = tk.Menu(self.window, tearoff=0)
+        menu = pokemon_menu(self.window)
+        menu.add_command(label="●  포켓몬 센터  ●", state="disabled")
+        menu.add_separator()
 
-        choose = tk.Menu(menu, tearoff=0)
+        choose = pokemon_menu(menu)
         self.pet_purchase_indices = []
         # 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
         for key in base_species():
@@ -507,7 +526,7 @@ class PokemonPet:
         menu.add_command(label="이 포켓몬 보내주기", command=self.release)
 
         # 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 갱신한다.
-        shop = tk.Menu(menu, tearoff=0)
+        shop = pokemon_menu(menu)
         shop.add_command(label="", command=app.buy_food)
         self.food_buy_index = shop.index("end")
         shop.add_command(label="", command=app.buy_growth_drop)
@@ -517,7 +536,7 @@ class PokemonPet:
         menu.add_command(label="", command=lambda: app.feed_pet(self))
         self.feed_index = menu.index("end")
 
-        market = tk.Menu(menu, tearoff=0)
+        market = pokemon_menu(menu)
         market.add_command(label="20초마다 가격 변동", state="disabled")
         self.stock_indices = []
         for index, _name in enumerate(STOCK_NAMES):
@@ -538,7 +557,7 @@ class PokemonPet:
         menu.configure(postcommand=self.refresh_menu)
         menu.add_separator()
 
-        sizes = tk.Menu(menu, tearoff=0)
+        sizes = pokemon_menu(menu)
         for label, value in SIZE_CHOICES:
             sizes.add_radiobutton(
                 label=label, value=value, variable=app.scale_var,
@@ -546,7 +565,7 @@ class PokemonPet:
             )
         menu.add_cascade(label="크기", menu=sizes)
 
-        speeds = tk.Menu(menu, tearoff=0)
+        speeds = pokemon_menu(menu)
         for label, value in SPEED_CHOICES:
             speeds.add_radiobutton(
                 label=label, value=value, variable=app.speed_var,

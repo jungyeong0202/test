@@ -969,15 +969,23 @@ namespace PokemonTaskbar
         {
             menu.Items.Clear();
 
-            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 추가");
+            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 구매");
             // 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
             foreach (PokemonSprite sprite in Sprites.BaseSpecies())
             {
                 string key = sprite.Key;
-                add.DropDownItems.Add(sprite.NameKo, null, delegate { world.AddAndSave(key); });
+                ToolStripMenuItem item = new ToolStripMenuItem(
+                    sprite.NameKo + " — " + PetWorld.FormatWon(PetWorld.PokemonPrice), null,
+                    delegate { world.BuyPet(key); });
+                item.Enabled = world.Options.Coins >= PetWorld.PokemonPrice;
+                add.DropDownItems.Add(item);
             }
             add.DropDownItems.Add(new ToolStripSeparator());
-            add.DropDownItems.Add("무작위", null, delegate { world.AddRandom(); });
+            ToolStripMenuItem randomPet = new ToolStripMenuItem(
+                "무작위 — " + PetWorld.FormatWon(PetWorld.PokemonPrice), null,
+                delegate { world.BuyRandomPet(); });
+            randomPet.Enabled = world.Options.Coins >= PetWorld.PokemonPrice;
+            add.DropDownItems.Add(randomPet);
             menu.Items.Add(add);
 
             menu.Items.Add("이 포켓몬 보내주기", null, delegate { world.Remove(this); });
@@ -1887,7 +1895,6 @@ namespace PokemonTaskbar
         private void Petted()
         {
             this.SpawnEmote("heart");
-            this.world.EarnCoins(PetWorld.CoinsPerPet);
             if (this.nextKey == null || this.evolving)
             {
                 return;
@@ -2280,9 +2287,10 @@ namespace PokemonTaskbar
     /// <summary>펫 여러 마리를 관리한다.</summary>
     public class PetWorld : ApplicationContext
     {
-        public const int CoinsPerPet = 100;        // 한 번 쓰다듬을 때마다 받는 돈(원)
         public const int CoinsPerWalk = 100;       // 100px를 걸을 때마다 받는 돈(원)
         public const double CoinWalkDistance = 100.0; // 이만큼 걸을 때마다 돈을 받는다
+        // 기본 속도 55px/초로 두 시간 산책: 55 × 2 × 60 × 60 ÷ 100 × 100 = 396,000원.
+        public const int PokemonPrice = 396000;
         public const int FoodCost = 400;           // 포켓푸드 한 개 가격(원)
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
         public const int GrowthDropCost = 2500;    // 성장의 물방울 한 개 가격(원)
@@ -2377,11 +2385,15 @@ namespace PokemonTaskbar
         {
             menu.Items.Clear();
 
-            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 추가");
+            ToolStripMenuItem add = new ToolStripMenuItem("포켓몬 구매");
             foreach (PokemonSprite sprite in Sprites.BaseSpecies())
             {
                 string key = sprite.Key;
-                add.DropDownItems.Add(sprite.NameKo, null, delegate { this.AddAndSave(key); });
+                ToolStripMenuItem item = new ToolStripMenuItem(
+                    sprite.NameKo + " — " + FormatWon(PokemonPrice), null,
+                    delegate { this.BuyPet(key); });
+                item.Enabled = this.Options.Coins >= PokemonPrice;
+                add.DropDownItems.Add(item);
             }
             menu.Items.Add(add);
 
@@ -2449,17 +2461,34 @@ namespace PokemonTaskbar
             return false;
         }
 
-        public void AddRandom()
-        {
-            List<PokemonSprite> choices = Sprites.BaseSpecies();
-            this.AddAndSave(choices[this.Random.Next(choices.Count)].Key);
-        }
-
         /// <summary>포켓몬을 한 마리 늘리고 설정에 남긴다.</summary>
         public void AddAndSave(string key)
         {
             this.Add(key);
             this.SaveSettings();
+        }
+
+        /// <summary>두 시간 산책값으로 포켓몬 한 마리를 산다.</summary>
+        public void BuyPet(string key)
+        {
+            if (this.Options.Coins < PokemonPrice)
+            {
+                return;
+            }
+            this.Options.Coins -= PokemonPrice;
+            this.Add(key);
+            this.SaveSettings();
+        }
+
+        /// <summary>두 시간 산책값으로 무작위 포켓몬 한 마리를 산다.</summary>
+        public void BuyRandomPet()
+        {
+            if (this.Options.Coins < PokemonPrice)
+            {
+                return;
+            }
+            List<PokemonSprite> choices = Sprites.BaseSpecies();
+            this.BuyPet(choices[this.Random.Next(choices.Count)].Key);
         }
 
         /// <summary>지금 구성을 설정 파일에 남긴다.</summary>

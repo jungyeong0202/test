@@ -65,9 +65,12 @@ FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라
 EVOLVE_PET_NEED = 8.0       # 이만큼 쓰다듬으면 친밀도 조건을 채운다
 EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
 EVOLVE_WALK_NEED = 600.0    # 이만큼 걸으면 산책 조건을 채운다(px)
-COINS_PER_PET = 100         # 한 번 쓰다듬을 때마다 받는 돈(원)
+DEFAULT_WALK_SPEED = 55.0   # 기본 산책 속도(px/초)
 COINS_PER_WALK = 100        # 100px를 걸을 때마다 받는 돈(원)
 COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 돈을 받는다
+POKEMON_PRICE = int(        # 기본 속도로 두 시간 산책해 얻는 돈
+    DEFAULT_WALK_SPEED * 2 * 60 * 60 / COIN_WALK_DISTANCE * COINS_PER_WALK
+)
 FOOD_COST = 400             # 포켓푸드 한 개 가격(원)
 FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
 GROWTH_DROP_COST = 2500     # 성장의 물방울 한 개 가격(원)
@@ -488,15 +491,19 @@ class PokemonPet:
         menu = tk.Menu(self.window, tearoff=0)
 
         choose = tk.Menu(menu, tearoff=0)
+        self.pet_purchase_indices = []
         # 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
         for key in base_species():
             choose.add_command(
-                label=POKEMON[key].name_ko,
-                command=lambda key=key: app.add_pet_and_save(key),
+                label="",
+                command=lambda key=key: app.buy_pet(key),
             )
+            self.pet_purchase_indices.append((key, choose.index("end")))
         choose.add_separator()
-        choose.add_command(label="무작위", command=app.add_random_pet)
-        menu.add_cascade(label="포켓몬 추가", menu=choose)
+        choose.add_command(label="", command=app.buy_random_pet)
+        self.random_purchase_index = choose.index("end")
+        self.pet_purchase_menu = choose
+        menu.add_cascade(label="포켓몬 구매", menu=choose)
         menu.add_command(label="이 포켓몬 보내주기", command=self.release)
 
         # 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 갱신한다.
@@ -630,7 +637,6 @@ class PokemonPet:
     def petted(self):
         """쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다."""
         self.spawn_emote("heart")
-        self.app.earn_coins(COINS_PER_PET)
         if not self.next_key or self.evolving:
             return
         self.friendship = min(EVOLVE_PET_NEED, self.friendship + EVOLVE_PER_PET)
@@ -660,6 +666,15 @@ class PokemonPet:
         self.menu.entryconfigure(
             self.feed_index, label="포켓푸드 주기 (%d개)" % self.app.food,
             state="normal" if self.app.food else "disabled",
+        )
+        for key, index in self.pet_purchase_indices:
+            self.pet_purchase_menu.entryconfigure(
+                index, label="%s — %s" % (POKEMON[key].name_ko, format_won(POKEMON_PRICE)),
+                state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
+            )
+        self.pet_purchase_menu.entryconfigure(
+            self.random_purchase_index, label="무작위 — %s" % format_won(POKEMON_PRICE),
+            state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
         )
         for index, (buy_index, sell_index) in enumerate(self.stock_indices):
             name = STOCK_NAMES[index]
@@ -1613,8 +1628,19 @@ class App:
         self.add_pet(key)
         self.save_settings()
 
-    def add_random_pet(self):
-        self.add_pet_and_save(random.choice(base_species()))
+    def buy_pet(self, key):
+        """두 시간 산책값으로 포켓몬 한 마리를 산다."""
+        if self.coins < POKEMON_PRICE:
+            return
+        self.coins -= POKEMON_PRICE
+        self.add_pet(key)
+        self.save_settings()
+
+    def buy_random_pet(self):
+        """두 시간 산책값으로 무작위 포켓몬 한 마리를 산다."""
+        if self.coins < POKEMON_PRICE:
+            return
+        self.buy_pet(random.choice(base_species()))
 
     def remove_pet(self, pet):
         if pet in self.pets:

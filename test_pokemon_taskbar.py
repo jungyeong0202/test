@@ -824,14 +824,30 @@ class EvolutionTest(unittest.TestCase):
         self.pet.start_evolving()
         self.assertEqual(self.app.growth_drops, 0)
 
-    def test_petting_and_walking_earn_coins(self):
+    def test_only_walking_earns_money(self):
         before = self.app.coins
         self.pet.petted()
-        self.assertEqual(self.app.coins, before + pt.COINS_PER_PET)
+        self.assertEqual(self.app.coins, before)
         self.pet.x = self.pet.max_x / 2.0
         self.pet.direction = 1
         self.pet.advance_walk(pt.COIN_WALK_DISTANCE)
-        self.assertEqual(self.app.coins, before + pt.COINS_PER_PET + pt.COINS_PER_WALK)
+        self.assertEqual(self.app.coins, before + pt.COINS_PER_WALK)
+
+    def test_pokemon_costs_two_hours_of_walk_money(self):
+        expected = int(
+            pt.DEFAULT_WALK_SPEED * 2 * 60 * 60
+            / pt.COIN_WALK_DISTANCE * pt.COINS_PER_WALK
+        )
+        self.assertEqual(pt.POKEMON_PRICE, expected)
+        self.app.coins = pt.POKEMON_PRICE
+        self.app.buy_pet("pikachu")
+        self.assertEqual(self.app.coins, 0)
+        self.assertEqual(len(self.app.pets), 2)
+
+    def test_pokemon_is_not_added_without_enough_money(self):
+        self.app.coins = pt.POKEMON_PRICE - 1
+        self.app.buy_pet("pikachu")
+        self.assertEqual(len(self.app.pets), 1)
 
     def test_food_can_be_bought_and_fed(self):
         self.app.coins = pt.FOOD_COST

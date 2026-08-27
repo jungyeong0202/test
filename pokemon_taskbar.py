@@ -70,6 +70,8 @@ COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 받는 포켓코인
 FOOD_COST = 4               # 포켓푸드 한 개 가격
 FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
 GROWTH_DROP_COST = 25       # 성장의 물방울 한 개 가격
+MARKET_UPDATE_SEC = 20.0    # 이 간격마다 모의 주가가 한 번 변한다
+STOCK_NAMES = ("피카츄전기", "꼬부기워터", "이상해씨농장")
 EVOLVE_FLASHES = 7          # 두 모습을 번갈아 번쩍이는 횟수
 EVOLVE_FIRST_SEC = 0.30     # 처음 번쩍임 간격
 EVOLVE_LAST_SEC = 0.07      # 마지막 번쩍임 간격 (점점 빨라진다)
@@ -500,6 +502,19 @@ class PokemonPet:
         menu.add_command(label="", command=lambda: app.feed_pet(self))
         self.feed_index = menu.index("end")
 
+        market = tk.Menu(menu, tearoff=0)
+        market.add_command(label="20초마다 가격 변동", state="disabled")
+        self.stock_indices = []
+        for index, _name in enumerate(STOCK_NAMES):
+            market.add_command(label="", command=lambda index=index: app.buy_stock(index))
+            buy_index = market.index("end")
+            market.add_command(label="", command=lambda index=index: app.sell_stock(index))
+            sell_index = market.index("end")
+            self.stock_indices.append((buy_index, sell_index))
+        menu.add_cascade(label="주식시장", menu=market)
+        self.market_index = menu.index("end")
+        self.market_menu = market
+
         # 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
         self.evolve_index = None
         if self.next_key:
@@ -638,6 +653,18 @@ class PokemonPet:
             self.feed_index, label="포켓푸드 주기 (%d개)" % self.app.food,
             state="normal" if self.app.food else "disabled",
         )
+        for index, (buy_index, sell_index) in enumerate(self.stock_indices):
+            name = STOCK_NAMES[index]
+            price = self.app.stock_prices[index]
+            shares = self.app.stock_shares[index]
+            self.market_menu.entryconfigure(
+                buy_index, label="%s 1주 매수 — %d코인 (보유 %d주)" % (name, price, shares),
+                state="normal" if self.app.coins >= price else "disabled",
+            )
+            self.market_menu.entryconfigure(
+                sell_index, label="%s 1주 매도 — %d코인 (보유 %d주)" % (name, price, shares),
+                state="normal" if shares else "disabled",
+            )
         if self.evolve_index is None:
             return
         name = POKEMON[self.next_key].name_ko
@@ -1343,6 +1370,9 @@ class App:
         self.coins = args.coins
         self.food = args.food
         self.growth_drops = args.growth_drops
+        self.stock_prices = list(args.stock_prices)
+        self.stock_shares = list(args.stock_shares)
+        self.market_seconds = 0.0
         self.coin_walk_progress = 0.0
         # 메뉴의 체크/선택 표시를 여러 창이 함께 쓰도록 앱이 들고 있는다.
         self.scale_var = tk.DoubleVar(master=self.root, value=self.scale)
@@ -1370,6 +1400,8 @@ class App:
             "coins": self.coins,
             "food": self.food,
             "growth_drops": self.growth_drops,
+            "stock_prices": list(self.stock_prices),
+            "stock_shares": list(self.stock_shares),
         }
 
     def save_settings(self):
@@ -1413,6 +1445,31 @@ class App:
             return
         self.food -= 1
         pet.fed()
+        self.save_settings()
+
+    def buy_stock(self, index):
+        """현재 가격으로 가상 주식 한 주를 산다."""
+        price = self.stock_prices[index]
+        if self.coins < price:
+            return
+        self.coins -= price
+        self.stock_shares[index] += 1
+        self.save_settings()
+
+    def sell_stock(self, index):
+        """현재 가격으로 가상 주식 한 주를 판다."""
+        if not self.stock_shares[index]:
+            return
+        self.stock_shares[index] -= 1
+        self.coins += self.stock_prices[index]
+        self.save_settings()
+
+    def update_market(self):
+        """세 종목의 가상 가격을 조금씩 흔들고 저장한다."""
+        self.stock_prices = [
+            max(1, price + random.choice((-2, -1, 0, 1, 2)))
+            for price in self.stock_prices
+        ]
         self.save_settings()
 
     def set_scale(self, scale):
@@ -1589,6 +1646,10 @@ class App:
     def run(self):
         # Ctrl+C 로도 종료할 수 있게 주기적으로 인터프리터에 제어를 넘긴다.
         def heartbeat():
+            self.market_seconds += 0.2
+            if self.market_seconds >= MARKET_UPDATE_SEC:
+                self.market_seconds -= MARKET_UPDATE_SEC
+                self.update_market()
             self.heartbeat_id = self.root.after(200, heartbeat)
 
         heartbeat()
@@ -1664,6 +1725,8 @@ def parse_args(argv=None):
     args.coins = saved["coins"]
     args.food = saved["food"]
     args.growth_drops = saved["growth_drops"]
+    args.stock_prices = saved["stock_prices"]
+    args.stock_shares = saved["stock_shares"]
 
     if args.scale <= 0:
         parser.error("--scale 은 0보다 커야 합니다")

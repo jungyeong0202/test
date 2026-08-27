@@ -20,6 +20,8 @@ DEFAULTS = {
     "coins": 30,
     "food": 0,
     "growth_drops": 0,
+    "stock_prices": [10, 18, 27],
+    "stock_shares": [0, 0, 0],
 }
 
 
@@ -49,6 +51,8 @@ def parse_text(text, known_species=None):
     """설정 텍스트를 딕셔너리로. 이상한 줄은 조용히 무시한다."""
     values = dict(DEFAULTS)
     values["species"] = list(DEFAULTS["species"])
+    values["stock_prices"] = list(DEFAULTS["stock_prices"])
+    values["stock_shares"] = list(DEFAULTS["stock_shares"])
 
     for line in text.splitlines():
         line = line.strip()
@@ -82,6 +86,11 @@ def parse_text(text, known_species=None):
                 number = int(raw)
                 if number >= 0:
                     values[name] = number
+            elif name in ("stock_prices", "stock_shares"):
+                numbers = [int(part.strip()) for part in raw.split(",")]
+                if len(numbers) == 3 and all(number >= 0 for number in numbers):
+                    if name != "stock_prices" or all(numbers):
+                        values[name] = numbers
         except ValueError:
             continue          # 숫자가 아니면 기본값을 그대로 둔다
     return values
@@ -99,6 +108,8 @@ def format_text(values):
         "coins = %d" % values["coins"],
         "food = %d" % values["food"],
         "growth_drops = %d" % values["growth_drops"],
+        "stock_prices = %s" % ", ".join(str(price) for price in values["stock_prices"]),
+        "stock_shares = %s" % ", ".join(str(shares) for shares in values["stock_shares"]),
         "",
     ])
 
@@ -112,6 +123,8 @@ def load(path=None, known_species=None):
     except (OSError, UnicodeDecodeError):
         values = dict(DEFAULTS)
         values["species"] = list(DEFAULTS["species"])
+        values["stock_prices"] = list(DEFAULTS["stock_prices"])
+        values["stock_shares"] = list(DEFAULTS["stock_shares"])
         return values
 
 

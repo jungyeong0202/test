@@ -25,6 +25,8 @@ namespace PokemonTaskbar
         public int Coins = 30;
         public int Food = 0;
         public int GrowthDrops = 0;
+        public int[] StockPrices = { 10, 18, 27 };
+        public int[] StockShares = { 0, 0, 0 };
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
         public bool ShowList = false;
@@ -148,6 +150,26 @@ namespace PokemonTaskbar
             return Path.Combine(Path.Combine(appdata, "PokemonTaskbar"), "settings.txt");
         }
 
+        private static int[] ParseStockValues(string value, bool requirePositive)
+        {
+            string[] parts = value.Split(',');
+            if (parts.Length != 3)
+            {
+                return null;
+            }
+            int[] numbers = new int[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!int.TryParse(parts[i].Trim(), NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out numbers[i])
+                    || numbers[i] < 0 || (requirePositive && numbers[i] == 0))
+                {
+                    return null;
+                }
+            }
+            return numbers;
+        }
+
         /// <summary>저장된 값을 options 에 채운다. 명령줄로 이미 정한 항목은 건드리지 않는다.</summary>
         public static void Load(Options options, HashSet<string> givenOnCommandLine)
         {
@@ -246,6 +268,20 @@ namespace PokemonTaskbar
                             options.GrowthDrops = whole;
                         }
                         break;
+                    case "stock_prices":
+                        int[] prices = ParseStockValues(value, true);
+                        if (prices != null)
+                        {
+                            options.StockPrices = prices;
+                        }
+                        break;
+                    case "stock_shares":
+                        int[] shares = ParseStockValues(value, false);
+                        if (shares != null)
+                        {
+                            options.StockShares = shares;
+                        }
+                        break;
                 }
             }
         }
@@ -272,6 +308,10 @@ namespace PokemonTaskbar
                 lines.Add("coins = " + options.Coins.ToString(CultureInfo.InvariantCulture));
                 lines.Add("food = " + options.Food.ToString(CultureInfo.InvariantCulture));
                 lines.Add("growth_drops = " + options.GrowthDrops.ToString(CultureInfo.InvariantCulture));
+                lines.Add("stock_prices = " + string.Join(", ", Array.ConvertAll(
+                    options.StockPrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("stock_shares = " + string.Join(", ", Array.ConvertAll(
+                    options.StockShares, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 File.WriteAllLines(path, lines.ToArray());
             }
             catch (Exception)
@@ -926,6 +966,29 @@ namespace PokemonTaskbar
                 delegate { world.Feed(this); });
             feed.Enabled = world.Options.Food > 0 && !this.evolving;
             menu.Items.Add(feed);
+
+            ToolStripMenuItem market = new ToolStripMenuItem("주식시장");
+            ToolStripMenuItem marketInfo = new ToolStripMenuItem("20초마다 가격 변동");
+            marketInfo.Enabled = false;
+            market.DropDownItems.Add(marketInfo);
+            for (int i = 0; i < PetWorld.StockNames.Length; i++)
+            {
+                int index = i;
+                string name = PetWorld.StockNames[index];
+                int price = world.Options.StockPrices[index];
+                int shares = world.Options.StockShares[index];
+                ToolStripMenuItem buy = new ToolStripMenuItem(
+                    string.Format("{0} 1주 매수 — {1}코인 (보유 {2}주)", name, price, shares), null,
+                    delegate { world.BuyStock(index); });
+                buy.Enabled = world.Options.Coins >= price;
+                market.DropDownItems.Add(buy);
+                ToolStripMenuItem sell = new ToolStripMenuItem(
+                    string.Format("{0} 1주 매도 — {1}코인 (보유 {2}주)", name, price, shares), null,
+                    delegate { world.SellStock(index); });
+                sell.Enabled = shares > 0;
+                market.DropDownItems.Add(sell);
+            }
+            menu.Items.Add(market);
 
             // 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
             if (this.nextKey != null)
@@ -2184,11 +2247,16 @@ namespace PokemonTaskbar
         public const int FoodCost = 4;             // 포켓푸드 한 개 가격
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
         public const int GrowthDropCost = 25;      // 성장의 물방울 한 개 가격
+        public const int MarketUpdateMilliseconds = 20000;
+        public static readonly string[] StockNames = {
+            "피카츄전기", "꼬부기워터", "이상해씨농장"
+        };
 
         public readonly Options Options;
         public readonly Random Random = new Random();
         private readonly List<PetForm> pets = new List<PetForm>();
         private double coinWalkProgress;
+        private Timer marketTimer;
         private bool quitting;
         private bool rebuilding;
         public bool Paused;
@@ -2214,6 +2282,10 @@ namespace PokemonTaskbar
                 this.ExitThread();
                 return;
             }
+            this.marketTimer = new Timer();
+            this.marketTimer.Interval = MarketUpdateMilliseconds;
+            this.marketTimer.Tick += delegate { this.UpdateMarket(); };
+            this.marketTimer.Start();
             this.BuildTray();
         }
 
@@ -2419,6 +2491,42 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
+        /// <summary>현재 가격으로 가상 주식 한 주를 산다.</summary>
+        public void BuyStock(int index)
+        {
+            int price = this.Options.StockPrices[index];
+            if (this.Options.Coins < price)
+            {
+                return;
+            }
+            this.Options.Coins -= price;
+            this.Options.StockShares[index]++;
+            this.SaveSettings();
+        }
+
+        /// <summary>현재 가격으로 가상 주식 한 주를 판다.</summary>
+        public void SellStock(int index)
+        {
+            if (this.Options.StockShares[index] <= 0)
+            {
+                return;
+            }
+            this.Options.StockShares[index]--;
+            this.Options.Coins += this.Options.StockPrices[index];
+            this.SaveSettings();
+        }
+
+        /// <summary>세 종목의 가상 가격을 조금씩 흔들고 저장한다.</summary>
+        public void UpdateMarket()
+        {
+            for (int i = 0; i < this.Options.StockPrices.Length; i++)
+            {
+                this.Options.StockPrices[i] = Math.Max(1,
+                    this.Options.StockPrices[i] + this.Random.Next(-2, 3));
+            }
+            this.SaveSettings();
+        }
+
         /// <summary>크기를 바꾸고 지금 있는 포켓몬을 그대로 다시 만든다.</summary>
         public void SetScale(double scale)
         {
@@ -2524,6 +2632,11 @@ namespace PokemonTaskbar
         public void QuitAll()
         {
             this.quitting = true;
+            if (this.marketTimer != null)
+            {
+                this.marketTimer.Stop();
+                this.marketTimer.Dispose();
+            }
             if (this.tray != null)
             {
                 this.tray.Visible = false;

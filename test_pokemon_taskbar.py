@@ -66,6 +66,8 @@ class SettingsTest(unittest.TestCase):
         values["coins"] = 41
         values["food"] = 3
         values["growth_drops"] = 2
+        values["stock_prices"] = [11, 19, 28]
+        values["stock_shares"] = [2, 0, 4]
         self.assertTrue(settings_file.save(values, self.path))
         self.assertEqual(settings_file.load(self.path), values)
 
@@ -837,6 +839,22 @@ class EvolutionTest(unittest.TestCase):
         self.app.buy_growth_drop()
         self.assertEqual(self.app.coins, 0)
         self.assertEqual(self.app.growth_drops, 1)
+
+    def test_stock_can_be_bought_and_sold(self):
+        self.app.coins = 10
+        self.app.stock_prices = [10, 18, 27]
+        self.app.buy_stock(0)
+        self.assertEqual(self.app.coins, 0)
+        self.assertEqual(self.app.stock_shares, [1, 0, 0])
+        self.app.sell_stock(0)
+        self.assertEqual(self.app.coins, 10)
+        self.assertEqual(self.app.stock_shares, [0, 0, 0])
+
+    def test_stock_prices_move_but_never_reach_zero(self):
+        self.app.stock_prices = [1, 18, 27]
+        with mock.patch("pokemon_taskbar.random.choice", return_value=-2):
+            self.app.update_market()
+        self.assertEqual(self.app.stock_prices, [1, 16, 25])
 
     def test_start_evolving_rejects_unmet_conditions(self):
         self.pet.start_evolving()

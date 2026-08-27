@@ -2616,7 +2616,7 @@ namespace PokemonTaskbar
             this.positions[index].BackColor = card.BackColor;
             this.positions[index].Font = new Font("Malgun Gothic", 8.0f);
             this.positions[index].Location = new Point(8, 47);
-            this.positions[index].Size = new Size(220, 17);
+            this.positions[index].Size = new Size(330, 17);
             card.Controls.Add(this.positions[index]);
             this.graphs[index] = new StockGraph();
             this.graphs[index].Location = new Point(8, 67);
@@ -2627,7 +2627,7 @@ namespace PokemonTaskbar
             quantityLabel.ForeColor = Color.FromArgb(168, 145, 125);
             quantityLabel.BackColor = card.BackColor;
             quantityLabel.Font = new Font("Malgun Gothic", 8.0f);
-            quantityLabel.Location = new Point(238, 49);
+            quantityLabel.Location = new Point(238, 8);
             quantityLabel.AutoSize = true;
             card.Controls.Add(quantityLabel);
             this.quantities[index] = new NumericUpDown();
@@ -2636,7 +2636,7 @@ namespace PokemonTaskbar
             this.quantities[index].Value = 1;
             this.quantities[index].Font = new Font("Malgun Gothic", 8.0f, FontStyle.Bold);
             this.quantities[index].TextAlign = HorizontalAlignment.Center;
-            this.quantities[index].Location = new Point(286, 47);
+            this.quantities[index].Location = new Point(286, 5);
             this.quantities[index].Size = new Size(56, 22);
             this.quantities[index].ValueChanged += delegate { this.RefreshMarket(); };
             card.Controls.Add(this.quantities[index]);
@@ -3258,6 +3258,17 @@ namespace PokemonTaskbar
             return (this.StockSellProceeds(index) - average) * 100.0 / average;
         }
 
+        public int StockHoldingValue(int index)
+        {
+            return this.StockSellProceeds(index) * this.Options.StockShares[index];
+        }
+
+        public int StockHoldingProfit(int index)
+        {
+            return this.StockHoldingValue(index)
+                - this.Options.StockAveragePrices[index] * this.Options.StockShares[index];
+        }
+
         public string StockPositionText(int index)
         {
             int volatility = this.StockVolatility(index);
@@ -3265,9 +3276,9 @@ namespace PokemonTaskbar
             {
                 return this.StockProfile(index) + " · 변동폭 ±" + volatility + "% · 보유 없음";
             }
-            return string.Format("{0} · 변동폭 ±{1}% · 평균 {2} · 수익 {3:+0.0;-0.0;0.0}%",
-                this.StockProfile(index), volatility,
-                FormatWon(this.Options.StockAveragePrices[index]), this.StockProfitPercent(index));
+            return string.Format("보유 {0}주 · 평가 {1} · 손익 {2:+#,0;-#,0;0}원 ({3:+0.0;-0.0;0.0}%)",
+                this.Options.StockShares[index], FormatWon(this.StockHoldingValue(index)),
+                this.StockHoldingProfit(index), this.StockProfitPercent(index));
         }
 
         private int StockVolatility(int index)

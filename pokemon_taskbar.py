@@ -1835,14 +1835,22 @@ class App:
             return 0.0
         return (self.stock_sell_proceeds(index) - average) * 100.0 / average
 
+    def stock_holding_value(self, index):
+        return self.stock_sell_proceeds(index) * self.stock_shares[index]
+
+    def stock_holding_profit(self, index):
+        return self.stock_holding_value(index) - (
+            self.stock_average_prices[index] * self.stock_shares[index]
+        )
+
     def stock_position_text(self, index):
         _name, _starting_price, volatility = self.stock_listing(index)
         shares = self.stock_shares[index]
         if not shares:
             return "%s · 변동폭 ±%d%% · 보유 없음" % (self.stock_profile(index), volatility)
-        return "%s · 변동폭 ±%d%% · 평균 %s · 수익 %+.1f%%" % (
-            self.stock_profile(index), volatility,
-            format_won(self.stock_average_prices[index]), self.stock_profit_percent(index),
+        return "보유 %d주 · 평가 %s · 손익 %s원 (%+.1f%%)" % (
+            shares, format_won(self.stock_holding_value(index)),
+            "{:+,}".format(self.stock_holding_profit(index)), self.stock_profit_percent(index),
         )
 
     def stock_portfolio_value(self):

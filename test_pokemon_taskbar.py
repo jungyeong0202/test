@@ -909,6 +909,15 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.stock_portfolio_value(), 1960)
         self.assertAlmostEqual(self.app.stock_portfolio_change_percent(), 1960 * 100.0 / 1800 - 100.0)
 
+    def test_stock_position_text_shows_shares_value_and_profit(self):
+        self.app.stock_prices[0] = 1000
+        self.app.stock_shares[0] = 3
+        self.app.stock_average_prices[0] = 900
+        text = self.app.stock_position_text(0)
+        self.assertIn("보유 3주", text)
+        self.assertIn("평가 2,940원", text)
+        self.assertIn("손익 +240원", text)
+
     def test_stock_event_pauses_trading_for_forty_seconds(self):
         with mock.patch("pokemon_taskbar.random.random", return_value=0.0), \
                 mock.patch("pokemon_taskbar.random.choice", side_effect=[0, ("번개 발전소 증설", 18)]), \

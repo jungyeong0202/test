@@ -71,8 +71,10 @@ COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 돈을 받는다
 POKEMON_PRICE = int(        # 기본 속도로 두 시간 산책해 얻는 돈
     DEFAULT_WALK_SPEED * 2 * 60 * 60 / COIN_WALK_DISTANCE * COINS_PER_WALK
 )
-FOOD_COST = 400             # 포켓푸드 한 개 가격(원)
+FOOD_COST = 8000            # 5분 2배 산책으로 얻는 추가 수입보다 조금 낮춘 가격(원)
 FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
+FOOD_SPEED_MULTIPLIER = 2.0
+FOOD_BOOST_SECONDS = 5 * 60
 GROWTH_DROP_COST = 2500     # 성장의 물방울 한 개 가격(원)
 MARKET_UPDATE_SEC = 20.0    # 이 간격마다 모의 주가가 한 번 변한다
 STOCK_RELIST_SECONDS = 30 * 60
@@ -491,6 +493,7 @@ class PokemonPet:
         self.float_timer = random.uniform(*FLOAT_RETARGET)
         self.float_phase = random.uniform(0.0, FLOAT_BOB_SEC)
         self.friendship = 0.0      # 아껴 준 만큼 찬다.
+        self.food_boost_left = 0.0
         self.walked = 0.0          # 스스로 걸은 거리(px). 끌어다 놓은 거리는 세지 않는다.
         self.evolving = False
         self.evolve_step = 0
@@ -683,11 +686,19 @@ class PokemonPet:
         self.friendship = min(EVOLVE_PET_NEED, self.friendship + EVOLVE_PER_PET)
 
     def fed(self):
-        """포켓푸드를 먹었을 때. 하트가 뜨고 친밀도가 크게 오른다."""
+        """포켓푸드로 친밀도와 5분짜리 2배 산책 버프를 준다."""
         self.spawn_emote("heart")
+        self.food_boost_left = FOOD_BOOST_SECONDS
         if not self.next_key or self.evolving:
             return
         self.friendship = min(EVOLVE_PET_NEED, self.friendship + FOOD_FRIENDSHIP)
+
+    def food_boost_label(self):
+        """남은 산책 부스트 시간을 메뉴에 짧게 표시한다."""
+        if self.food_boost_left <= 0:
+            return "2배 산책 5분"
+        seconds = int(math.ceil(self.food_boost_left))
+        return "2배 산책 %d:%02d" % (seconds // 60, seconds % 60)
 
     def refresh_menu(self):
         """메뉴를 열 때마다 상점과 진화 항목을 지금 상태로 고쳐 쓴다."""
@@ -702,7 +713,9 @@ class PokemonPet:
         )
         self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
             self.food_buy_index,
-            label="포켓푸드  ·  %s  ·  현재 %d개" % (format_won(FOOD_COST), self.app.food),
+            label="포켓푸드  ·  %s  ·  2배 산책 5분  ·  현재 %d개" % (
+                format_won(FOOD_COST), self.app.food
+            ),
             state="normal" if self.app.coins >= FOOD_COST else "disabled",
         )
         self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
@@ -713,7 +726,9 @@ class PokemonPet:
             state="normal" if self.app.coins >= GROWTH_DROP_COST else "disabled",
         )
         self.menu.entryconfigure(
-            self.feed_index, label="▶ 이 포켓몬에게 먹이 주기  ·  %d개 보유" % self.app.food,
+            self.feed_index, label="▶ 먹이 주기  ·  %s  ·  %d개 보유" % (
+                self.food_boost_label(), self.app.food
+            ),
             state="normal" if self.app.food else "disabled",
         )
         for key, index in self.pet_purchase_indices:
@@ -912,7 +927,10 @@ class PokemonPet:
 
     def walk_step(self, dt):
         """가속하며 걷고, 실제 이동 거리에 맞춰 발 프레임을 진행한다."""
-        self.walk_speed = min(self.speed, self.walk_speed + WALK_ACCEL * dt)
+        multiplier = FOOD_SPEED_MULTIPLIER if self.food_boost_left > 0 else 1.0
+        self.walk_speed = min(
+            self.speed * multiplier, self.walk_speed + WALK_ACCEL * multiplier * dt
+        )
         intended = self.walk_speed * dt
         actual = self.advance_walk(intended)
         if actual + 0.01 < intended:
@@ -954,6 +972,9 @@ class PokemonPet:
             return
         dt = TICK_MS / 1000.0
         self.ticks += 1
+
+        if self.food_boost_left > 0 and not self.app.paused:
+            self.food_boost_left = max(0.0, self.food_boost_left - dt)
 
         if self.dragging:
             # 손에 들려 있는 동안에는 스스로 움직이지 않는다.

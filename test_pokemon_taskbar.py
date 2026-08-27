@@ -858,6 +858,21 @@ class EvolutionTest(unittest.TestCase):
         self.app.feed_pet(self.pet)
         self.assertEqual(self.app.food, 0)
         self.assertEqual(self.pet.friendship, pt.FOOD_FRIENDSHIP)
+        self.assertEqual(self.pet.food_boost_left, pt.FOOD_BOOST_SECONDS)
+
+    def test_food_doubles_walking_speed(self):
+        self.pet.x = self.pet.max_x / 2.0
+        self.pet.direction = 1
+        self.pet.walk_speed = 0.0
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            self.pet.walk_step(0.1)
+        normal_speed = self.pet.walk_speed
+        self.pet.x = self.pet.max_x / 2.0
+        self.pet.walk_speed = 0.0
+        self.pet.fed()
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            self.pet.walk_step(0.1)
+        self.assertAlmostEqual(self.pet.walk_speed, normal_speed * pt.FOOD_SPEED_MULTIPLIER)
 
     def test_growth_drop_can_be_bought(self):
         self.app.coins = pt.GROWTH_DROP_COST

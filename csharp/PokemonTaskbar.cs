@@ -902,6 +902,7 @@ namespace PokemonTaskbar
         private readonly bool floats;
         private readonly string nextKey;      // 진화하면 무엇이 되는지
         private double friendship;
+        private double foodBoostLeft;
         private double walked;                 // 스스로 걸은 거리(px). 끌어다 놓은 거리는 세지 않는다.
         private bool evolving;
         private int evolveStep;
@@ -1105,7 +1106,8 @@ namespace PokemonTaskbar
             ToolStripMenuItem shop = new ToolStripMenuItem(
                 string.Format("◆ 상점 · 보유금 {0}", PetWorld.FormatWon(world.Options.Coins)));
             ToolStripMenuItem buyFood = new ToolStripMenuItem(
-                string.Format("포켓푸드 · {0} · 현재 {1}개", PetWorld.FormatWon(PetWorld.FoodCost), world.Options.Food), null,
+                string.Format("포켓푸드 · {0} · 2배 산책 5분 · 현재 {1}개",
+                    PetWorld.FormatWon(PetWorld.FoodCost), world.Options.Food), null,
                 delegate { world.BuyFood(); });
             buyFood.Enabled = world.Options.Coins >= PetWorld.FoodCost;
             shop.DropDownItems.Add(buyFood);
@@ -1117,7 +1119,7 @@ namespace PokemonTaskbar
             menu.Items.Add(shop);
 
             ToolStripMenuItem feed = new ToolStripMenuItem(
-                string.Format("▶ 이 포켓몬에게 먹이 주기 · {0}개 보유", world.Options.Food), null,
+                string.Format("▶ 먹이 주기 · {0} · {1}개 보유", this.FoodBoostLabel(), world.Options.Food), null,
                 delegate { world.Feed(this); });
             feed.Enabled = world.Options.Food > 0 && !this.evolving;
             menu.Items.Add(feed);
@@ -1378,6 +1380,11 @@ namespace PokemonTaskbar
         {
             double dt = TickMs / 1000.0;
             this.ticks++;
+
+            if (this.foodBoostLeft > 0 && !this.world.Paused)
+            {
+                this.foodBoostLeft = Math.Max(0.0, this.foodBoostLeft - dt);
+            }
 
             if (this.dragging)
             {
@@ -1993,16 +2000,28 @@ namespace PokemonTaskbar
             this.friendship = Math.Min(EvolvePetNeed, this.friendship + EvolvePerPet);
         }
 
-        /// <summary>포켓푸드를 먹었을 때. 하트가 뜨고 친밀도가 크게 오른다.</summary>
+        /// <summary>포켓푸드로 친밀도와 5분짜리 2배 산책 버프를 준다.</summary>
         public void Fed()
         {
             this.SpawnEmote("heart");
+            this.foodBoostLeft = PetWorld.FoodBoostSeconds;
             if (this.nextKey == null || this.evolving)
             {
                 return;
             }
             this.friendship = Math.Min(EvolvePetNeed,
                 this.friendship + PetWorld.FoodFriendship);
+        }
+
+        /// <summary>메뉴에서 남은 산책 부스트 시간을 짧게 보여 준다.</summary>
+        public string FoodBoostLabel()
+        {
+            if (this.foodBoostLeft <= 0)
+            {
+                return "2배 산책 5분";
+            }
+            int seconds = (int)Math.Ceiling(this.foodBoostLeft);
+            return string.Format("2배 산책 {0}:{1:00}", seconds / 60, seconds % 60);
         }
 
         /// <summary>걸은 만큼 옮기고, 실제 이동 거리로 보행 프레임과 산책을 진행한다.</summary>
@@ -2084,7 +2103,9 @@ namespace PokemonTaskbar
         /// <summary>가속하며 걷고, 실제 이동 거리에 맞춰 발 프레임을 진행한다.</summary>
         private void WalkStep(double dt)
         {
-            this.walkSpeed = Math.Min(this.speedValue, this.walkSpeed + WalkAccel * dt);
+            double multiplier = this.foodBoostLeft > 0 ? PetWorld.FoodSpeedMultiplier : 1.0;
+            this.walkSpeed = Math.Min(this.speedValue * multiplier,
+                this.walkSpeed + WalkAccel * multiplier * dt);
             double intended = this.walkSpeed * dt;
             double actual = this.AdvanceWalk(intended);
             if (actual + 0.01 < intended)
@@ -2688,8 +2709,10 @@ namespace PokemonTaskbar
         public const double CoinWalkDistance = 100.0; // 이만큼 걸을 때마다 돈을 받는다
         // 기본 속도 55px/초로 두 시간 산책: 55 × 2 × 60 × 60 ÷ 100 × 100 = 396,000원.
         public const int PokemonPrice = 396000;
-        public const int FoodCost = 400;           // 포켓푸드 한 개 가격(원)
+        public const int FoodCost = 8000;          // 5분 2배 산책으로 얻는 추가 수입보다 조금 낮춘 가격(원)
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
+        public const double FoodSpeedMultiplier = 2.0;
+        public const int FoodBoostSeconds = 5 * 60;
         public const int GrowthDropCost = 2500;    // 성장의 물방울 한 개 가격(원)
         public const int MarketUpdateMilliseconds = 20000;
         public const double StockFeeRate = 0.02;

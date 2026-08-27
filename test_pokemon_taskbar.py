@@ -133,6 +133,26 @@ class SpriteTest(unittest.TestCase):
                 frames[0], frames[1], "%s: 걷기 프레임이 동일합니다" % pokemon.key
             )
 
+    def test_walk_frames_change_the_whole_body(self):
+        original = sprites.POKEMON["pikachu"].frames()
+        walking = pt.whole_walk_frames(original)
+        self.assertEqual(len(walking), len(original))
+        self.assertTrue(all(len(frame) == len(walking[0]) for frame in walking))
+        self.assertTrue(all(len(row) == len(walking[0][0]) for frame in walking for row in frame))
+        self.assertNotEqual(walking[0], pt.pad_on_ground(
+            original[0], len(walking[0][0]), len(walking[0])
+        ))
+
+    def test_walk_poses_use_the_same_canvas_as_the_body_frames(self):
+        pokemon = sprites.POKEMON["pikachu"]
+        walking = pt.whole_walk_frames(pokemon.frames())
+        width = len(walking[0][0])
+        height = len(walking[0])
+        for pose in pokemon.poses().values():
+            padded = pt.pad_on_ground(pose, width, height)
+            self.assertEqual(len(padded), height)
+            self.assertTrue(all(len(row) == width for row in padded))
+
     def test_facing_is_declared(self):
         for pokemon in sprites.POKEMON.values():
             self.assertIn(pokemon.facing, ("left", "right"), pokemon.key)

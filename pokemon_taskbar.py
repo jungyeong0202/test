@@ -107,6 +107,7 @@ WALK_DECEL = 420.0     # 멈추거나 돌아설 때 속도를 줄이는 감속�
 TURN_PAUSE_SEC = 0.12  # 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
 WALK_SUBSTEPS = 8      # 4장 도트를 더 부드럽게 보이게 나눈 보행 박자
 WALK_BOB = (0.0, 0.45, 1.0, 0.45, 0.0, 0.45, 1.0, 0.45)
+WALK_BODY_SIZE = 1     # 체중을 실을 때 몸 전체를 누르거나 늘릴 도트 수
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
 COLOR_KEY = "#ff00ff"  # 투명 처리에 쓰는 색(윈도우 전용)
 
@@ -266,6 +267,51 @@ def make_photo(grid, scale, flip=False, master=None):
             out_x = end_x
         out_y = end_y
     return photo
+
+
+def resample_grid(grid, width, height):
+    """도트 격자 전체를 최근접 이웃으로 늘리거나 줄인다."""
+    old_height = len(grid)
+    old_width = len(grid[0])
+    return [
+        [
+            grid[min(old_height - 1, y * old_height // height)][
+                min(old_width - 1, x * old_width // width)
+            ]
+            for x in range(width)
+        ]
+        for y in range(height)
+    ]
+
+
+def pad_on_ground(grid, width, height):
+    """크기가 달라진 그림을 가운데·아래에 맞춘 같은 캔버스에 놓는다."""
+    padded = [[None] * width for _ in range(height)]
+    top = height - len(grid)
+    left = (width - len(grid[0])) // 2
+    for y, row in enumerate(grid):
+        padded[top + y][left:left + len(row)] = row
+    return padded
+
+
+def whole_walk_frames(frames):
+    """발걸음마다 몸 전체가 눌리고 늘어나는 걷기 프레임을 만든다.
+
+    디딤(0/2)에서는 몸통·귀·꼬리까지 한 칸 낮고 넓게 눌리고, 발을 든
+    프레임(1/3)에서는 전체 실루엣이 한 칸 길고 가늘게 늘어난다. 모든
+    도트를 한 번에 변형하므로 부위 일부를 섞어 윤곽이 깨지지 않는다.
+    """
+    shaped = []
+    for index, frame in enumerate(frames):
+        size = WALK_BODY_SIZE if index % 2 == 0 else -WALK_BODY_SIZE
+        shaped.append(resample_grid(
+            frame,
+            max(1, len(frame[0]) + size),
+            max(1, len(frame) - size),
+        ))
+    width = max(len(frame[0]) for frame in shaped)
+    height = max(len(frame) for frame in shaped)
+    return [pad_on_ground(frame, width, height) for frame in shaped]
 
 
 class PokemonPet:
@@ -1202,8 +1248,18 @@ class App:
         """방향별 걷기 이미지(캐시)."""
         if pokemon.key not in self.image_cache:
             frames = pokemon.frames()
-            scale = self.sprite_scale(pokemon)
             poses = pokemon.poses()
+            if pokemon.move == "walk":
+                frames = whole_walk_frames(frames)
+                width = len(frames[0][0])
+                height = len(frames[0])
+                # 눈 깜빡임·착지 같은 자세도 같은 캔버스에 아래로 맞춘다.
+                # 걷다가 자세가 바뀌어도 그림이 옆이나 위로 튀지 않는다.
+                poses = {
+                    name: pad_on_ground(grid, width, height)
+                    for name, grid in poses.items()
+                }
+            scale = self.sprite_scale(pokemon)
             self.image_cache[pokemon.key] = {
                 "right": [
                     make_photo(f, scale, flip=flip_for(pokemon, True), master=self.root)

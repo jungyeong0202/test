@@ -334,6 +334,71 @@ namespace PokemonTaskbar
             return frames;
         }
 
+        public const int WalkBodySize = 1;
+
+        /// <summary>발걸음마다 몸 전체가 눌리고 늘어나는 걷기 프레임을 만든다.
+        ///
+        /// 디딤(0/2)에서는 몸통·귀·꼬리까지 낮고 넓게 눌리고, 발을 든
+        /// 프레임(1/3)에서는 전체 실루엣이 길고 가늘게 늘어난다.</summary>
+        public static List<Color?[][]> WholeWalkFrames(List<Color?[][]> frames)
+        {
+            List<Color?[][]> shaped = new List<Color?[][]>();
+            int width = 0;
+            int height = 0;
+            for (int index = 0; index < frames.Count; index++)
+            {
+                Color?[][] frame = frames[index];
+                int size = index % 2 == 0 ? WalkBodySize : -WalkBodySize;
+                Color?[][] changed = ResampleGrid(frame,
+                    Math.Max(1, frame[0].Length + size),
+                    Math.Max(1, frame.Length - size));
+                shaped.Add(changed);
+                width = Math.Max(width, changed[0].Length);
+                height = Math.Max(height, changed.Length);
+            }
+
+            List<Color?[][]> whole = new List<Color?[][]>();
+            foreach (Color?[][] frame in shaped)
+            {
+                whole.Add(PadOnGround(frame, width, height));
+            }
+            return whole;
+        }
+
+        /// <summary>도트 격자 전체를 최근접 이웃으로 늘리거나 줄인다.</summary>
+        private static Color?[][] ResampleGrid(Color?[][] grid, int width, int height)
+        {
+            Color?[][] changed = new Color?[height][];
+            for (int y = 0; y < height; y++)
+            {
+                changed[y] = new Color?[width];
+                int sourceY = Math.Min(grid.Length - 1, y * grid.Length / height);
+                for (int x = 0; x < width; x++)
+                {
+                    int sourceX = Math.Min(grid[0].Length - 1, x * grid[0].Length / width);
+                    changed[y][x] = grid[sourceY][sourceX];
+                }
+            }
+            return changed;
+        }
+
+        /// <summary>크기가 달라진 그림을 가운데·아래에 맞춘 같은 캔버스에 놓는다.</summary>
+        public static Color?[][] PadOnGround(Color?[][] grid, int width, int height)
+        {
+            Color?[][] padded = new Color?[height][];
+            int top = height - grid.Length;
+            int left = (width - grid[0].Length) / 2;
+            for (int y = 0; y < height; y++)
+            {
+                padded[y] = new Color?[width];
+            }
+            for (int y = 0; y < grid.Length; y++)
+            {
+                Array.Copy(grid[y], 0, padded[top + y], left, grid[y].Length);
+            }
+            return padded;
+        }
+
         /// <summary>프레임과 자세를 통틀어 가장 넓은 줄의 길이.</summary>
         public static int SpriteWidth(PokemonSprite sprite)
         {
@@ -649,6 +714,10 @@ namespace PokemonTaskbar
             this.random = world.Random;
 
             List<Color?[][]> frames = SpriteFactory.Frames(sprite);
+            if (!sprite.Hops && !sprite.Floats)
+            {
+                frames = SpriteFactory.WholeWalkFrames(frames);
+            }
             this.frameCount = frames.Count;
             double scale = Math.Max(MinSpriteScale, world.Options.Scale * sprite.ScaleFactor);
             this.images = new Bitmap[2][];
@@ -663,6 +732,16 @@ namespace PokemonTaskbar
             }
 
             Dictionary<string, Color?[][]> poseGrids = SpriteFactory.Poses(sprite);
+            if (!sprite.Hops && !sprite.Floats)
+            {
+                int frameWidth = frames[0][0].Length;
+                int frameHeight = frames[0].Length;
+                foreach (string name in new List<string>(poseGrids.Keys))
+                {
+                    poseGrids[name] = SpriteFactory.PadOnGround(
+                        poseGrids[name], frameWidth, frameHeight);
+                }
+            }
             this.poseImages[0] = new Dictionary<string, Bitmap>();
             this.poseImages[1] = new Dictionary<string, Bitmap>();
             foreach (KeyValuePair<string, Color?[][]> pair in poseGrids)

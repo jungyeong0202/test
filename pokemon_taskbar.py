@@ -1415,8 +1415,8 @@ class StockOverlay:
         self.window.overrideredirect(True)
         self.window.wm_attributes("-topmost", True)
         self.window.configure(bg=MENU_RED, padx=3, pady=3)
-        self.window.geometry("710x525+%d+%d" % (
-            (app.screen_width - 710) // 2, max(20, (app.screen_height - 525) // 3)
+        self.window.geometry("710x585+%d+%d" % (
+            (app.screen_width - 710) // 2, max(20, (app.screen_height - 585) // 3)
         ))
 
         body = tk.Frame(self.window, bg=MENU_CREAM)
@@ -1454,7 +1454,7 @@ class StockOverlay:
         for index in range(STOCK_COUNT):
             name = app.stock_name(index)
             card = tk.Frame(cards, bg="#fffdf7", highlightbackground="#d9ad74",
-                            highlightthickness=1, width=335, height=124)
+                            highlightthickness=1, width=335, height=140)
             card.grid(row=index // 2, column=index % 2, padx=3, pady=3, sticky="nsew")
             card.grid_propagate(False)
             info = tk.Frame(card, bg="#fffdf7")
@@ -1464,13 +1464,13 @@ class StockOverlay:
                 font=("Malgun Gothic", 10, "bold"),
             )
             name_label.pack(side="left")
-            price = tk.Label(info, bg="#fffdf7", fg=MENU_RED,
-                             font=("Malgun Gothic", 10, "bold"))
-            price.pack(side="right")
+            price = tk.Label(card, bg="#fffdf7", fg=MENU_RED, anchor="w",
+                             font=("Malgun Gothic", 10, "bold"), padx=8)
+            price.pack(fill="x")
             position = tk.Label(card, bg="#fffdf7", fg=MENU_DISABLED, anchor="w",
                                 font=("Malgun Gothic", 8), padx=8)
             position.pack(fill="x")
-            graph = tk.Canvas(card, width=205, height=50, bg="#fffdf7",
+            graph = tk.Canvas(card, width=205, height=58, bg="#fffdf7",
                               highlightthickness=0)
             graph.pack(side="left", padx=(8, 4), pady=(1, 7))
             buttons = tk.Frame(card, bg="#fffdf7")
@@ -1555,9 +1555,7 @@ class StockOverlay:
             )
         )
         for index, (name_label, price_label, position, graph, buy, sell) in enumerate(self.rows):
-            name_label.configure(text="%s  ·  %s" % (
-                self.app.stock_name(index), self.app.stock_profile(index)
-            ))
+            name_label.configure(text=self.app.stock_name(index))
             price = self.app.stock_prices[index]
             shares = self.app.stock_shares[index]
             percent = self.app.stock_change_percent(index)
@@ -1579,7 +1577,7 @@ class StockOverlay:
                 sell.configure(state="disabled")
             else:
                 price_label.configure(
-                    text="%s  ·  %+.1f%%  ·  보유 %d주" % (format_won(price), percent, shares),
+                    text="현재 %s  ·  %+.1f%%" % (format_won(price), percent),
                     fg=colour,
                 )
                 position.configure(text=self.app.stock_position_text(index))

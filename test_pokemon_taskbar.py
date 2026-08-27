@@ -394,6 +394,35 @@ class PetMovementTest(unittest.TestCase):
         self.assertEqual(pet.direction, -1)
         self.assertLessEqual(pet.x, pet.max_x)
 
+    def test_walking_starts_with_acceleration(self):
+        pet = self.app.pets[0]
+        pet.x = pet.max_x / 2.0
+        pet.walk_speed = 0.0
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            pet.tick()
+        self.assertGreater(pet.walk_speed, 0.0)
+        self.assertLess(pet.walk_speed, pet.speed)
+
+    def test_walk_frame_follows_distance(self):
+        pet = self.app.pets[0]
+        pet.gait_distance = pt.WALK_STRIDE / pet.frame_count
+        self.assertEqual(pet.walk_frame(), 1)
+
+    def test_turn_slows_before_changing_direction(self):
+        pet = self.app.pets[0]
+        pet.x = pet.max_x
+        pet.direction = 1
+        pet.walk_speed = pet.speed
+        with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+            pet.tick()
+            self.assertEqual(pet.direction, 1)
+            self.assertEqual(pet.state, "slow_stop")
+            # 빠른 속도에서는 감속 구간도 길어진다.
+            for _ in range(20):
+                pet.tick()
+        self.assertEqual(pet.direction, -1)
+        self.assertEqual(pet.state, "walk")
+
     def test_idle_pet_starts_walking_again(self):
         pet = self.app.pets[0]
         pet.set_state("idle")
@@ -912,8 +941,9 @@ class DragTest(unittest.TestCase):
             pet.on_drag(FakeMouse(400, 50))
             self.assertGreaterEqual(pet.lift, 0.0)
             pet.on_release(FakeMouse(400, 50))
-            for _ in range(60):
-                pet.tick()
+            with mock.patch("pokemon_taskbar.random.random", return_value=1.0):
+                for _ in range(60):
+                    pet.tick()
             self.assertEqual(pet.lift, 0.0)
         finally:
             app.quit()

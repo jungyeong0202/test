@@ -100,7 +100,11 @@ ZZZ_DOTS = (
 )
 SPEED_CHOICES = (("느리게", 30.0), ("보통", 55.0), ("빠르게", 95.0))
 TICK_MS = 40           # 화면 갱신 주기
-STEP_SEC = 0.16        # 걷기 프레임 교체 주기
+# 걸음 프레임은 시간 대신 실제 이동 거리에 맞춘다. 속도가 바뀌어도 발이 미끄러지지 않는다.
+WALK_STRIDE = 35.0     # 4프레임 한 바퀴에 나아가는 거리(px)
+WALK_ACCEL = 220.0     # 걷기 시작할 때 속도를 올리는 가속도
+WALK_DECEL = 420.0     # 멈추거나 돌아설 때 속도를 줄이는 감속도
+TURN_PAUSE_SEC = 0.12  # 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
 TOPMOST_TICKS = 5      # 몇 틱마다 "맨 앞"을 다시 주장할지 (5틱 = 0.2초)
 COLOR_KEY = "#ff00ff"  # 투명 처리에 쓰는 색(윈도우 전용)
 
@@ -324,9 +328,13 @@ class PokemonPet:
         self.x = random.uniform(0, self.max_x)
         self.direction = random.choice((-1, 1))
         self.speed = app.speed * random.uniform(0.85, 1.15)
+        self.walk_speed = 0.0
+        self.gait_distance = 0.0
         self.move = pokemon.move
         self.state = "walk"
         self.state_left = 0.0
+        self.stop_kind = None
+        self.turn_direction = self.direction
         self.play_hops = 0
         self.hop_state = "rest"
         self.hop_timer = random.uniform(*HOP_REST)
@@ -546,8 +554,11 @@ class PokemonPet:
 
     # --- 움직임 ---------------------------------------------------------
     def set_state(self, state):
+        was_walking = self.state == "walk"
         self.state = state
         self.napping = False
+        if state == "walk" and not was_walking:
+            self.walk_speed = 0.0
         if state == "idle":
             if random.random() < NAP_CHANCE:
                 # 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
@@ -556,6 +567,62 @@ class PokemonPet:
                 self.zzz_timer = 0.35
             else:
                 self.state_left = random.uniform(0.8, 3.0)
+
+    def advance_walk(self, distance):
+        """걸은 만큼 옮기고, 실제 이동 거리로 보행 프레임과 산책을 진행한다."""
+        before_x = self.x
+        self.x += self.direction * distance
+        self.x = min(max(0.0, self.x), self.max_x)
+        actual = abs(self.x - before_x)
+        self.gait_distance += actual
+        self.walked = min(EVOLVE_WALK_NEED, self.walked + actual)
+        return actual
+
+    def begin_stop(self, kind, turn_direction=None):
+        """감속한 뒤 쉬거나 장난치거나 방향을 바꾼다."""
+        self.state = "slow_stop"
+        self.stop_kind = kind
+        self.turn_direction = self.direction if turn_direction is None else turn_direction
+
+    def finish_stop(self):
+        """감속이 끝났을 때 다음 동작으로 넘긴다."""
+        kind = self.stop_kind
+        self.stop_kind = None
+        if kind == "turn":
+            self.state = "turn"
+            self.state_left = TURN_PAUSE_SEC
+            self.land_squash = max(self.land_squash, TURN_PAUSE_SEC)
+        elif kind == "play":
+            self.start_playing()
+        else:
+            self.set_state("idle")
+
+    def slow_stop_step(self, dt):
+        """지금 속도에서 부드럽게 멈춘다."""
+        before_speed = self.walk_speed
+        self.walk_speed = max(0.0, self.walk_speed - WALK_DECEL * dt)
+        self.advance_walk((before_speed + self.walk_speed) * 0.5 * dt)
+        if self.walk_speed <= 0:
+            self.finish_stop()
+
+    def turn_step(self, dt):
+        """한 박자 멈춘 뒤 새 방향으로 걷기 시작한다."""
+        self.state_left -= dt
+        if self.state_left <= 0:
+            self.direction = self.turn_direction
+            self.set_state("walk")
+
+    def walk_step(self, dt):
+        """가속하며 걷고, 실제 이동 거리에 맞춰 발 프레임을 진행한다."""
+        self.walk_speed = min(self.speed, self.walk_speed + WALK_ACCEL * dt)
+        intended = self.walk_speed * dt
+        actual = self.advance_walk(intended)
+        if actual + 0.01 < intended:
+            self.begin_stop("turn", -self.direction)
+        elif random.random() < 0.004:
+            self.begin_stop("turn", -self.direction)
+        elif random.random() < 0.005:
+            self.begin_stop("play" if random.random() < PLAY_CHANCE else "idle")
 
     def start_playing(self):
         """걷는 포켓몬이 가끔 하는 짧은 제자리 점프 놀이를 시작한다."""
@@ -610,26 +677,14 @@ class PokemonPet:
             self.hop_step(dt)
         elif self.move == "float":
             self.float_step(dt)
+        elif self.state == "slow_stop":
+            self.slow_stop_step(dt)
+        elif self.state == "turn":
+            self.turn_step(dt)
         elif self.state.startswith("play_"):
             self.play_step(dt)
         elif self.state == "walk":
-            self.anim_time += dt
-            before_x = self.x
-            self.x += self.direction * self.speed * dt
-            if self.x <= 0:
-                self.x = 0
-                self.direction = 1
-            elif self.x >= self.max_x:
-                self.x = self.max_x
-                self.direction = -1
-            elif random.random() < 0.004:
-                self.direction = -self.direction
-            self.walked = min(EVOLVE_WALK_NEED, self.walked + abs(self.x - before_x))
-            if random.random() < 0.005:
-                if random.random() < PLAY_CHANCE:
-                    self.start_playing()
-                else:
-                    self.set_state("idle")
+            self.walk_step(dt)
         else:
             self.state_left -= dt
             if self.state_left <= 0:
@@ -935,6 +990,10 @@ class PokemonPet:
             index = 0
         return min(index, self.frame_count - 1)
 
+    def walk_frame(self):
+        """실제 걸은 거리에 맞는 보행 프레임."""
+        return int(self.gait_distance / WALK_STRIDE * self.frame_count) % self.frame_count
+
     def raise_above_all(self):
         """포커스를 빼앗지 않으면서 창을 최상위로 올린다."""
         if self.app.system == "Windows":
@@ -971,8 +1030,8 @@ class PokemonPet:
             frame = self.hop_frame()
         elif self.move == "float":
             frame = int(self.anim_time / FLOAT_STEP_SEC) % self.frame_count
-        elif self.state == "walk":
-            frame = int(self.anim_time / STEP_SEC) % self.frame_count
+        elif self.state in ("walk", "slow_stop"):
+            frame = self.walk_frame()
         else:
             frame = 0
 
@@ -987,7 +1046,7 @@ class PokemonPet:
 
         # 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
         # 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
-        walking = self.move == "walk" and self.state == "walk"
+        walking = self.move == "walk" and self.state in ("walk", "slow_stop")
         bounce = self.bounce_px if (walking and pose is None and frame % 2 == 1) else 0
         # 들려 있으면 버둥거린다.
         sway = self.dot if (self.dragging and int(self.wiggle / WIGGLE_SEC) % 2) else 0

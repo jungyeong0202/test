@@ -69,7 +69,7 @@ git add dist/ && git commit
 | `tools/gen_sprites_cs.py` | `sprites.py` → `csharp/Sprites.cs` |
 | `tools/check_net48.py` | 만든 exe 가 .NET Framework 4.8 API 만 쓰는지 검사 |
 | `tools/build_exe.sh` | 리눅스/맥에서 윈도우용 exe 빌드 |
-| `test_pokemon_taskbar.py` | 파이썬 테스트 (123개) |
+| `test_pokemon_taskbar.py` | 파이썬 테스트 (126개) |
 
 ## 규칙
 
@@ -215,7 +215,7 @@ python3 tools/import_sprite.py 그림.png --key 키 --name 한글이름 \
 
 고치고 나서 아래가 전부 통과해야 한다.
 
-- `python3 -m unittest test_pokemon_taskbar -q` (123개)
+- `python3 -m unittest test_pokemon_taskbar -q` (126개)
 - `sh tools/build_exe.sh` — 경고 없이 빌드되고 API 검사를 통과
 - 파이썬과 C# 의 도트 데이터가 완전히 일치 (양쪽에서 덤프해 `diff`)
 - 실제로 앱을 띄워 눈으로 확인 — 테스트가 잡지 못하는 문제가 많다

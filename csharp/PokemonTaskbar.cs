@@ -471,7 +471,6 @@ namespace PokemonTaskbar
     public class PetForm : Form
     {
         private const int TickMs = 40;
-        private const double StepSeconds = 0.16;
         private const double Gravity = 900.0;      // 떨어지는 가속도(초당 픽셀^2)
         private const double JumpSpeed = 200.0;    // 클릭했을 때 튀어오르는 속도
         private const int DragSlack = 4;           // 이보다 많이 움직이면 끌기로 본다
@@ -525,6 +524,11 @@ namespace PokemonTaskbar
         private const double LandSquashTime = 0.12;
         private const double BreathSeconds = 0.9;
         private const double WiggleSeconds = 0.10;
+        // 걸음 프레임은 시간 대신 실제 이동 거리에 맞춘다. 속도가 바뀌어도 발이 미끄러지지 않는다.
+        private const double WalkStride = 35.0;     // 4프레임 한 바퀴에 나아가는 거리(px)
+        private const double WalkAccel = 220.0;     // 걷기 시작할 때 속도를 올리는 가속도
+        private const double WalkDecel = 420.0;     // 멈추거나 돌아설 때 속도를 줄이는 감속도
+        private const double TurnPauseSeconds = 0.12; // 멈춰 몸을 낮춘 채 방향을 바꾸는 시간
 
         // 효과에 쓰는 아주 작은 도트 그림
         private static readonly int[,] HeartDots = {
@@ -593,8 +597,13 @@ namespace PokemonTaskbar
 
         private double x;
         private double speedValue;
+        private double walkSpeed;
+        private double gaitDistance;
         private int direction;
         private bool walking = true;
+        private string stopKind;
+        private double turnLeft;
+        private int turnDirection;
         private readonly bool hops;
         private readonly bool floats;
         private readonly string nextKey;      // 진화하면 무엇이 되는지
@@ -718,6 +727,7 @@ namespace PokemonTaskbar
             this.baseY = Math.Max(screen.Top, Math.Min(wanted, lowest));
             this.x = this.random.NextDouble() * this.maxX;
             this.direction = this.random.Next(2) == 0 ? -1 : 1;
+            this.turnDirection = this.direction;
             this.speedValue = world.Options.Speed * (0.85 + this.random.NextDouble() * 0.3);
             this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
             this.floatBase = this.PickFloatHeight();
@@ -867,9 +877,9 @@ namespace PokemonTaskbar
             {
                 frame = (int)(this.animTime / FloatStepSeconds) % this.frameCount;
             }
-            else if (this.walking)
+            else if (this.walking || this.stopKind != null)
             {
-                frame = (int)(this.animTime / StepSeconds) % this.frameCount;
+                frame = this.WalkFrame();
             }
             else
             {
@@ -891,7 +901,8 @@ namespace PokemonTaskbar
 
             // 홀수 프레임에서 살짝 튀어올라 걷는 느낌을 준다.
             // 뛰어다니는 포켓몬은 점프 자체가 움직임이라 흔들지 않는다.
-            bool walkingNow = !this.hops && !this.floats && this.walking && !this.dragging;
+            bool walkingNow = !this.hops && !this.floats
+                && (this.walking || this.stopKind != null) && !this.dragging;
             int bounce = (walkingNow && image != null && pose == null && frame % 2 == 1)
                 ? this.bouncePixels : 0;
             // 들려 있으면 버둥거린다.
@@ -919,6 +930,9 @@ namespace PokemonTaskbar
                     this.walking = true;
                     this.napping = false;
                     this.playState = null;
+                    this.stopKind = null;
+                    this.turnLeft = 0.0;
+                    this.walkSpeed = 0.0;
                 }
                 this.dragging = true;
                 this.dragMoved = false;
@@ -1030,53 +1044,21 @@ namespace PokemonTaskbar
             {
                 this.FloatStep(dt);
             }
+            else if (this.stopKind != null)
+            {
+                this.SlowStopStep(dt);
+            }
+            else if (this.turnLeft > 0)
+            {
+                this.TurnStep(dt);
+            }
             else if (this.playState != null)
             {
                 this.PlayStep(dt);
             }
             else if (this.walking)
             {
-                this.animTime += dt;
-                double beforeX = this.x;
-                this.x += this.direction * this.speedValue * dt;
-                if (this.x <= 0)
-                {
-                    this.x = 0;
-                    this.direction = 1;
-                }
-                else if (this.x >= this.maxX)
-                {
-                    this.x = this.maxX;
-                    this.direction = -1;
-                }
-                else if (this.random.NextDouble() < 0.004)
-                {
-                    this.direction = -this.direction;
-                }
-                this.walked = Math.Min(EvolveWalkNeed, this.walked + Math.Abs(this.x - beforeX));
-
-                if (this.random.NextDouble() < 0.005)
-                {
-                    if (this.random.NextDouble() < PlayChance)
-                    {
-                        this.StartPlaying();
-                    }
-                    else
-                    {
-                        this.walking = false;
-                        if (this.random.NextDouble() < NapChance)
-                        {
-                            // 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
-                            this.idleLeft = 4.0 + this.random.NextDouble() * 5.0;
-                            this.napping = true;
-                            this.zzzTimer = 0.35;
-                        }
-                        else
-                        {
-                            this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
-                        }
-                    }
-                }
+                this.WalkStep(dt);
             }
             else
             {
@@ -1085,6 +1067,7 @@ namespace PokemonTaskbar
                 {
                     this.walking = true;
                     this.napping = false;
+                    this.walkSpeed = 0.0;
                 }
             }
 
@@ -1456,6 +1439,107 @@ namespace PokemonTaskbar
                 return;
             }
             this.friendship = Math.Min(EvolvePetNeed, this.friendship + EvolvePerPet);
+        }
+
+        /// <summary>걸은 만큼 옮기고, 실제 이동 거리로 보행 프레임과 산책을 진행한다.</summary>
+        private double AdvanceWalk(double distance)
+        {
+            double beforeX = this.x;
+            this.x += this.direction * distance;
+            this.x = Math.Min(Math.Max(0.0, this.x), this.maxX);
+            double actual = Math.Abs(this.x - beforeX);
+            this.gaitDistance += actual;
+            this.walked = Math.Min(EvolveWalkNeed, this.walked + actual);
+            return actual;
+        }
+
+        /// <summary>감속한 뒤 쉬거나 장난치거나 방향을 바꾼다.</summary>
+        private void BeginStop(string kind, int nextDirection)
+        {
+            this.walking = false;
+            this.stopKind = kind;
+            this.turnDirection = nextDirection;
+        }
+
+        /// <summary>감속이 끝났을 때 다음 동작으로 넘긴다.</summary>
+        private void FinishStop()
+        {
+            string kind = this.stopKind;
+            this.stopKind = null;
+            if (kind == "turn")
+            {
+                this.turnLeft = TurnPauseSeconds;
+                this.landSquash = Math.Max(this.landSquash, TurnPauseSeconds);
+            }
+            else if (kind == "play")
+            {
+                this.StartPlaying();
+            }
+            else
+            {
+                if (this.random.NextDouble() < NapChance)
+                {
+                    // 가끔은 길게 낮잠을 잔다. 이때 머리 위로 Zzz 가 올라간다.
+                    this.idleLeft = 4.0 + this.random.NextDouble() * 5.0;
+                    this.napping = true;
+                    this.zzzTimer = 0.35;
+                }
+                else
+                {
+                    this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                }
+            }
+        }
+
+        /// <summary>지금 속도에서 부드럽게 멈춘다.</summary>
+        private void SlowStopStep(double dt)
+        {
+            double beforeSpeed = this.walkSpeed;
+            this.walkSpeed = Math.Max(0.0, this.walkSpeed - WalkDecel * dt);
+            this.AdvanceWalk((beforeSpeed + this.walkSpeed) * 0.5 * dt);
+            if (this.walkSpeed <= 0)
+            {
+                this.FinishStop();
+            }
+        }
+
+        /// <summary>한 박자 멈춘 뒤 새 방향으로 걷기 시작한다.</summary>
+        private void TurnStep(double dt)
+        {
+            this.turnLeft -= dt;
+            if (this.turnLeft <= 0)
+            {
+                this.direction = this.turnDirection;
+                this.walking = true;
+                this.walkSpeed = 0.0;
+            }
+        }
+
+        /// <summary>가속하며 걷고, 실제 이동 거리에 맞춰 발 프레임을 진행한다.</summary>
+        private void WalkStep(double dt)
+        {
+            this.walkSpeed = Math.Min(this.speedValue, this.walkSpeed + WalkAccel * dt);
+            double intended = this.walkSpeed * dt;
+            double actual = this.AdvanceWalk(intended);
+            if (actual + 0.01 < intended)
+            {
+                this.BeginStop("turn", -this.direction);
+            }
+            else if (this.random.NextDouble() < 0.004)
+            {
+                this.BeginStop("turn", -this.direction);
+            }
+            else if (this.random.NextDouble() < 0.005)
+            {
+                this.BeginStop(this.random.NextDouble() < PlayChance ? "play" : "idle",
+                    this.direction);
+            }
+        }
+
+        /// <summary>실제 걸은 거리에 맞는 보행 프레임.</summary>
+        private int WalkFrame()
+        {
+            return (int)(this.gaitDistance / WalkStride * this.frameCount) % this.frameCount;
         }
 
         /// <summary>올라갈 수 있는 가장 높은 곳. 창이 화면 위로 나가지 않게 한다.</summary>

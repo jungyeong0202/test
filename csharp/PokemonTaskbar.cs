@@ -2379,6 +2379,9 @@ namespace PokemonTaskbar
         private readonly Button[] buys = new Button[3];
         private readonly Button[] sells = new Button[3];
         private readonly StockGraph[] graphs = new StockGraph[3];
+        private Point dragCursor;
+        private Point dragLocation;
+        private bool dragging;
 
         public StockOverlayForm(PetWorld world)
         {
@@ -2401,6 +2404,9 @@ namespace PokemonTaskbar
             header.Location = new Point(0, 0);
             header.Size = new Size(464, 48);
             body.Controls.Add(header);
+            header.MouseDown += this.BeginDrag;
+            header.MouseMove += this.Drag;
+            header.MouseUp += this.EndDrag;
             Label title = new Label();
             title.Text = "●  포켓몬 주식시장  ●";
             title.ForeColor = Color.White;
@@ -2409,6 +2415,9 @@ namespace PokemonTaskbar
             title.AutoSize = true;
             title.Location = new Point(14, 10);
             header.Controls.Add(title);
+            title.MouseDown += this.BeginDrag;
+            title.MouseMove += this.Drag;
+            title.MouseUp += this.EndDrag;
             Button close = new Button();
             close.Text = "×";
             close.FlatStyle = FlatStyle.Flat;
@@ -2496,6 +2505,33 @@ namespace PokemonTaskbar
             return button;
         }
 
+        private void BeginDrag(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left)
+            {
+                return;
+            }
+            this.dragging = true;
+            this.dragCursor = Cursor.Position;
+            this.dragLocation = this.Location;
+        }
+
+        private void Drag(object sender, MouseEventArgs e)
+        {
+            if (!this.dragging)
+            {
+                return;
+            }
+            Point cursor = Cursor.Position;
+            this.Location = new Point(this.dragLocation.X + cursor.X - this.dragCursor.X,
+                this.dragLocation.Y + cursor.Y - this.dragCursor.Y);
+        }
+
+        private void EndDrag(object sender, MouseEventArgs e)
+        {
+            this.dragging = false;
+        }
+
         public void RefreshMarket()
         {
             this.balance.Text = "보유금  " + PetWorld.FormatWon(this.world.Options.Coins);
@@ -2503,7 +2539,11 @@ namespace PokemonTaskbar
             {
                 int price = this.world.Options.StockPrices[i];
                 int shares = this.world.Options.StockShares[i];
-                this.prices[i].Text = PetWorld.FormatWon(price) + "  ·  보유 " + shares + "주";
+                double percent = this.world.StockChangePercent(i);
+                this.prices[i].Text = string.Format("{0}  ·  {1:+0.0;-0.0;0.0}%  ·  보유 {2}주",
+                    PetWorld.FormatWon(price), percent, shares);
+                this.prices[i].ForeColor = percent > 0 ? Color.FromArgb(47, 155, 103)
+                    : percent < 0 ? Color.FromArgb(217, 52, 59) : Color.FromArgb(58, 45, 38);
                 this.buys[i].Enabled = this.world.Options.Coins >= price;
                 this.sells[i].Enabled = shares > 0;
                 this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2867,6 +2907,17 @@ namespace PokemonTaskbar
         public int[] StockHistory(int index)
         {
             return this.stockHistory[index].ToArray();
+        }
+
+        /// <summary>그래프에 보이는 기간의 시작 가격과 비교한 등락률.</summary>
+        public double StockChangePercent(int index)
+        {
+            List<int> history = this.stockHistory[index];
+            if (history.Count == 0 || history[0] <= 0)
+            {
+                return 0.0;
+            }
+            return (this.Options.StockPrices[index] - history[0]) * 100.0 / history[0];
         }
 
         /// <summary>주식시장 오버레이를 하나만 열고, 이미 열려 있으면 앞으로 가져온다.</summary>

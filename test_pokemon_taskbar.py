@@ -887,12 +887,25 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(len(self.app.stock_history[0]), 20)
         self.assertGreater(self.app.stock_history[0][-1], self.app.stock_history[0][0])
 
+    def test_stock_change_percent_uses_the_visible_graph_period(self):
+        self.app.stock_prices = [1000, 1800, 2700]
+        self.app.stock_history = [[1000], [1800], [2700]]
+        with mock.patch("pokemon_taskbar.random.choice", return_value=100):
+            self.app.update_market()
+        self.assertAlmostEqual(self.app.stock_change_percent(0), 10.0)
+
     def test_stock_market_opens_in_its_own_overlay(self):
         self.app.open_stock_overlay()
         overlay = self.app.stock_overlay
         self.assertIsNotNone(overlay)
         self.assertTrue(overlay.window.winfo_exists())
         self.assertTrue(overlay.rows[0][1].find_all(), "그래프가 그려지지 않습니다")
+        old_x = overlay.window.winfo_x()
+        old_y = overlay.window.winfo_y()
+        overlay.begin_drag(FakeMouse(old_x + 10, old_y + 10))
+        overlay.drag(FakeMouse(old_x + 50, old_y + 40))
+        self.app.root.update_idletasks()
+        self.assertGreater(overlay.window.winfo_x(), old_x)
         overlay.close()
         self.assertIsNone(self.app.stock_overlay)
 

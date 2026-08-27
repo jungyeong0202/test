@@ -1378,10 +1378,11 @@ class StockOverlay:
         body.pack(fill="both", expand=True)
         title = tk.Frame(body, bg=MENU_RED, height=48)
         title.pack(fill="x")
-        tk.Label(
+        title_label = tk.Label(
             title, text="●  포켓몬 주식시장  ●", bg=MENU_RED, fg="white",
             font=("Malgun Gothic", 13, "bold"), pady=9,
-        ).pack(side="left", padx=14)
+        )
+        title_label.pack(side="left", padx=14)
         tk.Button(
             title, text="×", command=self.close, bg=MENU_RED, fg="white",
             activebackground="#aa2028", activeforeground="white", bd=0,
@@ -1426,6 +1427,10 @@ class StockOverlay:
         ).pack()
         self.window.bind("<Escape>", lambda _event: self.close())
         self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.drag_origin = None
+        for widget in (title, title_label):
+            widget.bind("<ButtonPress-1>", self.begin_drag)
+            widget.bind("<B1-Motion>", self.drag)
         self.refresh()
 
     @staticmethod
@@ -1441,6 +1446,18 @@ class StockOverlay:
             self.app.buy_stock(index)
         else:
             self.app.sell_stock(index)
+
+    def begin_drag(self, event):
+        """빨간 제목 영역을 잡은 위치를 기억한다."""
+        self.drag_origin = (event.x_root - self.window.winfo_x(),
+                            event.y_root - self.window.winfo_y())
+
+    def drag(self, event):
+        """제목 영역을 끌면 오버레이가 함께 움직인다."""
+        if self.drag_origin is None:
+            return
+        offset_x, offset_y = self.drag_origin
+        self.window.geometry("+%d+%d" % (event.x_root - offset_x, event.y_root - offset_y))
 
     @staticmethod
     def draw_graph(canvas, values):
@@ -1470,7 +1487,12 @@ class StockOverlay:
         for index, (price_label, graph, buy, sell) in enumerate(self.rows):
             price = self.app.stock_prices[index]
             shares = self.app.stock_shares[index]
-            price_label.configure(text="%s  ·  보유 %d주" % (format_won(price), shares))
+            percent = self.app.stock_change_percent(index)
+            colour = "#2f9b67" if percent > 0 else MENU_RED if percent < 0 else MENU_DARK
+            price_label.configure(
+                text="%s  ·  %+.1f%%  ·  보유 %d주" % (format_won(price), percent, shares),
+                fg=colour,
+            )
             buy.configure(state="normal" if self.app.coins >= price else "disabled")
             sell.configure(state="normal" if shares else "disabled")
             self.draw_graph(graph, self.app.stock_history[index])
@@ -1621,6 +1643,13 @@ class App:
             self.stock_history[index] = self.stock_history[index][-20:]
         self.save_settings()
         self.refresh_stock_overlay()
+
+    def stock_change_percent(self, index):
+        """그래프에 보이는 기간의 시작 가격과 비교한 등락률."""
+        history = self.stock_history[index]
+        if not history or history[0] <= 0:
+            return 0.0
+        return (self.stock_prices[index] - history[0]) * 100.0 / history[0]
 
     def open_stock_overlay(self):
         """주식시장 오버레이를 하나만 열고, 이미 열려 있으면 앞으로 가져온다."""

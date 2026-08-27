@@ -435,6 +435,26 @@ class PetMovementTest(unittest.TestCase):
         pet.gait_distance = pt.WALK_STRIDE * 2 / pt.WALK_SUBSTEPS
         self.assertEqual(pet.walk_bob(), pet.bounce_px)
 
+    def test_idle_action_uses_the_pokemon_personality(self):
+        pet = self.app.pets[0]
+        with mock.patch("pokemon_taskbar.random.random", return_value=0.0):
+            pet.start_idle_action()
+        self.assertEqual(pet.idle_action, "spark")
+        pet.update_idle_action(pt.IDLE_EFFECT_EVERY)
+        self.assertTrue(pet.effects)
+
+    def test_nearby_walkers_stop_to_greet(self):
+        first = self.app.pets[0]
+        second = self.app.add_pet("charmander")
+        first.x = 100
+        second.x = 100 + pt.GREETING_DISTANCE / 2
+        first.state = second.state = "walk"
+        self.assertTrue(self.app.start_greeting_near(first))
+        self.assertGreater(first.greeting_left, 0)
+        self.assertGreater(second.greeting_left, 0)
+        self.assertEqual(first.direction, 1)
+        self.assertEqual(second.direction, -1)
+
     def test_turn_slows_before_changing_direction(self):
         pet = self.app.pets[0]
         pet.x = pet.max_x

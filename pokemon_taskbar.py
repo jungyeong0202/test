@@ -82,6 +82,12 @@ BLINK_TIME = 0.14        # 눈을 감고 있는 시간
 LAND_SQUASH_TIME = 0.12  # 착지하고 눌려 있는 시간
 BREATH_SEC = 0.9         # 낮잠 중 숨쉬기 한 박자
 WIGGLE_SEC = 0.10        # 들려 있을 때 버둥거리는 간격
+IDLE_ACTION_CHANCE = 0.55       # 낮잠이 아닌 대기 때 개성 모션을 할 확률
+IDLE_ACTION_SECONDS = (0.9, 1.6)
+IDLE_EFFECT_EVERY = 0.55        # 대기 효과를 다시 띄우는 간격
+GREETING_DISTANCE = 150.0       # 이 거리 안에서 마주치면 인사한다(px)
+GREETING_SECONDS = 1.15         # 서로 바라보며 인사하는 시간
+GREETING_COOLDOWN = 5.0         # 같은 둘이 연달아 인사하지 않게 쉬는 시간
 
 # 효과에 쓰는 아주 작은 도트 그림
 HEART_DOTS = (
@@ -98,6 +104,22 @@ ZZZ_DOTS = (
     (1, 2),
     (0, 3), (1, 3), (2, 3), (3, 3),
 )
+IDLE_DOTS = {
+    "spark": ((1, 0), (1, 1), (0, 1), (2, 1), (1, 2)),
+    "flame": ((1, 0), (0, 1), (1, 1), (2, 1), (0, 2), (1, 2)),
+    "leaf": ((1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (1, 2)),
+    "bubble": ((0, 0), (1, 0), (0, 1), (1, 1)),
+    "twinkle": ((1, 0), (0, 1), (1, 1), (2, 1), (1, 2)),
+}
+IDLE_ACTIONS = {
+    "pikachu": ("spark", "#ffe14d"),
+    "charmander": ("flame", "#ff783d"),
+    "bulbasaur": ("leaf", "#79c95d"),
+    "squirtle": ("bubble", "#8bd9ff"),
+    "wartortle": ("bubble", "#8bd9ff"),
+    "ditto": ("wiggle", "#dc7ae8"),
+    "mew": ("twinkle", "#f6a5e5"),
+}
 SPEED_CHOICES = (("느리게", 30.0), ("보통", 55.0), ("빠르게", 95.0))
 TICK_MS = 40           # 화면 갱신 주기
 # 걸음 프레임은 시간 대신 실제 이동 거리에 맞춘다. 속도가 바뀌어도 발이 미끄러지지 않는다.
@@ -347,6 +369,13 @@ class PokemonPet:
         self.window_width = self.width + self.margin_x * 2
         self.window_height = self.height + self.hop + self.margin_top
         self.effects = []
+        self.idle_action = None
+        self.idle_action_left = 0.0
+        self.idle_effect_left = 0.0
+        self.idle_phase = 0.0
+        self.greeting_left = 0.0
+        self.greeting_phase = 0.0
+        self.greeting_cooldown = 0.0
 
         self.window = tk.Toplevel(app.root)
         self.window.overrideredirect(True)
@@ -605,6 +634,7 @@ class PokemonPet:
         was_walking = self.state == "walk"
         self.state = state
         self.napping = False
+        self.idle_action = None
         if state == "walk" and not was_walking:
             self.walk_speed = 0.0
         if state == "idle":
@@ -615,6 +645,70 @@ class PokemonPet:
                 self.zzz_timer = 0.35
             else:
                 self.state_left = random.uniform(0.8, 3.0)
+                self.start_idle_action()
+
+    def start_idle_action(self):
+        """포켓몬마다 다른 짧은 대기 모션을 시작한다."""
+        if random.random() >= IDLE_ACTION_CHANCE:
+            return
+        action = IDLE_ACTIONS.get(self.pokemon.key)
+        if action is None:
+            return
+        self.idle_action = action[0]
+        self.idle_action_left = random.uniform(*IDLE_ACTION_SECONDS)
+        self.idle_effect_left = 0.0
+        self.idle_phase = 0.0
+
+    def update_idle_action(self, dt):
+        """반짝임·불꽃·잎·거품 같은 포켓몬별 대기 효과를 갱신한다."""
+        if self.idle_action is None:
+            return
+        self.idle_phase += dt
+        self.idle_action_left -= dt
+        self.idle_effect_left -= dt
+        if self.idle_effect_left <= 0:
+            self.idle_effect_left = IDLE_EFFECT_EVERY
+            self.spawn_idle_effect()
+        if self.idle_action_left <= 0:
+            self.idle_action = None
+
+    def spawn_idle_effect(self):
+        action = IDLE_ACTIONS.get(self.pokemon.key)
+        if action is None or action[0] == "wiggle":
+            return
+        self.effects.append({
+            "kind": action[0],
+            "x": self.margin_x + self.width * (0.48 + random.random() * 0.24),
+            "y": self.margin_top + self.height * 0.16,
+            "vx": -8 + random.random() * 16,
+            "vy": -18.0,
+            "life": EMOTE_LIFE,
+            "color": action[1],
+        })
+
+    def can_greet(self):
+        """다른 포켓몬을 만났을 때 인사할 수 있는 상태인지."""
+        return (self.state == "walk" and not self.dragging and not self.evolving
+                and (self.move == "float" or self.lift <= 0) and self.greeting_left <= 0
+                and self.greeting_cooldown <= 0)
+
+    def start_greeting(self, partner):
+        """가까이 온 포켓몬을 바라보고 잠깐 인사한다."""
+        self.state = "greet"
+        self.walk_speed = 0.0
+        self.napping = False
+        self.idle_action = None
+        self.greeting_left = GREETING_SECONDS
+        self.greeting_phase = 0.0
+        self.greeting_cooldown = GREETING_COOLDOWN
+        self.direction = 1 if partner.x > self.x else -1
+        self.spawn_emote("heart")
+
+    def greeting_step(self, dt):
+        self.greeting_left -= dt
+        self.greeting_phase += dt
+        if self.greeting_left <= 0:
+            self.set_state("walk")
 
     def advance_walk(self, distance):
         """걸은 만큼 옮기고, 실제 이동 거리로 보행 프레임과 산책을 진행한다."""
@@ -721,6 +815,10 @@ class PokemonPet:
                 return
         elif self.app.paused:
             pass                     # 잠시 멈춤: 제자리에서 가만히
+        elif self.greeting_left > 0:
+            self.greeting_step(dt)
+        elif self.app.start_greeting_near(self):
+            self.greeting_step(dt)
         elif self.move == "hop":
             self.hop_step(dt)
         elif self.move == "float":
@@ -752,6 +850,7 @@ class PokemonPet:
                 self.vertical_speed = 0.0
 
         self.update_timers(dt)
+        self.update_idle_action(dt)
         self.update_effects(dt)
         if self.napping:
             self.zzz_timer -= dt
@@ -801,6 +900,8 @@ class PokemonPet:
         """눈 깜빡임, 착지 눌림, 숨쉬기, 버둥거림 박자를 센다."""
         if self.land_squash > 0:
             self.land_squash -= dt
+        if self.greeting_cooldown > 0:
+            self.greeting_cooldown -= dt
 
         if self.dragging:
             self.wiggle += dt
@@ -831,6 +932,10 @@ class PokemonPet:
             return "squash"
         if self.napping and int(self.breath / BREATH_SEC) % 2 == 1:
             return "squash"
+        if self.greeting_left > 0:
+            return "squash" if int(self.greeting_phase / 0.18) % 2 else "stretch"
+        if self.idle_action is not None and int(self.idle_phase / 0.22) % 2:
+            return "stretch" if self.idle_action in ("spark", "flame", "twinkle") else "squash"
         if self.blinking > 0:
             return "blink"
         return None
@@ -862,7 +967,9 @@ class PokemonPet:
                 )
                 continue
 
-            dots = HEART_DOTS if effect["kind"] == "heart" else ZZZ_DOTS
+            dots = IDLE_DOTS.get(effect["kind"])
+            if dots is None:
+                dots = HEART_DOTS if effect["kind"] == "heart" else ZZZ_DOTS
             # 절반쯤 남으면 깜빡이며 사라진다
             if effect["life"] < EMOTE_LIFE * 0.35 and int(effect["life"] * 20) % 2 == 0:
                 continue
@@ -1019,6 +1126,7 @@ class PokemonPet:
         if self.hop_state == "land":
             self.hop_state = "rest"
             self.hop_timer = random.uniform(*HOP_REST)
+            self.start_idle_action()
             if random.random() < HOP_TURN_CHANCE:
                 self.direction = -self.direction
         elif self.hop_state == "rest":
@@ -1107,10 +1215,15 @@ class PokemonPet:
         bounce = self.walk_bob() if walking and pose is None else 0
         # 들려 있으면 버둥거린다.
         sway = self.dot if (self.dragging and int(self.wiggle / WIGGLE_SEC) % 2) else 0
+        if self.idle_action == "wiggle" and int(self.idle_phase / WIGGLE_SEC) % 2:
+            sway += self.dot
+        greet_bob = int(self.dot * 0.45) if self.greeting_left > 0 and int(
+            self.greeting_phase / 0.18
+        ) % 2 else 0
         self.canvas.coords(
             self.sprite,
             self.margin_x + self.own_dx + sway,
-            self.margin_top + self.hop + self.own_dy - bounce,
+            self.margin_top + self.hop + self.own_dy - bounce - greet_bob,
         )
         self.draw_effects()
 
@@ -1283,6 +1396,21 @@ class App:
     def add_pet(self, key):
         self.pets.append(PokemonPet(self, POKEMON[key]))
         return self.pets[-1]
+
+    def start_greeting_near(self, pet):
+        """걷다가 충분히 가까워진 두 포켓몬을 함께 인사시킨다."""
+        if not pet.can_greet():
+            return False
+        center = pet.x + pet.width / 2.0
+        for partner in self.pets:
+            if partner is pet or not partner.can_greet():
+                continue
+            partner_center = partner.x + partner.width / 2.0
+            if abs(center - partner_center) <= GREETING_DISTANCE:
+                pet.start_greeting(partner)
+                partner.start_greeting(pet)
+                return True
+        return False
 
     def finish_evolving(self, pet):
         """번쩍임이 끝났다. 같은 자리에 진화한 포켓몬을 놓는다."""

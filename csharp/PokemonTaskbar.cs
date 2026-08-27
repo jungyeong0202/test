@@ -589,6 +589,13 @@ namespace PokemonTaskbar
         private const double LandSquashTime = 0.12;
         private const double BreathSeconds = 0.9;
         private const double WiggleSeconds = 0.10;
+        private const double IdleActionChance = 0.55;
+        private const double IdleActionMinSeconds = 0.9;
+        private const double IdleActionMaxSeconds = 1.6;
+        private const double IdleEffectEvery = 0.55;
+        public const double GreetingDistance = 150.0;
+        private const double GreetingSeconds = 1.15;
+        private const double GreetingCooldown = 5.0;
         // 걸음 프레임은 시간 대신 실제 이동 거리에 맞춘다. 속도가 바뀌어도 발이 미끄러지지 않는다.
         private const double WalkStride = 35.0;     // 4프레임 한 바퀴에 나아가는 거리(px)
         private const double WalkAccel = 220.0;     // 걷기 시작할 때 속도를 올리는 가속도
@@ -612,6 +619,11 @@ namespace PokemonTaskbar
             {1,2},
             {0,3},{1,3},{2,3},{3,3},
         };
+        private static readonly int[,] SparkDots = { {1,0},{1,1},{0,1},{2,1},{1,2} };
+        private static readonly int[,] FlameDots = { {1,0},{0,1},{1,1},{2,1},{0,2},{1,2} };
+        private static readonly int[,] LeafDots = { {1,0},{2,0},{0,1},{1,1},{2,1},{1,2} };
+        private static readonly int[,] BubbleDots = { {0,0},{1,0},{0,1},{1,1} };
+        private static readonly int[,] TwinkleDots = { {1,0},{0,1},{1,1},{2,1},{1,2} };
         private const int TopmostTicks = 5;   // 5틱 = 0.2초마다 맨 앞을 다시 주장
         private const double MinSpriteScale = 0.5;  // 도트 하나가 이보다 작아지지는 않는다
 
@@ -695,6 +707,13 @@ namespace PokemonTaskbar
         private string hopState = "rest";
         private double hopTimer;
         private double idleLeft;
+        private string idleAction;
+        private double idleActionLeft;
+        private double idleEffectLeft;
+        private double idlePhase;
+        private double greetingLeft;
+        private double greetingPhase;
+        private double greetingCooldown;
         private string playState;
         private double playLeft;
         private int playHops;
@@ -989,10 +1008,17 @@ namespace PokemonTaskbar
             // 들려 있으면 버둥거린다.
             int sway = (this.dragging && (int)(this.wiggle / WiggleSeconds) % 2 == 1)
                 ? this.dot : 0;
+            if (this.idleAction == "wiggle" && (int)(this.idlePhase / WiggleSeconds) % 2 == 1)
+            {
+                sway += this.dot;
+            }
+            int greetBob = this.greetingLeft > 0
+                && (int)(this.greetingPhase / 0.18) % 2 == 1
+                ? (int)Math.Floor(this.dot * 0.45) : 0;
             e.Graphics.DrawImageUnscaled(
                 image,
                 this.marginX + this.ownOffsetX + sway,
-                this.marginTop + this.hop + this.ownOffsetY - bounce);
+                this.marginTop + this.hop + this.ownOffsetY - bounce - greetBob);
             this.PaintEffects(e.Graphics);
         }
 
@@ -1117,6 +1143,14 @@ namespace PokemonTaskbar
             {
                 // 잠시 멈춤: 제자리에서 가만히
             }
+            else if (this.greetingLeft > 0)
+            {
+                this.GreetingStep(dt);
+            }
+            else if (this.world.TryStartGreeting(this))
+            {
+                this.GreetingStep(dt);
+            }
             else if (this.hops)
             {
                 this.HopStep(dt);
@@ -1172,6 +1206,7 @@ namespace PokemonTaskbar
             }
 
             this.UpdateTimers(dt);
+            this.UpdateIdleAction(dt);
             this.UpdateEffects(dt);
             if (this.napping)
             {
@@ -1214,6 +1249,12 @@ namespace PokemonTaskbar
         {
             get { return this.x; }
             set { this.x = Math.Min(Math.Max(0, value), this.maxX); this.MoveToPlace(); }
+        }
+
+        /// <summary>다른 포켓몬과의 거리를 재는 그림 가운데 위치.</summary>
+        public double CenterPosition
+        {
+            get { return this.x + this.spriteWidth / 2.0; }
         }
 
         /// <summary>어디로 갔는지 안 보일 때, 확실히 보이는 자리로 데려온다.</summary>
@@ -1277,12 +1318,134 @@ namespace PokemonTaskbar
             this.effects.Add(emote);
         }
 
+        /// <summary>포켓몬마다 다른 짧은 대기 모션을 시작한다.</summary>
+        private void StartIdleAction()
+        {
+            if (this.random.NextDouble() >= IdleActionChance)
+            {
+                return;
+            }
+            this.idleAction = this.IdleActionForSprite();
+            if (this.idleAction == null)
+            {
+                return;
+            }
+            this.idleActionLeft = IdleActionMinSeconds + this.random.NextDouble()
+                * (IdleActionMaxSeconds - IdleActionMinSeconds);
+            this.idleEffectLeft = 0.0;
+            this.idlePhase = 0.0;
+        }
+
+        private string IdleActionForSprite()
+        {
+            switch (this.SpriteKey)
+            {
+                case "pikachu": return "spark";
+                case "charmander": return "flame";
+                case "bulbasaur": return "leaf";
+                case "squirtle":
+                case "wartortle": return "bubble";
+                case "ditto": return "wiggle";
+                case "mew": return "twinkle";
+                default: return null;
+            }
+        }
+
+        private Color IdleColor()
+        {
+            switch (this.idleAction)
+            {
+                case "spark": return Color.FromArgb(255, 225, 77);
+                case "flame": return Color.FromArgb(255, 120, 61);
+                case "leaf": return Color.FromArgb(121, 201, 93);
+                case "bubble": return Color.FromArgb(139, 217, 255);
+                case "wiggle": return Color.FromArgb(220, 122, 232);
+                default: return Color.FromArgb(246, 165, 229);
+            }
+        }
+
+        private void UpdateIdleAction(double dt)
+        {
+            if (this.idleAction == null)
+            {
+                return;
+            }
+            this.idlePhase += dt;
+            this.idleActionLeft -= dt;
+            this.idleEffectLeft -= dt;
+            if (this.idleEffectLeft <= 0)
+            {
+                this.idleEffectLeft = IdleEffectEvery;
+                this.SpawnIdleEffect();
+            }
+            if (this.idleActionLeft <= 0)
+            {
+                this.idleAction = null;
+            }
+        }
+
+        private void SpawnIdleEffect()
+        {
+            if (this.idleAction == "wiggle")
+            {
+                return;
+            }
+            Effect effect = new Effect();
+            effect.Kind = this.idleAction;
+            effect.X = this.marginX + this.spriteWidth * (0.48 + this.random.NextDouble() * 0.24);
+            effect.Y = this.marginTop + this.spriteHeight * 0.16;
+            effect.SpeedX = -8 + this.random.NextDouble() * 16;
+            effect.SpeedY = -18.0;
+            effect.Life = EmoteLife;
+            effect.Tint = this.IdleColor();
+            this.effects.Add(effect);
+        }
+
+        /// <summary>다른 포켓몬을 만났을 때 인사할 수 있는 상태인지.</summary>
+        public bool CanGreet()
+        {
+            return this.walking && !this.dragging && !this.evolving
+                && (this.floats || this.lift <= 0) && this.greetingLeft <= 0
+                && this.greetingCooldown <= 0;
+        }
+
+        /// <summary>가까이 온 포켓몬을 바라보고 잠깐 인사한다.</summary>
+        public void StartGreeting(PetForm partner)
+        {
+            this.walking = false;
+            this.stopKind = null;
+            this.playState = null;
+            this.napping = false;
+            this.idleAction = null;
+            this.walkSpeed = 0.0;
+            this.greetingLeft = GreetingSeconds;
+            this.greetingPhase = 0.0;
+            this.greetingCooldown = GreetingCooldown;
+            this.direction = partner.x > this.x ? 1 : -1;
+            this.SpawnEmote("heart");
+        }
+
+        private void GreetingStep(double dt)
+        {
+            this.greetingLeft -= dt;
+            this.greetingPhase += dt;
+            if (this.greetingLeft <= 0)
+            {
+                this.walking = true;
+                this.walkSpeed = 0.0;
+            }
+        }
+
         /// <summary>눈 깜빡임, 착지 눌림, 숨쉬기, 버둥거림 박자를 센다.</summary>
         private void UpdateTimers(double dt)
         {
             if (this.landSquash > 0)
             {
                 this.landSquash -= dt;
+            }
+            if (this.greetingCooldown > 0)
+            {
+                this.greetingCooldown -= dt;
             }
             this.wiggle = this.dragging ? this.wiggle + dt : 0.0;
             this.breath = this.napping ? this.breath + dt : 0.0;
@@ -1322,6 +1485,15 @@ namespace PokemonTaskbar
             if (this.napping && (int)(this.breath / BreathSeconds) % 2 == 1)
             {
                 return "squash";
+            }
+            if (this.greetingLeft > 0)
+            {
+                return (int)(this.greetingPhase / 0.18) % 2 == 1 ? "squash" : "stretch";
+            }
+            if (this.idleAction != null && (int)(this.idlePhase / 0.22) % 2 == 1)
+            {
+                return this.idleAction == "spark" || this.idleAction == "flame"
+                    || this.idleAction == "twinkle" ? "stretch" : "squash";
             }
             if (this.blinking > 0)
             {
@@ -1370,7 +1542,7 @@ namespace PokemonTaskbar
                     {
                         continue;
                     }
-                    int[,] dots = effect.Kind == "heart" ? HeartDots : ZzzDots;
+                    int[,] dots = EmoteDots(effect.Kind);
                     for (int row = 0; row < dots.GetLength(0); row++)
                     {
                         graphics.FillRectangle(
@@ -1380,6 +1552,20 @@ namespace PokemonTaskbar
                             this.dot, this.dot);
                     }
                 }
+            }
+        }
+
+        private static int[,] EmoteDots(string kind)
+        {
+            switch (kind)
+            {
+                case "heart": return HeartDots;
+                case "spark": return SparkDots;
+                case "flame": return FlameDots;
+                case "leaf": return LeafDots;
+                case "bubble": return BubbleDots;
+                case "twinkle": return TwinkleDots;
+                default: return ZzzDots;
             }
         }
 
@@ -1568,6 +1754,7 @@ namespace PokemonTaskbar
                 else
                 {
                     this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                    this.StartIdleAction();
                 }
             }
         }
@@ -1689,6 +1876,7 @@ namespace PokemonTaskbar
                     else
                     {
                         this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                        this.StartIdleAction();
                     }
                 }
             }
@@ -1799,6 +1987,7 @@ namespace PokemonTaskbar
             {
                 this.hopState = "rest";
                 this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
+                this.StartIdleAction();
             this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
                 if (this.random.NextDouble() < HopTurnChance)
                 {
@@ -2012,6 +2201,29 @@ namespace PokemonTaskbar
             pet.Show();
             Log.Write("  " + key + ": 창 만들고 보임 " + pet.Bounds
                 + " 보이는중=" + pet.Visible + " 맨앞=" + pet.TopMost);
+        }
+
+        /// <summary>걷다가 가까워진 두 포켓몬을 함께 인사시킨다.</summary>
+        public bool TryStartGreeting(PetForm pet)
+        {
+            if (!pet.CanGreet())
+            {
+                return false;
+            }
+            foreach (PetForm partner in this.pets)
+            {
+                if (partner == pet || !partner.CanGreet())
+                {
+                    continue;
+                }
+                if (Math.Abs(pet.CenterPosition - partner.CenterPosition) <= PetForm.GreetingDistance)
+                {
+                    pet.StartGreeting(partner);
+                    partner.StartGreeting(pet);
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void AddRandom()

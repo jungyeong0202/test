@@ -24,7 +24,9 @@ import os
 import platform
 import random
 import sys
+import time
 import tkinter as tk
+from tkinter import messagebox
 
 import settings as settings_file
 from sprites import EVOLUTIONS, POKEMON, base_species, validate_all
@@ -62,9 +64,12 @@ FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라
 #
 # 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이 바뀌면
 # 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
-EVOLVE_PET_NEED = 8.0       # 이만큼 쓰다듬으면 친밀도 조건을 채운다
 EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
-EVOLVE_WALK_NEED = 600.0    # 이만큼 걸으면 산책 조건을 채운다(px)
+# (친밀도, 산책 거리(px), 성장의 물방울). 마지막 값은 이후 3단계 진화에도 쓴다.
+EVOLUTION_REQUIREMENTS = ((10.0, 10000.0, 1), (25.0, 40000.0, 3))
+EVOLUTION_INCOME_MULTIPLIERS = (1.0, 1.5, 2.25)
+# 기존 테스트·외부 스크립트와의 호환용 1단계 기준값.
+EVOLVE_PET_NEED, EVOLVE_WALK_NEED, _EVOLVE_DROPS_NEED = EVOLUTION_REQUIREMENTS[0]
 DEFAULT_WALK_SPEED = 55.0   # 기본 산책 속도(px/초)
 COINS_PER_WALK = 100        # 100px를 걸을 때마다 받는 돈(원)
 COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 돈을 받는다
@@ -75,9 +80,19 @@ FOOD_COST = 8000            # 5분 2배 산책으로 얻는 추가 수입보다 
 FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
 FOOD_SPEED_MULTIPLIER = 2.0
 FOOD_BOOST_SECONDS = 5 * 60
-GROWTH_DROP_COST = 2500     # 성장의 물방울 한 개 가격(원)
-MARKET_UPDATE_SEC = 20.0    # 이 간격마다 모의 주가가 한 번 변한다
+GROWTH_DROP_COST = 15000    # 성장의 물방울 한 개 가격(원)
+POKEMON_GRADES = {
+    "pikachu": ("일반", 1.0, 88), "charmander": ("일반", 1.0, 88),
+    "bulbasaur": ("일반", 1.0, 88), "squirtle": ("일반", 1.0, 88),
+    "ditto": ("준전설", 1.6, 10), "mew": ("초전설", 2.5, 2),
+}
+GRADE_DRAW_CHANCES = (("일반", 0.88), ("준전설", 0.10), ("초전설", 0.02))
+MARKET_UPDATE_SEC = 10.0    # 이 간격마다 모의 주가가 한 번 변한다
+MARKET_OPEN_SECONDS = 60 * 60
+MARKET_CLOSED_SECONDS = 5 * 60
 STOCK_RELIST_SECONDS = 30 * 60
+STOCK_DELIST_PRICE = 600
+STOCK_CRISIS_PRICE = 600  # 이 아래에서는 기준가 복귀보다 상장폐지 위험을 우선한다
 STOCK_LISTINGS = (
     ("피카츄전기", 1000, 12), ("꼬부기워터", 1800, 7),
     ("이상해씨농장", 2700, 10), ("파이리화력", 1300, 18),
@@ -87,9 +102,15 @@ STOCK_LISTINGS = (
     ("잠만보식품", 1900, 11), ("팬텀게임즈", 2800, 28),
 )
 STOCK_COUNT = 6
-STOCK_EVENT_CHANCE = 0.25
+STOCK_EVENT_CHANCE = 0.13   # 10초 갱신에서도 분당 이벤트 수를 이전과 비슷하게
 STOCK_FEE_RATE = 0.02
-STOCK_HALT_SECONDS = 40
+STOCK_HALT_SECONDS = 20
+# 시장 국면은 10초 갱신 6~18회(1~3분) 동안 이어진다.
+MARKET_REGIME_NAMES = ("횡보장", "상승장", "하락장", "과열장", "공포장")
+MARKET_REGIME_DRIFTS = (0.0, 2.0, -2.0, 4.0, -4.0)
+MARKET_REGIME_WEIGHTS = (3, 2, 2, 1, 1)
+MARKET_REGIME_UPDATES = (6, 18)
+MARKET_TICK_SCALE = 0.70   # 갱신이 두 배 빨라진 만큼 일반 변동은 줄인다
 STOCK_EVENTS = (
     (("번개 발전소 증설", 18), ("송전탑 고장", -16)),
     (("정수장 장기 계약", 11), ("가뭄 경보", -12)),
@@ -113,6 +134,33 @@ EVOLVE_HOLD_SEC = 0.55      # 다 끝나고 새하얗게 머무는 시간
 def format_won(amount):
     """게임 안의 돈을 천 단위 쉼표가 있는 원 단위로 표시한다."""
     return "{:,}원".format(amount)
+
+
+def evolution_stage(key):
+    """기본형은 0, 한 번 진화한 모습은 1로 센다. 이후 3단계 사슬도 자동 지원한다."""
+    stage = 0
+    current = key
+    while True:
+        previous = next((source for source, target in EVOLUTIONS.items() if target == current), None)
+        if previous is None:
+            return stage
+        stage += 1
+        current = previous
+
+
+def base_species_key(key):
+    """진화체도 원래 포켓몬의 등급을 따른다."""
+    current = key
+    while True:
+        previous = next((source for source, target in EVOLUTIONS.items() if target == current), None)
+        if previous is None:
+            return current
+        current = previous
+
+
+def pokemon_grade(key):
+    """등급 이름과 산책 보상 배율을 돌려준다."""
+    return POKEMON_GRADES.get(base_species_key(key), ("일반", 1.0, 88))
 
 
 MENU_CREAM = "#fff7e6"
@@ -527,6 +575,7 @@ class PokemonPet:
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<Button-3>", self.on_menu)
         self.canvas.bind("<Button-2>", self.on_menu)  # macOS 오른쪽 클릭
+        self.canvas.bind("<Double-Button-1>", lambda _event: app.open_game_menu())
 
         self.place()
         self.after_id = self.window.after(TICK_MS, self.tick)
@@ -542,15 +591,6 @@ class PokemonPet:
         menu.add_command(label="━━ 포켓몬 관리 ━━", state="disabled")
 
         choose = pokemon_menu(menu)
-        self.pet_purchase_indices = []
-        # 진화해야 만날 수 있는 포켓몬은 목록에 넣지 않는다.
-        for key in base_species():
-            choose.add_command(
-                label="",
-                command=lambda key=key: app.buy_pet(key),
-            )
-            self.pet_purchase_indices.append((key, choose.index("end")))
-        choose.add_separator()
         choose.add_command(label="", command=app.buy_random_pet)
         self.random_purchase_index = choose.index("end")
         self.pet_purchase_menu = choose
@@ -683,7 +723,7 @@ class PokemonPet:
         self.spawn_emote("heart")
         if not self.next_key or self.evolving:
             return
-        self.friendship = min(EVOLVE_PET_NEED, self.friendship + EVOLVE_PER_PET)
+        self.friendship = min(self.evolution_requirement()[0], self.friendship + EVOLVE_PER_PET)
 
     def fed(self):
         """포켓푸드로 친밀도와 5분짜리 2배 산책 버프를 준다."""
@@ -691,7 +731,7 @@ class PokemonPet:
         self.food_boost_left = FOOD_BOOST_SECONDS
         if not self.next_key or self.evolving:
             return
-        self.friendship = min(EVOLVE_PET_NEED, self.friendship + FOOD_FRIENDSHIP)
+        self.friendship = min(self.evolution_requirement()[0], self.friendship + FOOD_FRIENDSHIP)
 
     def food_boost_label(self):
         """남은 산책 부스트 시간을 메뉴에 짧게 표시한다."""
@@ -731,13 +771,9 @@ class PokemonPet:
             ),
             state="normal" if self.app.food else "disabled",
         )
-        for key, index in self.pet_purchase_indices:
-            self.pet_purchase_menu.entryconfigure(
-                index, label="%s — %s" % (POKEMON[key].name_ko, format_won(POKEMON_PRICE)),
-                state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
-            )
         self.pet_purchase_menu.entryconfigure(
-            self.random_purchase_index, label="무작위 — %s" % format_won(POKEMON_PRICE),
+            self.random_purchase_index,
+            label="랜덤 영입 — %s  (일반 88% · 준전설 10% · 초전설 2%%)" % format_won(POKEMON_PRICE),
             state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
         )
         self.menu.entryconfigure(
@@ -759,8 +795,9 @@ class PokemonPet:
                 needs.append("%d번 더 쓰다듬기" % self.pets_left())
             if self.walk_left():
                 needs.append("%dpx 더 산책" % self.walk_left())
-            if not self.app.growth_drops:
-                needs.append("성장의 물방울 1개")
+            drops_need = self.evolution_requirement()[2]
+            if self.app.growth_drops < drops_need:
+                needs.append("성장의 물방울 %d개" % drops_need)
             label = "%s까지 %s" % (name, " · ".join(needs))
             state = "disabled"
         self.menu.entryconfigure(self.evolve_index, label=label, state=state)
@@ -887,8 +924,8 @@ class PokemonPet:
         self.x = min(max(0.0, self.x), self.max_x)
         actual = abs(self.x - before_x)
         self.gait_distance += actual
-        self.walked = min(EVOLVE_WALK_NEED, self.walked + actual)
-        self.app.earn_walk_coins(actual)
+        self.walked = min(self.evolution_requirement()[1], self.walked + actual)
+        self.app.earn_walk_coins(actual * self.income_multiplier())
         return actual
 
     def begin_stop(self, kind, turn_direction=None):
@@ -1179,28 +1216,39 @@ class PokemonPet:
 
     def can_evolve(self):
         """진화할 준비가 됐는지."""
+        friendship_need, walk_need, drops_need = self.evolution_requirement()
         return (
             bool(self.next_key)
-            and self.friendship >= EVOLVE_PET_NEED
-            and self.walked >= EVOLVE_WALK_NEED
-            and self.app.growth_drops > 0
+            and self.friendship >= friendship_need
+            and self.walked >= walk_need
+            and self.app.growth_drops >= drops_need
             and not self.evolving
         )
 
+    def evolution_requirement(self):
+        """현재 모습에서 다음 진화로 갈 때 필요한 친밀도·산책·물방울."""
+        stage = min(evolution_stage(self.pokemon.key), len(EVOLUTION_REQUIREMENTS) - 1)
+        return EVOLUTION_REQUIREMENTS[stage]
+
+    def income_multiplier(self):
+        """등급과 진화 단계 보상을 함께 적용한 산책 수입 배율."""
+        stage = min(evolution_stage(self.pokemon.key), len(EVOLUTION_INCOME_MULTIPLIERS) - 1)
+        return pokemon_grade(self.pokemon.key)[1] * EVOLUTION_INCOME_MULTIPLIERS[stage]
+
     def pets_left(self):
         """진화까지 몇 번 더 쓰다듬어야 하는지."""
-        return max(0, int(-(-(EVOLVE_PET_NEED - self.friendship) // EVOLVE_PER_PET)))
+        return max(0, int(-(-(self.evolution_requirement()[0] - self.friendship) // EVOLVE_PER_PET)))
 
     def walk_left(self):
         """진화까지 몇 픽셀을 더 산책해야 하는지."""
-        return max(0, int(math.ceil(EVOLVE_WALK_NEED - self.walked)))
+        return max(0, int(math.ceil(self.evolution_requirement()[1] - self.walked)))
 
     def start_evolving(self):
         """진화 연출을 시작한다. 끝나면 앱이 새 포켓몬으로 갈아 끼운다."""
         if not self.can_evolve():
             return
         self.evolution_images()
-        self.app.growth_drops -= 1
+        self.app.growth_drops -= self.evolution_requirement()[2]
         self.app.save_settings()
         self.evolving = True
         self.evolve_step = 0
@@ -1427,6 +1475,89 @@ class PokemonPet:
         self.window.geometry("+%d+%d" % (int(self.x), y))
 
 
+class GameMenuOverlay:
+    """우클릭 목록을 대신하는 게임형 포켓몬 센터 창."""
+
+    def __init__(self, app):
+        self.app = app
+        self.window = tk.Toplevel(app.root)
+        self.window.title("포켓몬 센터")
+        self.window.wm_attributes("-topmost", True)
+        self.window.configure(bg="#f5f6f8", padx=12, pady=12)
+        self.window.resizable(False, False)
+        header = tk.Frame(self.window, bg=MENU_RED)
+        header.pack(fill="x")
+        tk.Label(header, text="●  포켓몬 센터", bg=MENU_RED, fg="white",
+                 font=("Malgun Gothic", 14, "bold"), padx=14, pady=10).pack(side="left")
+        tk.Button(header, text="×", command=self.close, bg=MENU_RED, fg="white", bd=0,
+                  font=("Malgun Gothic", 13, "bold")).pack(side="right", padx=10)
+        self.summary = tk.Label(self.window, bg="white", fg="#202124", anchor="w",
+                                justify="left", font=("Malgun Gothic", 10, "bold"), padx=14, pady=10)
+        self.summary.pack(fill="x", pady=(10, 7))
+        actions = tk.Frame(self.window, bg="#f5f6f8")
+        actions.pack(fill="x")
+        self.draw = self.button(actions, "랜덤 영입", MENU_RED, lambda: self.run_action(app.buy_random_pet))
+        self.food = self.button(actions, "포켓푸드", "#3182ce", lambda: self.run_action(app.buy_food))
+        self.drop = self.button(actions, "성장의 물방울", "#805ad5", lambda: self.run_action(app.buy_growth_drop))
+        for button in (self.draw, self.food, self.drop):
+            button.pack(fill="x", pady=2, ipady=5)
+        self.stock = self.button(actions, "주식시장 열기", "#18794e", app.open_stock_overlay)
+        self.stock.pack(fill="x", pady=(7, 2), ipady=5)
+        window_controls = tk.Frame(self.window, bg="#f5f6f8")
+        window_controls.pack(fill="x", pady=(7, 0))
+        self.topmost = True
+        self.top_button = self.button(window_controls, "항상 위: 켜짐", "#4b5563", self.toggle_topmost)
+        self.top_button.pack(side="left", fill="x", expand=True, padx=(0, 3), ipady=3)
+        self.back_button = self.button(window_controls, "뒤로 보내기", "#6b7280", self.send_to_back)
+        self.back_button.pack(side="left", fill="x", expand=True, padx=(3, 0), ipady=3)
+        tk.Label(self.window, text="내 포켓몬", bg="#f5f6f8", fg="#4b5563",
+                 font=("Malgun Gothic", 9, "bold"), anchor="w", pady=7).pack(fill="x")
+        self.pets = tk.Label(self.window, bg="white", fg="#374151", anchor="w", justify="left",
+                             font=("Malgun Gothic", 9), padx=14, pady=9)
+        self.pets.pack(fill="x")
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.refresh()
+
+    @staticmethod
+    def button(parent, text, color, command):
+        return tk.Button(parent, text=text, command=command, bg=color, fg="white", bd=0,
+                         activebackground=color, activeforeground="white",
+                         font=("Malgun Gothic", 10, "bold"), cursor="hand2")
+
+    def refresh(self):
+        self.summary.configure(text="보유 코인  %s\n포켓푸드 %d개 · 성장의 물방울 %d개" % (
+            format_won(self.app.coins), self.app.food, self.app.growth_drops))
+        self.draw.configure(text="랜덤 영입  %s  ·  일반 88%% / 준전설 10%% / 초전설 2%%" % format_won(POKEMON_PRICE),
+                            state="normal" if self.app.coins >= POKEMON_PRICE else "disabled")
+        self.food.configure(text="포켓푸드  %s" % format_won(FOOD_COST),
+                            state="normal" if self.app.coins >= FOOD_COST else "disabled")
+        self.drop.configure(text="성장의 물방울  %s" % format_won(GROWTH_DROP_COST),
+                            state="normal" if self.app.coins >= GROWTH_DROP_COST else "disabled")
+        self.pets.configure(text="\n".join("%s  ·  %s  ·  산책 수입 x%.2g" % (
+            pet.pokemon.name_ko, pokemon_grade(pet.pokemon.key)[0], pet.income_multiplier())
+            for pet in self.app.pets))
+
+    def run_action(self, action):
+        action()
+        self.refresh()
+
+    def toggle_topmost(self):
+        self.topmost = not self.topmost
+        self.window.wm_attributes("-topmost", self.topmost)
+        self.top_button.configure(text="항상 위: %s" % ("켜짐" if self.topmost else "꺼짐"))
+
+    def send_to_back(self):
+        self.topmost = False
+        self.window.wm_attributes("-topmost", False)
+        self.top_button.configure(text="항상 위: 꺼짐")
+        self.window.lower()
+
+    def close(self):
+        if self.app.game_menu is self:
+            self.app.game_menu = None
+        self.window.destroy()
+
+
 class StockOverlay:
     """주가·보유량·최근 가격 그래프를 한 창에 보여 주는 오버레이."""
 
@@ -1436,12 +1567,37 @@ class StockOverlay:
         self.window.overrideredirect(True)
         self.window.wm_attributes("-topmost", True)
         self.window.configure(bg=MENU_RED, padx=3, pady=3)
-        self.window.geometry("740x720+%d+%d" % (
-            (app.screen_width - 740) // 2, max(20, (app.screen_height - 720) // 3)
+        compact = app.screen_width < 800 or app.screen_height < 820
+        width = min(740, max(420, app.screen_width - 20)) if compact else 740
+        height = min(800, max(420, app.screen_height - 20)) if compact else 800
+        self.window.geometry("%dx%d+%d+%d" % (
+            width, height, max(0, (app.screen_width - width) // 2),
+            max(0, (app.screen_height - height) // 3),
         ))
+        self.selected_index = 0
+        self._build_toss_layout(compact)
+        return
 
-        body = tk.Frame(self.window, bg=MENU_CREAM)
-        body.pack(fill="both", expand=True)
+        if compact:
+            viewport = tk.Canvas(self.window, bg=MENU_RED, highlightthickness=0)
+            scrollbar_y = tk.Scrollbar(self.window, command=viewport.yview)
+            scrollbar_x = tk.Scrollbar(self.window, command=viewport.xview,
+                                       orient="horizontal")
+            viewport.configure(yscrollcommand=scrollbar_y.set,
+                               xscrollcommand=scrollbar_x.set)
+            scrollbar_y.pack(side="right", fill="y")
+            scrollbar_x.pack(side="bottom", fill="x")
+            viewport.pack(side="left", fill="both", expand=True)
+            body = tk.Frame(viewport, bg=MENU_CREAM, width=734, height=794)
+            body.pack_propagate(False)
+            viewport.create_window((0, 0), window=body, anchor="nw")
+            body.bind("<Configure>", lambda _event: viewport.configure(
+                scrollregion=viewport.bbox("all")))
+            viewport.bind("<MouseWheel>", lambda event: viewport.yview_scroll(
+                -1 * (event.delta // 120), "units"))
+        else:
+            body = tk.Frame(self.window, bg=MENU_CREAM)
+            body.pack(fill="both", expand=True)
         title = tk.Frame(body, bg=MENU_RED, height=48)
         title.pack(fill="x")
         title_label = tk.Label(
@@ -1450,7 +1606,7 @@ class StockOverlay:
         )
         title_label.pack(side="left", padx=14)
         tk.Label(
-            title, text="20초마다 갱신 · 제목을 끌어 이동", bg=MENU_RED, fg="#ffe6c7",
+            title, text="10초마다 갱신 · 제목을 끌어 이동", bg=MENU_RED, fg="#ffe6c7",
             font=("Malgun Gothic", 8), pady=13,
         ).pack(side="right", padx=(0, 8))
         tk.Button(
@@ -1461,33 +1617,45 @@ class StockOverlay:
 
         self.balance = tk.Label(
             body, bg=MENU_CREAM, fg=MENU_DARK, anchor="w",
-            font=("Malgun Gothic", 11, "bold"), padx=16, pady=8,
+            justify="left", font=("Malgun Gothic", 10, "bold"), padx=16, pady=6,
         )
         self.balance.pack(fill="x")
+        self.market_summary = tk.Label(
+            body, bg=MENU_CREAM, fg=MENU_DISABLED, anchor="w",
+            font=("Malgun Gothic", 8, "bold"), padx=16,
+        )
+        self.market_summary.pack(fill="x", pady=(0, 2))
         tk.Label(
-            body, text="매수·매도 수수료 2%  ·  뉴스 이벤트 종목은 40초간 거래 정지",
+            body, text="매수·매도 수수료 2%  ·  이벤트 종목은 20초간 거래 정지",
             bg=MENU_CREAM, fg=MENU_DISABLED, anchor="w",
-            font=("Malgun Gothic", 8), padx=16,
+            font=("Malgun Gothic", 8), padx=16, pady=1,
         ).pack(fill="x", pady=(0, 3))
         event_box = tk.Frame(body, bg="#fff0d5", highlightbackground="#e2a754",
                              highlightthickness=1)
         event_box.pack(fill="x", padx=12, pady=(1, 5))
+        event_top = tk.Frame(event_box, bg="#fff0d5")
+        event_top.pack(fill="x")
         tk.Label(
-            event_box, text="시장 속보", bg="#fff0d5", fg=MENU_RED,
-            font=("Malgun Gothic", 9, "bold"), padx=8, pady=8,
+            event_top, text="시장 속보", bg="#fff0d5", fg=MENU_RED,
+            font=("Malgun Gothic", 9, "bold"), padx=8, pady=5,
         ).pack(side="left")
         self.market_event = tk.Label(
-            event_box, bg="#fff0d5", fg=MENU_DARK, anchor="w",
-            font=("Malgun Gothic", 10, "bold"), pady=8,
+            event_top, bg="#fff0d5", fg=MENU_DARK, anchor="w",
+            font=("Malgun Gothic", 9, "bold"), pady=5,
         )
         self.market_event.pack(side="left", fill="x", expand=True)
+        self.event_history = tk.Label(
+            event_box, bg="#fff0d5", fg=MENU_DISABLED, anchor="w",
+            justify="left", wraplength=680, font=("Malgun Gothic", 8), padx=8, pady=2,
+        )
+        self.event_history.pack(fill="x")
         cards = tk.Frame(body, bg=MENU_CREAM)
         cards.pack(fill="both", expand=True, padx=10)
         self.rows = []
         for index in range(STOCK_COUNT):
             name = app.stock_name(index)
             card = tk.Frame(cards, bg="#fffdf7", highlightbackground="#d9ad74",
-                            highlightthickness=1, width=350, height=160)
+                            highlightthickness=1, width=350, height=180)
             card.grid(row=index // 2, column=index % 2, padx=3, pady=3, sticky="nsew")
             card.grid_propagate(False)
             info = tk.Frame(card, bg="#fffdf7")
@@ -1500,12 +1668,12 @@ class StockOverlay:
             price = tk.Label(card, bg="#fffdf7", fg=MENU_RED, anchor="w",
                              font=("Malgun Gothic", 10, "bold"), padx=8)
             price.pack(fill="x")
-            position = tk.Label(card, bg="#fffdf7", fg=MENU_DISABLED, anchor="w",
-                                font=("Malgun Gothic", 8), padx=8)
+            position = tk.Label(card, bg="#fffdf7", fg=MENU_DISABLED, anchor="nw",
+                                justify="left", font=("Malgun Gothic", 8), padx=8)
             position.pack(fill="x")
-            graph = tk.Canvas(card, width=195, height=80, bg="#fffdf7",
+            graph = tk.Canvas(card, width=218, height=86, bg="#fffdf7",
                               highlightthickness=0)
-            graph.pack(side="left", padx=(8, 4), pady=(1, 7))
+            graph.pack(side="left", padx=(8, 4), pady=(1, 5))
             buttons = tk.Frame(card, bg="#fffdf7")
             buttons.pack(side="right", padx=(0, 8), pady=(1, 7))
             tk.Label(buttons, text="거래 수량", bg="#fffdf7", fg=MENU_DISABLED,
@@ -1516,12 +1684,23 @@ class StockOverlay:
             )
             quantity.pack(fill="x", pady=(0, 2))
             quantity.bind("<KeyRelease>", lambda _event: self.refresh())
+            quick = tk.Frame(buttons, bg="#fffdf7")
+            quick.pack(fill="x", pady=(0, 2))
+            for label, amount in (("1", 1), ("5", 5), ("10", 10)):
+                self.make_quick_button(
+                    quick, label,
+                    lambda amount=amount, index=index: self.set_quantity(index, amount),
+                ).pack(side="left", fill="x", expand=True, padx=1)
+            self.make_quick_button(
+                quick, "최대",
+                lambda index=index: self.set_quantity(index, self.maximum_quantity(index)),
+            ).pack(side="left", fill="x", expand=True, padx=1)
             buy = self.make_button(buttons, "매수", MENU_RED,
                                    lambda index=index: self.trade(index, True))
-            buy.pack(fill="x", pady=(0, 2))
+            buy.pack(fill="x", pady=(0, 2), ipady=1)
             sell = self.make_button(buttons, "매도", "#3a81c7",
                                     lambda index=index: self.trade(index, False))
-            sell.pack(fill="x")
+            sell.pack(fill="x", ipady=1)
             self.rows.append((name_label, price, position, graph, quantity, buy, sell))
 
         self.notice = tk.Label(
@@ -1529,7 +1708,7 @@ class StockOverlay:
             fg=MENU_DISABLED, font=("Malgun Gothic", 9), pady=4,
         )
         self.notice.pack()
-        self.window.bind("<Escape>", lambda _event: self.close())
+        self.window.bind("<Escape>", self.close_on_escape)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.drag_origin = None
         for widget in (title, title_label):
@@ -1545,12 +1724,260 @@ class StockOverlay:
             padx=10, pady=2, font=("Malgun Gothic", 9, "bold"), cursor="hand2",
         )
 
-    def trade(self, index, buying):
-        quantity = self.selected_quantity(index)
+    @staticmethod
+    def make_quick_button(parent, label, command):
+        """카드를 밀어내지 않는 작은 수량 바로가기 버튼."""
+        return tk.Button(
+            parent, text=label, command=command, bg="#b87946", fg="white",
+            activebackground="#b87946", activeforeground="white", bd=0,
+            padx=3, pady=0, font=("Malgun Gothic", 7, "bold"), cursor="hand2",
+        )
+
+    def _build_toss_layout(self, compact):
+        """토스증권처럼 목록은 가볍게, 선택 종목은 깊게 보는 두 패널 구성."""
+        if compact:
+            viewport = tk.Canvas(self.window, bg=MENU_RED, highlightthickness=0)
+            scrollbar = tk.Scrollbar(self.window, command=viewport.yview)
+            viewport.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side="right", fill="y")
+            viewport.pack(side="left", fill="both", expand=True)
+            body = tk.Frame(viewport, bg="#f5f6f8", width=814, height=654)
+            body.pack_propagate(False)
+            viewport.create_window((0, 0), window=body, anchor="nw")
+            body.bind("<Configure>", lambda _event: viewport.configure(
+                scrollregion=viewport.bbox("all")))
+        else:
+            body = tk.Frame(self.window, bg="#f5f6f8")
+            body.pack(fill="both", expand=True)
+
+        header = tk.Frame(body, bg=MENU_RED, height=46)
+        header.pack(fill="x")
+        tk.Label(header, text="포켓몬 주식", bg=MENU_RED, fg="white",
+                 font=("Malgun Gothic", 13, "bold")).pack(side="left", padx=16, pady=9)
+        self.update_hint = tk.Label(header, bg=MENU_RED, fg="#ffe6c7",
+                                    font=("Malgun Gothic", 8, "bold"))
+        self.update_hint.pack(side="right", padx=(0, 12), pady=14)
+        self.session_badge = tk.Label(header, bg="#ffe8cc", fg="#9c2f31",
+                                      font=("Malgun Gothic", 8, "bold"), padx=7, pady=2)
+        self.session_badge.pack(side="right", padx=(0, 7), pady=10)
+        tk.Button(header, text="×", command=self.close, bg=MENU_RED, fg="white",
+                  activebackground="#aa2028", activeforeground="white", bd=0,
+                  font=("Malgun Gothic", 14, "bold"), cursor="hand2").pack(
+                      side="right", padx=8, pady=4)
+
+        portfolio = tk.Frame(body, bg="white", highlightbackground="#e6e8ec", highlightthickness=1)
+        portfolio.pack(fill="x", padx=12, pady=10)
+        self.balance = tk.Label(portfolio, bg="white", fg="#202124", anchor="w",
+                                justify="left", font=("Malgun Gothic", 11, "bold"), padx=14, pady=8)
+        self.balance.pack(fill="x")
+        self.market_summary = tk.Label(portfolio, bg="white", fg="#6b7280", anchor="w",
+                                       font=("Malgun Gothic", 8, "bold"), padx=14, pady=2)
+        self.market_summary.pack(fill="x")
+
+        content = tk.Frame(body, bg="#f5f6f8")
+        content.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        watch = tk.Frame(content, bg="white", width=258, highlightbackground="#e6e8ec", highlightthickness=1)
+        watch.pack(side="left", fill="y")
+        watch.pack_propagate(False)
+        tk.Label(watch, text="전체 종목", bg="white", fg="#202124", anchor="w",
+                 font=("Malgun Gothic", 10, "bold"), padx=14, pady=10).pack(fill="x")
+        self.list_rows = []
+        for index in range(STOCK_COUNT):
+            row = tk.Frame(watch, bg="white", height=67, cursor="hand2")
+            row.pack(fill="x", padx=7, pady=1)
+            row.pack_propagate(False)
+            name = tk.Label(row, bg="white", fg="#202124", anchor="w",
+                            font=("Malgun Gothic", 9, "bold"))
+            name.place(x=8, y=9, width=128)
+            holding = tk.Label(row, bg="white", fg="#6b7280", anchor="w",
+                               font=("Malgun Gothic", 7))
+            holding.place(x=8, y=33, width=132)
+            price = tk.Label(row, bg="white", anchor="e", font=("Malgun Gothic", 9, "bold"))
+            price.place(x=138, y=9, width=105)
+            change = tk.Label(row, bg="white", anchor="e", font=("Malgun Gothic", 8, "bold"))
+            change.place(x=138, y=33, width=105)
+            for widget in (row, name, holding, price, change):
+                widget.bind("<Button-1>", lambda _event, index=index: self.select_stock(index))
+            self.list_rows.append((row, name, holding, price, change))
+
+        detail = tk.Frame(content, bg="white", highlightbackground="#e6e8ec", highlightthickness=1)
+        detail.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        self.detail_name = tk.Label(detail, bg="white", fg="#202124", anchor="w",
+                                    font=("Malgun Gothic", 13, "bold"), padx=18, pady=10)
+        self.detail_name.pack(fill="x")
+        self.detail_price = tk.Label(detail, bg="white", anchor="w",
+                                     font=("Malgun Gothic", 17, "bold"), padx=18)
+        self.detail_price.pack(fill="x")
+        self.detail_meta = tk.Label(detail, bg="white", fg="#6b7280", anchor="w",
+                                    font=("Malgun Gothic", 8), padx=18, pady=4)
+        self.detail_meta.pack(fill="x")
+        self.detail_session = tk.Label(detail, bg="#f8fafc", fg="#374151", anchor="w",
+                                       font=("Malgun Gothic", 8, "bold"), padx=12, pady=4)
+        self.detail_session.pack(fill="x", padx=16, pady=(0, 3))
+        self.detail_graph = tk.Canvas(detail, width=500, height=155, bg="white", highlightthickness=0)
+        self.detail_graph.pack(fill="x", padx=16, pady=(2, 5))
+        self.detail_holding = tk.Label(detail, bg="#f8fafc", fg="#374151", anchor="w",
+                                       justify="left", font=("Malgun Gothic", 9, "bold"), padx=12, pady=7)
+        self.detail_holding.pack(fill="x", padx=16, pady=(0, 6))
+        self.detail_event = tk.Label(detail, bg="#fff5e6", fg="#8a4b13", anchor="w",
+                                     justify="left", wraplength=490, font=("Malgun Gothic", 8), padx=12, pady=5)
+        self.detail_event.pack(fill="x", padx=16, pady=(0, 7))
+        order = tk.Frame(detail, bg="white")
+        order.pack(fill="x", padx=16, pady=(0, 12))
+        tk.Label(order, text="수량", bg="white", fg="#6b7280", font=("Malgun Gothic", 8, "bold")).pack(side="left")
+        self.quantity = tk.Spinbox(order, from_=1, to=99, width=4, justify="center",
+                                   font=("Malgun Gothic", 9, "bold"), command=self.refresh)
+        self.quantity.pack(side="left", padx=(6, 8))
+        self.quantity.bind("<KeyRelease>", lambda _event: self.refresh())
+        for label, amount in (("1", 1), ("5", 5), ("10", 10)):
+            self.make_quick_button(order, label, lambda amount=amount: self.set_selected_quantity(amount)).pack(
+                side="left", padx=1)
+        self.make_quick_button(order, "최대", self.set_maximum_quantity).pack(side="left", padx=(3, 8))
+        self.buy = self.make_button(order, "매수", MENU_RED, lambda: self.trade_selected(True))
+        self.buy.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        self.sell = self.make_button(order, "매도", "#3182ce", lambda: self.trade_selected(False))
+        self.sell.pack(side="left", fill="x", expand=True)
+        self.window.bind("<Escape>", self.close_on_escape)
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.drag_origin = None
+        for widget in (header, self.update_hint):
+            widget.bind("<ButtonPress-1>", self.begin_drag)
+            widget.bind("<B1-Motion>", self.drag)
+        self.refresh_toss()
+
+    def select_stock(self, index):
+        self.selected_index = index
+        self.refresh_toss()
+
+    def set_selected_quantity(self, quantity):
+        self.quantity.delete(0, "end")
+        self.quantity.insert(0, str(min(99, max(1, quantity))))
+        self.refresh_toss()
+
+    def set_maximum_quantity(self):
+        affordable = self.app.coins // max(1, self.app.stock_buy_cost(self.selected_index))
+        self.set_selected_quantity(max(1, min(99, max(affordable, self.app.stock_shares[self.selected_index]))))
+
+    def selected_quantity_toss(self):
+        try:
+            return min(99, max(1, int(self.quantity.get())))
+        except (ValueError, tk.TclError):
+            return 1
+
+    def trade_selected(self, buying):
+        index = self.selected_index
+        quantity = self.selected_quantity_toss()
+        amount = (self.app.stock_buy_cost(index) if buying else self.app.stock_sell_proceeds(index)) * quantity
+        if quantity >= 10 or (buying and amount >= self.app.coins * 0.2):
+            action = "매수" if buying else "매도"
+            if not messagebox.askyesno("거래 확인", "%s %d주\n%s\n거래할까요?" % (
+                    action, quantity, format_won(amount)), parent=self.window):
+                return
         if buying:
             self.app.buy_stock(index, quantity)
         else:
             self.app.sell_stock(index, quantity)
+
+    def refresh_toss(self):
+        total = self.app.stock_portfolio_value()
+        percent = self.app.stock_portfolio_change_percent()
+        self.balance.configure(text="총 자산  %s\n주식 평가액  %s  (%+.1f%%)" % (
+            format_won(self.app.coins + total), format_won(total), percent,
+        ))
+        self.market_summary.configure(text="현금 %s  ·  %s" % (
+            format_won(self.app.coins), self.app.market_mover_summary(),
+        ))
+        update_text = self.app.market_session_text()
+        if self.app.market_is_open:
+            update_text += " · %d초 후 갱신" % max(
+                1, int(math.ceil(MARKET_UPDATE_SEC - self.app.market_seconds))
+            )
+        self.update_hint.configure(text=update_text)
+        self.session_badge.configure(
+            text="개장" if self.app.market_is_open else "휴장",
+            bg="#ffe8cc" if self.app.market_is_open else "#dfe7f3",
+            fg="#9c2f31" if self.app.market_is_open else "#4b5f7a",
+        )
+        for index, (row, name, holding, price, change) in enumerate(self.list_rows):
+            selected = index == self.selected_index
+            background = "#fff0f0" if selected else "white"
+            foreground = MENU_RED if selected else "#202124"
+            current = self.app.stock_prices[index]
+            delta = self.app.stock_change_percent(index)
+            colour = "#e03131" if delta < 0 else "#1971c2" if delta > 0 else "#6b7280"
+            for widget in (row, name, holding, price, change):
+                widget.configure(bg=background)
+            name.configure(text=self.app.stock_name(index), fg=foreground)
+            price.configure(text="상장폐지" if self.app.stock_delisted[index] else format_won(current), fg=colour)
+            change.configure(text="신규 상장 대기" if self.app.stock_delisted[index] else "%+.1f%%" % delta, fg=colour)
+            holding.configure(text="보유 %d주" % self.app.stock_shares[index] if self.app.stock_shares[index] else self.app.stock_profile(index))
+        index = self.selected_index
+        price = self.app.stock_prices[index]
+        delta = self.app.stock_change_percent(index)
+        colour = "#e03131" if delta < 0 else "#1971c2" if delta > 0 else "#202124"
+        self.detail_name.configure(text=self.app.stock_name(index))
+        opening_price = self.app.stock_session_open_prices[index]
+        self.detail_session.configure(text="장 기준가 %s  ·  %s" % (
+            format_won(opening_price),
+            "거래 가능" if self.app.market_is_open else "휴장 중 · 주문 불가",
+        ), fg="#18794e" if self.app.market_is_open else "#4b5f7a")
+        if self.app.stock_delisted[index]:
+            self.detail_price.configure(text="상장폐지", fg=MENU_RED)
+            self.detail_meta.configure(text="신규 상장까지 %d분" % max(1, int(math.ceil(self.app.stock_relist_seconds[index] / 60.0))))
+            self.detail_holding.configure(text="보유 주식은 소멸했습니다. 새 종목 상장을 기다려 주세요.")
+            self.buy.configure(text="매수 불가", state="disabled")
+            self.sell.configure(text="매도 불가", state="disabled")
+            self.quantity.configure(state="disabled")
+        else:
+            self.detail_price.configure(text="%s  %+.1f%%" % (format_won(price), delta), fg=colour)
+            self.detail_meta.configure(text="%s · 변동폭 ±%d%% · %s" % (
+                self.app.stock_profile(index), self.app.stock_listing(index)[2], self.app.market_regime_label(),
+            ))
+            self.detail_holding.configure(text=self.app.stock_position_text(index))
+            if not self.app.market_is_open:
+                self.buy.configure(text="휴장 중", state="disabled")
+                self.sell.configure(text="휴장 중", state="disabled")
+                self.quantity.configure(state="disabled")
+            elif self.app.stock_halt_seconds[index]:
+                self.buy.configure(text="거래 정지", state="disabled")
+                self.sell.configure(text="거래 정지", state="disabled")
+                self.quantity.configure(state="disabled")
+            else:
+                quantity = self.selected_quantity_toss()
+                self.quantity.configure(state="normal")
+                self.buy.configure(text="매수 %d주\n%s" % (quantity, format_won(self.app.stock_buy_cost(index) * quantity)),
+                                   state="normal" if self.app.coins >= self.app.stock_buy_cost(index) * quantity else "disabled")
+                self.sell.configure(text="매도 %d주\n%s" % (quantity, format_won(self.app.stock_sell_proceeds(index) * quantity)),
+                                    state="normal" if self.app.stock_shares[index] >= quantity else "disabled")
+        event = self.app.stock_event or "시장 속보를 기다리는 중입니다."
+        self.detail_event.configure(text="시장 소식  ·  " + event)
+        self.draw_graph(self.detail_graph, self.app.stock_history[index])
+
+    def trade(self, index, buying):
+        quantity = self.selected_quantity(index)
+        amount = (self.app.stock_buy_cost(index) if buying else self.app.stock_sell_proceeds(index)) * quantity
+        if quantity >= 10 or (buying and amount >= self.app.coins * 0.2):
+            action = "매수" if buying else "매도"
+            if not messagebox.askyesno(
+                    "거래 확인", "%s %d주\n%s\n거래할까요?" % (
+                        action, quantity, format_won(amount)
+                    ), parent=self.window):
+                return
+        if buying:
+            self.app.buy_stock(index, quantity)
+        else:
+            self.app.sell_stock(index, quantity)
+
+    def set_quantity(self, index, quantity):
+        """빠른 수량 버튼으로 거래 수량을 바꾸고 금액 표시를 갱신한다."""
+        box = self.rows[index][4]
+        box.delete(0, "end")
+        box.insert(0, str(min(99, max(1, quantity))))
+        self.refresh()
+
+    def maximum_quantity(self, index):
+        affordable = self.app.coins // max(1, self.app.stock_buy_cost(index))
+        return min(99, max(1, affordable, self.app.stock_shares[index]))
 
     def selected_quantity(self, index):
         """카드 수량 입력값을 1~99주 범위의 정수로 정리한다."""
@@ -1559,6 +1986,11 @@ class StockOverlay:
             return min(99, max(1, int(quantity.get())))
         except (ValueError, tk.TclError):
             return 1
+
+    def close_on_escape(self, _event):
+        """창만 닫고 전역 Esc 종료 단축키로 전파하지 않는다."""
+        self.close()
+        return "break"
 
     def begin_drag(self, event):
         """빨간 제목 영역을 잡은 위치를 기억한다."""
@@ -1596,18 +2028,24 @@ class StockOverlay:
                            fill=colour, outline=colour)
 
     def refresh(self):
-        self.balance.configure(text="보유금  %s" % format_won(self.app.coins))
+        if hasattr(self, "list_rows"):
+            self.refresh_toss()
+            return
         total_value = self.app.stock_portfolio_value()
         portfolio_percent = self.app.stock_portfolio_change_percent()
         self.balance.configure(
-            text="현금  %s   ·   주식 평가액  %s (%+.1f%%)   ·   총 자산  %s" % (
-                format_won(self.app.coins), format_won(total_value),
-                portfolio_percent,
-                format_won(self.app.coins + total_value),
+            text="현금  %s   ·   총 자산  %s\n주식 평가액  %s (%+.1f%%)   ·   %s" % (
+                format_won(self.app.coins), format_won(self.app.coins + total_value),
+                format_won(total_value), portfolio_percent, self.app.market_regime_label(),
             )
         )
+        self.market_summary.configure(text=self.app.market_mover_summary())
         event = self.app.stock_event or "특별 이벤트를 기다리는 중입니다."
         self.market_event.configure(text=event)
+        history = self.app.stock_event_history[:2]
+        self.event_history.configure(
+            text="최근 기록: " + ("  ·  ".join(history) if history else "아직 없습니다")
+        )
         for index, (name_label, price_label, position, graph, quantity_box, buy, sell) in enumerate(self.rows):
             name_label.configure(text=self.app.stock_name(index))
             price = self.app.stock_prices[index]
@@ -1618,7 +2056,7 @@ class StockOverlay:
             if self.app.stock_delisted[index]:
                 minutes = max(1, int(math.ceil(self.app.stock_relist_seconds[index] / 60.0)))
                 price_label.configure(text="상장폐지 · 신규 상장까지 %d분" % minutes, fg=MENU_RED)
-                position.configure(text="보유 주식 소멸 · 새 종목을 준비하고 있습니다")
+                position.configure(text="보유 주식 소멸\n새 종목을 준비하고 있습니다")
                 buy.configure(text="매수 불가")
                 sell.configure(text="매도 불가")
                 quantity_box.configure(state="disabled")
@@ -1695,9 +2133,17 @@ class App:
         self.stock_average_prices = list(args.stock_average_prices)
         self.stock_halt_seconds = list(args.stock_halt_seconds)
         self.stock_history = [[price] for price in self.stock_prices]
+        self.stock_session_open_prices = list(self.stock_prices)
         self.stock_event = ""
+        self.stock_event_history = []
+        self.market_regime = 0
+        self.market_regime_updates = MARKET_REGIME_UPDATES[0]
+        self.stock_trends = [0] * STOCK_COUNT
         self.stock_overlay = None
+        self.game_menu = None
         self.market_seconds = 0.0
+        self.market_is_open = True
+        self.market_session_seconds = float(MARKET_OPEN_SECONDS)
         self.halt_seconds = 0.0
         self.coin_walk_progress = 0.0
         # 메뉴의 체크/선택 표시를 여러 창이 함께 쓰도록 앱이 들고 있는다.
@@ -1706,8 +2152,9 @@ class App:
         self.pause_var = tk.BooleanVar(master=self.root, value=False)
         self.autostart_var = tk.BooleanVar(master=self.root, value=autostart_enabled())
 
-        for key in args.species:
-            self.add_pet(key)
+        for index, key in enumerate(args.species):
+            boost = args.food_boost_seconds[index] if index < len(args.food_boost_seconds) else 0
+            self.add_pet(key, boost)
         if not self.pets:
             # 설정이 이상해도 빈 화면으로 남지 않도록 한 마리는 꼭 띄운다.
             self.add_pet("pikachu")
@@ -1726,6 +2173,7 @@ class App:
             "coins": self.coins,
             "food": self.food,
             "growth_drops": self.growth_drops,
+            "currency_version": settings_file.CURRENCY_VERSION,
             "stock_prices": list(self.stock_prices),
             "stock_shares": list(self.stock_shares),
             "stock_listing_ids": list(self.stock_listing_ids),
@@ -1733,6 +2181,10 @@ class App:
             "stock_relist_seconds": list(self.stock_relist_seconds),
             "stock_average_prices": list(self.stock_average_prices),
             "stock_halt_seconds": list(self.stock_halt_seconds),
+            "food_boost_seconds": (
+                [int(math.ceil(pet.food_boost_left)) for pet in self.pets[:12]]
+                + [0] * max(0, 12 - len(self.pets))
+            ),
         }
 
     def save_settings(self):
@@ -1780,7 +2232,8 @@ class App:
 
     def buy_stock(self, index, quantity=1):
         """현재 가격으로 선택한 수량의 가상 주식을 산다."""
-        if self.stock_delisted[index] or self.stock_halt_seconds[index]:
+        if (not self.market_is_open or self.stock_delisted[index]
+                or self.stock_halt_seconds[index]):
             return
         quantity = max(1, int(quantity))
         shares = self.stock_shares[index]
@@ -1798,7 +2251,7 @@ class App:
     def sell_stock(self, index, quantity=1):
         """현재 가격으로 선택한 수량의 가상 주식을 판다."""
         quantity = max(1, int(quantity))
-        if (self.stock_delisted[index] or self.stock_halt_seconds[index]
+        if (not self.market_is_open or self.stock_delisted[index] or self.stock_halt_seconds[index]
                 or self.stock_shares[index] < quantity):
             return
         self.stock_shares[index] -= quantity
@@ -1846,11 +2299,15 @@ class App:
     def stock_position_text(self, index):
         _name, _starting_price, volatility = self.stock_listing(index)
         shares = self.stock_shares[index]
+        trend = ("하락 추세", "횡보", "상승 추세")[self.stock_trends[index] + 1]
         if not shares:
-            return "%s · 변동폭 ±%d%% · 보유 없음" % (self.stock_profile(index), volatility)
-        return "보유 %d주 · 평가 %s · 손익 %s원 (%+.1f%%)" % (
+            return "%s · %s\n변동폭 ±%d%% · 보유 없음" % (
+                self.stock_profile(index), trend, volatility,
+            )
+        return "보유 %d주 · 평가 %s\n손익 %s원 (%+.1f%%) · %s" % (
             shares, format_won(self.stock_holding_value(index)),
-            "{:+,}".format(self.stock_holding_profit(index)), self.stock_profit_percent(index),
+            "{:+,}".format(self.stock_holding_profit(index)),
+            self.stock_profit_percent(index), trend,
         )
 
     def stock_portfolio_value(self):
@@ -1886,11 +2343,106 @@ class App:
         self.stock_relist_seconds[index] = 0
         self.stock_halt_seconds[index] = 0
         self.stock_history[index] = [starting_price]
-        self.stock_event = "%s 신규 상장!" % self.stock_name(index)
+        self.stock_session_open_prices[index] = starting_price
+        self.announce_stock_event("%s 신규 상장!" % self.stock_name(index))
+
+    def announce_stock_event(self, text):
+        """시장 속보와 최근 다섯 개 기록을 함께 갱신한다."""
+        self.stock_event = text
+        self.stock_event_history.insert(0, "%s  %s" % (time.strftime("%H:%M"), text))
+        self.stock_event_history = self.stock_event_history[:5]
+
+    def market_regime_label(self):
+        """현재 전체 시장의 짧은 흐름을 사람이 읽을 수 있게 표시한다."""
+        return MARKET_REGIME_NAMES[self.market_regime]
+
+    def market_mover_summary(self):
+        """주문 전에 시장 전체 방향과 다음 갱신을 한 줄로 보여 준다."""
+        rising = sum(1 for index in range(STOCK_COUNT)
+                     if self.stock_change_percent(index) > 0 and not self.stock_delisted[index])
+        falling = sum(1 for index in range(STOCK_COUNT)
+                      if self.stock_change_percent(index) < 0 and not self.stock_delisted[index])
+        halted = sum(1 for seconds in self.stock_halt_seconds if seconds)
+        if not self.market_is_open:
+            return "휴장 중 · 재개까지 %s" % self.market_session_time_left()
+        left = max(1, int(math.ceil(MARKET_UPDATE_SEC - self.market_seconds)))
+        return "다음 갱신 %d초  ·  상승 %d  하락 %d  정지 %d" % (
+            left, rising, falling, halted,
+        )
+
+    def market_session_time_left(self):
+        """현재 장 상태가 바뀌기까지 남은 시간을 MM:SS로 보여 준다."""
+        seconds = max(0, int(math.ceil(self.market_session_seconds)))
+        return "%02d:%02d" % divmod(seconds, 60)
+
+    def market_session_text(self):
+        """개장 또는 휴장 상태와 다음 전환 시점을 짧게 표시한다."""
+        if self.market_is_open:
+            return "개장 · 마감까지 %s" % self.market_session_time_left()
+        return "휴장 · 재개까지 %s" % self.market_session_time_left()
+
+    def tick_market_session(self, seconds):
+        """1시간 개장과 5분 휴장을 반복하고 전환 시 시장 속보를 남긴다."""
+        self.market_session_seconds -= seconds
+        if self.market_session_seconds > 0:
+            return False
+        self.market_is_open = not self.market_is_open
+        self.market_session_seconds = (MARKET_OPEN_SECONDS if self.market_is_open
+                                       else MARKET_CLOSED_SECONDS)
+        self.market_seconds = 0.0
+        if self.market_is_open:
+            # 새 장이 열리는 가격이 그 장의 기준가다. 따라서 등락률은 0%부터 시작한다.
+            self.stock_history = [[price] for price in self.stock_prices]
+            self.stock_session_open_prices = list(self.stock_prices)
+        self.announce_stock_event(
+            "시장 개장! 1시간 동안 거래 가능합니다." if self.market_is_open
+            else "장 마감! 5분 동안 휴장합니다."
+        )
+        self.save_settings()
+        self.refresh_stock_overlay()
+        return True
+
+    def update_market_regime(self):
+        """국면은 잠시 유지해 그래프에 읽을 수 있는 흐름을 만든다."""
+        self.market_regime_updates -= 1
+        if self.market_regime_updates > 0:
+            return
+        roll = random.randint(0, sum(MARKET_REGIME_WEIGHTS) - 1)
+        running = 0
+        for index, weight in enumerate(MARKET_REGIME_WEIGHTS):
+            running += weight
+            if roll < running:
+                self.market_regime = index
+                break
+        self.market_regime_updates = random.randint(*MARKET_REGIME_UPDATES)
+        self.announce_stock_event("시장 국면 전환: %s" % self.market_regime_label())
+
+    def stock_market_change(self, index, volatility):
+        """국면·추세·기준가 회귀·잡음을 합친 이번 갱신의 변동률."""
+        if random.random() < 0.20:
+            self.stock_trends[index] = random.randint(-1, 1)
+        _name, starting_price, _volatility = self.stock_listing(index)
+        price_gap = (starting_price - self.stock_prices[index]) * 100.0 / starting_price
+        pull_rate = 0.20 if volatility <= 10 else 0.12 if volatility <= 18 else 0.06
+        mean_reversion = 0.0 if self.stock_prices[index] < STOCK_CRISIS_PRICE else max(
+            -5.0, min(5.0, price_gap * pull_rate)
+        )
+        trend = self.stock_trends[index] * max(1.0, volatility * 0.16)
+        noise = random.randint(-volatility, volatility)
+        return (noise + MARKET_REGIME_DRIFTS[self.market_regime] + trend + mean_reversion) * MARKET_TICK_SCALE
+
+    @staticmethod
+    def stock_price_after_change(price, change):
+        """+x/-x를 역수로 적용해 같은 세기의 왕복이 가격을 깎지 않게 한다."""
+        factor = 1.0 + change / 100.0 if change >= 0 else 1.0 / (1.0 - change / 100.0)
+        return max(1, int(round(price * factor)))
 
     def update_market(self):
         """종목 성격별 등락과 이벤트, 상장폐지·신규 상장을 처리한다."""
+        if not self.market_is_open:
+            return
         self.stock_event = ""
+        self.update_market_regime()
         event_index = None
         event_percent = 0
         active = [index for index in range(STOCK_COUNT)
@@ -1900,9 +2452,11 @@ class App:
             event_name, event_percent = random.choice(
                 STOCK_EVENTS[self.stock_listing_ids[event_index] % len(STOCK_EVENTS)]
             )
-            self.stock_event = "%s %s  %+.0f%%" % (
+            event_text = "%s %s  %+.0f%%" % (
                 self.stock_name(event_index), event_name, event_percent
             )
+        else:
+            event_text = ""
 
         for index in range(STOCK_COUNT):
             if self.stock_delisted[index]:
@@ -1913,33 +2467,33 @@ class App:
             if self.stock_halt_seconds[index]:
                 continue
             _name, _starting_price, volatility = self.stock_listing(index)
-            change = random.randint(-volatility, volatility)
+            change = self.stock_market_change(index, volatility)
             if index == event_index:
                 change += event_percent
-            price = max(1, int(round(self.stock_prices[index] * (100 + change) / 100.0)))
-            if price < 100:
+            price = self.stock_price_after_change(self.stock_prices[index], change)
+            if price <= STOCK_DELIST_PRICE:
                 self.stock_prices[index] = 0
                 self.stock_shares[index] = 0
                 self.stock_average_prices[index] = 0
                 self.stock_delisted[index] = True
                 self.stock_relist_seconds[index] = STOCK_RELIST_SECONDS
-                self.stock_event = "%s 상장폐지! 보유 주식은 소멸했습니다." % self.stock_name(index)
+                self.announce_stock_event("%s 상장폐지! 보유 주식은 소멸했습니다." % self.stock_name(index))
             else:
                 self.stock_prices[index] = price
             self.stock_history[index].append(self.stock_prices[index])
             self.stock_history[index] = self.stock_history[index][-20:]
         if event_index is not None and not self.stock_delisted[event_index]:
             self.stock_halt_seconds[event_index] = STOCK_HALT_SECONDS
-            self.stock_event += " · 변동성 완화장치 발동(40초 거래 정지)"
+            self.announce_stock_event(event_text + " · 변동성 완화장치 발동(20초 거래 정지)")
         self.save_settings()
         self.refresh_stock_overlay()
 
     def stock_change_percent(self, index):
-        """그래프에 보이는 기간의 시작 가격과 비교한 등락률."""
-        history = self.stock_history[index]
-        if not history or history[0] <= 0:
+        """이번 개장 때 정한 기준가와 비교한 등락률."""
+        opening_price = self.stock_session_open_prices[index]
+        if opening_price <= 0:
             return 0.0
-        return (self.stock_prices[index] - history[0]) * 100.0 / history[0]
+        return (self.stock_prices[index] - opening_price) * 100.0 / opening_price
 
     def open_stock_overlay(self):
         """주식시장 오버레이를 하나만 열고, 이미 열려 있으면 앞으로 가져온다."""
@@ -1953,6 +2507,17 @@ class App:
             except tk.TclError:
                 self.stock_overlay = None
         self.stock_overlay = StockOverlay(self)
+
+    def open_game_menu(self):
+        if self.game_menu is not None:
+            try:
+                self.game_menu.window.lift()
+                self.game_menu.window.focus_force()
+                self.game_menu.refresh()
+                return
+            except tk.TclError:
+                self.game_menu = None
+        self.game_menu = GameMenuOverlay(self)
 
     def refresh_stock_overlay(self):
         """열려 있는 주식시장에 최신 가격과 보유량을 반영한다."""
@@ -1986,11 +2551,12 @@ class App:
         """포켓몬을 모두 지웠다가 같은 구성으로 다시 만든다."""
         keys = [pet.pokemon.key for pet in self.pets]
         places = [pet.x for pet in self.pets]
+        boosts = [pet.food_boost_left for pet in self.pets]
         for pet in list(self.pets):
             pet.destroy()
         self.pets = []
-        for key, place in zip(keys, places):
-            self.add_pet(key)
+        for key, place, boost in zip(keys, places, boosts):
+            self.add_pet(key, boost)
             self.pets[-1].x = min(place, self.pets[-1].max_x)
         self.save_settings()
 
@@ -2055,8 +2621,9 @@ class App:
             }
         return self.image_cache[pokemon.key]
 
-    def add_pet(self, key):
+    def add_pet(self, key, food_boost_left=0.0):
         self.pets.append(PokemonPet(self, POKEMON[key]))
+        self.pets[-1].food_boost_left = max(0.0, food_boost_left)
         return self.pets[-1]
 
     def start_greeting_near(self, pet):
@@ -2081,11 +2648,13 @@ class App:
             return
         where = pet.x
         facing = pet.direction
+        boost = pet.food_boost_left
         index = self.pets.index(pet) if pet in self.pets else len(self.pets)
         if pet in self.pets:
             self.pets.remove(pet)
         pet.destroy()
         grown = PokemonPet(self, POKEMON[key])
+        grown.food_boost_left = boost
         grown.x = min(max(0, where), grown.max_x)
         grown.direction = facing
         grown.place()
@@ -2105,10 +2674,19 @@ class App:
         self.save_settings()
 
     def buy_random_pet(self):
-        """두 시간 산책값으로 무작위 포켓몬 한 마리를 산다."""
+        """등급 확률을 적용한 랜덤 영입. 개별 포켓몬은 직접 살 수 없다."""
         if self.coins < POKEMON_PRICE:
             return
-        self.buy_pet(random.choice(base_species()))
+        roll = random.random()
+        total = 0.0
+        grade = "일반"
+        for name, chance in GRADE_DRAW_CHANCES:
+            total += chance
+            if roll < total:
+                grade = name
+                break
+        choices = [key for key in base_species() if pokemon_grade(key)[0] == grade]
+        self.buy_pet(random.choice(choices or base_species()))
 
     def remove_pet(self, pet):
         if pet in self.pets:
@@ -2132,6 +2710,8 @@ class App:
         self.quitting = True
         if self.stock_overlay is not None:
             self.stock_overlay.close()
+        if self.game_menu is not None:
+            self.game_menu.close()
         for pet in list(self.pets):
             pet.destroy()
         self.pets.clear()
@@ -2150,19 +2730,23 @@ class App:
     def run(self):
         # Ctrl+C 로도 종료할 수 있게 주기적으로 인터프리터에 제어를 넘긴다.
         def heartbeat():
-            self.market_seconds += 0.2
-            self.halt_seconds += 0.2
-            if self.halt_seconds >= 1.0:
-                self.halt_seconds -= 1.0
-                halted = [index for index, seconds in enumerate(self.stock_halt_seconds) if seconds]
-                for index in halted:
-                    self.stock_halt_seconds[index] -= 1
-                if halted:
-                    self.save_settings()
+            self.tick_market_session(0.2)
+            if self.market_is_open:
+                self.market_seconds += 0.2
+                self.halt_seconds += 0.2
+                if self.halt_seconds >= 1.0:
+                    self.halt_seconds -= 1.0
+                    halted = [index for index, seconds in enumerate(self.stock_halt_seconds) if seconds]
+                    for index in halted:
+                        self.stock_halt_seconds[index] -= 1
+                    if halted:
+                        self.save_settings()
                     self.refresh_stock_overlay()
-            if self.market_seconds >= MARKET_UPDATE_SEC:
-                self.market_seconds -= MARKET_UPDATE_SEC
-                self.update_market()
+                if self.market_seconds >= MARKET_UPDATE_SEC:
+                    self.market_seconds -= MARKET_UPDATE_SEC
+                    self.update_market()
+            else:
+                self.refresh_stock_overlay()
             self.heartbeat_id = self.root.after(200, heartbeat)
 
         heartbeat()
@@ -2245,6 +2829,7 @@ def parse_args(argv=None):
     args.stock_relist_seconds = saved["stock_relist_seconds"]
     args.stock_average_prices = saved["stock_average_prices"]
     args.stock_halt_seconds = saved["stock_halt_seconds"]
+    args.food_boost_seconds = saved["food_boost_seconds"]
 
     if args.scale <= 0:
         parser.error("--scale 은 0보다 커야 합니다")

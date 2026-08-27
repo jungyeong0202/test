@@ -29,6 +29,7 @@ DEFAULTS = {
     "stock_relist_seconds": [0, 0, 0, 0, 0, 0],
     "stock_average_prices": [0, 0, 0, 0, 0, 0],
     "stock_halt_seconds": [0, 0, 0, 0, 0, 0],
+    "food_boost_seconds": [0] * 12,
     "currency_version": CURRENCY_VERSION,
 }
 
@@ -61,7 +62,7 @@ def parse_text(text, known_species=None):
     values["species"] = list(DEFAULTS["species"])
     for name in ("stock_prices", "stock_shares", "stock_listing_ids",
                  "stock_delisted", "stock_relist_seconds", "stock_average_prices",
-                 "stock_halt_seconds"):
+                 "stock_halt_seconds", "food_boost_seconds"):
         values[name] = list(DEFAULTS[name])
     stored_currency_version = None
     saw_coins = False
@@ -108,7 +109,7 @@ def parse_text(text, known_species=None):
                     values[name] = number
             elif name in ("stock_prices", "stock_shares", "stock_listing_ids",
                           "stock_delisted", "stock_relist_seconds", "stock_average_prices",
-                          "stock_halt_seconds"):
+                          "stock_halt_seconds", "food_boost_seconds"):
                 numbers = [int(part.strip()) for part in raw.split(",")]
                 if 1 <= len(numbers) <= len(DEFAULTS[name]) and all(number >= 0 for number in numbers):
                     if name != "stock_prices" or all(numbers):
@@ -146,6 +147,7 @@ def format_text(values):
         "stock_relist_seconds = %s" % ", ".join(str(value) for value in values["stock_relist_seconds"]),
         "stock_average_prices = %s" % ", ".join(str(value) for value in values["stock_average_prices"]),
         "stock_halt_seconds = %s" % ", ".join(str(value) for value in values["stock_halt_seconds"]),
+        "food_boost_seconds = %s" % ", ".join(str(value) for value in values["food_boost_seconds"]),
         "",
     ])
 
@@ -161,7 +163,7 @@ def load(path=None, known_species=None):
         values["species"] = list(DEFAULTS["species"])
         for name in ("stock_prices", "stock_shares", "stock_listing_ids",
                      "stock_delisted", "stock_relist_seconds", "stock_average_prices",
-                     "stock_halt_seconds"):
+                     "stock_halt_seconds", "food_boost_seconds"):
             values[name] = list(DEFAULTS[name])
         return values
 

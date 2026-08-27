@@ -68,6 +68,7 @@ class SettingsTest(unittest.TestCase):
         values["growth_drops"] = 2
         values["stock_prices"] = [11, 19, 28, 31, 37, 41]
         values["stock_shares"] = [2, 0, 4, 1, 3, 0]
+        values["food_boost_seconds"] = [241, 0] + [0] * 10
         self.assertTrue(settings_file.save(values, self.path))
         self.assertEqual(settings_file.load(self.path), values)
 
@@ -902,6 +903,29 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.coins, 1960)
         self.assertEqual(self.app.stock_shares[0], 1)
 
+    def test_stock_cannot_trade_during_market_close(self):
+        self.app.coins = 1020
+        self.app.stock_prices[0] = 1000
+        self.app.market_is_open = False
+        self.app.buy_stock(0)
+        self.assertEqual(self.app.coins, 1020)
+        self.assertEqual(self.app.stock_shares[0], 0)
+
+    def test_market_reopens_with_new_zero_percent_baseline(self):
+        self.app.stock_prices[0] = 1400
+        self.app.stock_history[0] = [1000, 1200, 1400]
+        self.app.stock_session_open_prices[0] = 1000
+        self.app.market_session_seconds = 0.1
+        self.assertTrue(self.app.tick_market_session(0.1))
+        self.assertFalse(self.app.market_is_open)
+        self.assertEqual(self.app.market_session_seconds, pt.MARKET_CLOSED_SECONDS)
+        self.app.market_session_seconds = 0.1
+        self.assertTrue(self.app.tick_market_session(0.1))
+        self.assertTrue(self.app.market_is_open)
+        self.assertEqual(self.app.market_session_seconds, pt.MARKET_OPEN_SECONDS)
+        self.assertEqual(self.app.stock_history[0], [1400])
+        self.assertEqual(self.app.stock_change_percent(0), 0.0)
+
     def test_portfolio_percent_uses_average_purchase_cost_and_sell_fee(self):
         self.app.stock_prices[0] = 1000
         self.app.stock_shares[0] = 2
@@ -928,8 +952,19 @@ class EvolutionTest(unittest.TestCase):
         self.app.buy_stock(0)
         self.assertEqual(self.app.coins, coins)
 
-    def test_stock_can_be_delisted_below_100_won(self):
-        self.app.stock_prices = [101, 1800, 2700, 1300, 2200, 3500]
+    def test_equal_stock_moves_return_to_starting_price(self):
+        raised = pt.App.stock_price_after_change(11000, 10)
+        self.assertEqual(pt.App.stock_price_after_change(raised, -10), 11000)
+
+    def test_market_regime_is_kept_for_multiple_updates(self):
+        self.app.market_regime = 1
+        self.app.market_regime_updates = 2
+        self.app.update_market_regime()
+        self.assertEqual(self.app.market_regime, 1)
+        self.assertEqual(self.app.market_regime_updates, 1)
+
+    def test_stock_can_be_delisted_below_600_won(self):
+        self.app.stock_prices = [601, 1800, 2700, 1300, 2200, 3500]
         self.app.stock_shares[0] = 3
         with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
                 mock.patch("pokemon_taskbar.random.randint", return_value=-12):
@@ -958,12 +993,10 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(len(self.app.stock_history[0]), 20)
         self.assertGreater(self.app.stock_history[0][-1], self.app.stock_history[0][0])
 
-    def test_stock_change_percent_uses_the_visible_graph_period(self):
-        self.app.stock_prices = [1000, 1800, 2700, 1300, 2200, 3500]
-        self.app.stock_history = [[1000], [1800], [2700], [1300], [2200], [3500]]
-        with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
-                mock.patch("pokemon_taskbar.random.randint", return_value=10):
-            self.app.update_market()
+    def test_stock_change_percent_uses_the_market_opening_price(self):
+        self.app.stock_prices = [1100, 1800, 2700, 1300, 2200, 3500]
+        self.app.stock_history = [[1000, 1050, 1100], [1800], [2700], [1300], [2200], [3500]]
+        self.app.stock_session_open_prices = [1000, 1800, 2700, 1300, 2200, 3500]
         self.assertAlmostEqual(self.app.stock_change_percent(0), 10.0)
 
     def test_stock_market_opens_in_its_own_overlay(self):
@@ -971,7 +1004,7 @@ class EvolutionTest(unittest.TestCase):
         overlay = self.app.stock_overlay
         self.assertIsNotNone(overlay)
         self.assertTrue(overlay.window.winfo_exists())
-        self.assertTrue(overlay.rows[0][3].find_all(), "그래프가 그려지지 않습니다")
+        self.assertTrue(overlay.detail_graph.find_all(), "선택 종목 그래프가 그려지지 않습니다")
         old_x = overlay.window.winfo_x()
         old_y = overlay.window.winfo_y()
         overlay.begin_drag(FakeMouse(old_x + 10, old_y + 10))
@@ -1376,6 +1409,12 @@ class MenuTest(unittest.TestCase):
             self.assertGreater(new, old)
         self.assertEqual(self._saved()["scale"], 9.0)
         self.assertEqual(self._saved()["species"], ["pikachu", "ditto"])
+
+    def test_rebuild_keeps_food_speed_boost(self):
+        self.app.pets[0].food_boost_left = 241.2
+        self.app.rebuild()
+        self.assertGreaterEqual(self.app.pets[0].food_boost_left, 241.1)
+        self.assertEqual(self._saved()["food_boost_seconds"][0], 242)
 
     def test_changing_speed_applies_to_every_pet(self):
         self.app.add_pet_and_save("charmander")

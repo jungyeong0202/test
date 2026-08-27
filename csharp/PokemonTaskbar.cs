@@ -3447,7 +3447,7 @@ namespace PokemonTaskbar
                 menu.Renderer = PokemonMenuRenderer;
                 menu.Opening += delegate { this.BuildTrayMenu(menu); };
                 this.tray.ContextMenuStrip = menu;
-                this.tray.DoubleClick += delegate { this.RecallAll(); };
+                this.tray.DoubleClick += delegate { this.OpenGameMenu(); };
                 Log.Write("알림 영역 아이콘 만듦");
             }
             catch (Exception error)
@@ -3481,16 +3481,13 @@ namespace PokemonTaskbar
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(CreateMenuSection("━━ 빠른 실행 ━━"));
 
+            menu.Items.Add("▶ 포켓몬 센터 열기", null, delegate { this.OpenGameMenu(); });
             ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
-            foreach (PokemonSprite sprite in Sprites.BaseSpecies())
-            {
-                string key = sprite.Key;
-                ToolStripMenuItem item = new ToolStripMenuItem(
-                    sprite.NameKo + " — " + FormatWon(PokemonPrice), null,
-                    delegate { this.BuyPet(key); });
-                item.Enabled = this.Options.Coins >= PokemonPrice;
-                add.DropDownItems.Add(item);
-            }
+            ToolStripMenuItem randomPet = new ToolStripMenuItem(
+                "랜덤 영입 — " + FormatWon(PokemonPrice) + "  (일반 88% · 준전설 10% · 초전설 2%)", null,
+                delegate { this.BuyRandomPet(); });
+            randomPet.Enabled = this.Options.Coins >= PokemonPrice;
+            add.DropDownItems.Add(randomPet);
             menu.Items.Add(add);
             menu.Items.Add(string.Format("▶ 주식시장 열기 · 평가액 {0}",
                 FormatWon(this.StockPortfolioValue())), null, delegate { this.OpenStockOverlay(); });

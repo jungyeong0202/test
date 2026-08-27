@@ -866,14 +866,25 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.growth_drops, 1)
 
     def test_stock_can_be_bought_and_sold(self):
-        self.app.coins = 1000
+        self.app.coins = 1020
         self.app.stock_prices = [1000, 1800, 2700, 1300, 2200, 3500]
         self.app.buy_stock(0)
         self.assertEqual(self.app.coins, 0)
         self.assertEqual(self.app.stock_shares, [1, 0, 0, 0, 0, 0])
+        self.assertEqual(self.app.stock_average_prices[0], 1020)
         self.app.sell_stock(0)
-        self.assertEqual(self.app.coins, 1000)
+        self.assertEqual(self.app.coins, 980)
         self.assertEqual(self.app.stock_shares, [0, 0, 0, 0, 0, 0])
+
+    def test_stock_event_pauses_trading_for_forty_seconds(self):
+        with mock.patch("pokemon_taskbar.random.random", return_value=0.0), \
+                mock.patch("pokemon_taskbar.random.choice", side_effect=[0, ("번개 발전소 증설", 18)]), \
+                mock.patch("pokemon_taskbar.random.randint", return_value=0):
+            self.app.update_market()
+        self.assertEqual(self.app.stock_halt_seconds[0], pt.STOCK_HALT_SECONDS)
+        coins = self.app.coins
+        self.app.buy_stock(0)
+        self.assertEqual(self.app.coins, coins)
 
     def test_stock_can_be_delisted_below_100_won(self):
         self.app.stock_prices = [101, 1800, 2700, 1300, 2200, 3500]
@@ -918,7 +929,7 @@ class EvolutionTest(unittest.TestCase):
         overlay = self.app.stock_overlay
         self.assertIsNotNone(overlay)
         self.assertTrue(overlay.window.winfo_exists())
-        self.assertTrue(overlay.rows[0][2].find_all(), "그래프가 그려지지 않습니다")
+        self.assertTrue(overlay.rows[0][3].find_all(), "그래프가 그려지지 않습니다")
         old_x = overlay.window.winfo_x()
         old_y = overlay.window.winfo_y()
         overlay.begin_drag(FakeMouse(old_x + 10, old_y + 10))

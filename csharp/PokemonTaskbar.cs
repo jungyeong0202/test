@@ -30,6 +30,8 @@ namespace PokemonTaskbar
         public int[] StockListingIds = { 0, 1, 2, 3, 4, 5 };
         public int[] StockDelisted = { 0, 0, 0, 0, 0, 0 };
         public int[] StockRelistSeconds = { 0, 0, 0, 0, 0, 0 };
+        public int[] StockAveragePrices = { 0, 0, 0, 0, 0, 0 };
+        public int[] StockHaltSeconds = { 0, 0, 0, 0, 0, 0 };
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
         public bool ShowList = false;
@@ -372,6 +374,22 @@ namespace PokemonTaskbar
                             options.StockRelistSeconds = relist;
                         }
                         break;
+                    case "stock_average_prices":
+                        int averageCount;
+                        int[] averages = ParseStockValues(value, false, options.StockAveragePrices, out averageCount);
+                        if (averages != null)
+                        {
+                            options.StockAveragePrices = averages;
+                        }
+                        break;
+                    case "stock_halt_seconds":
+                        int haltCount;
+                        int[] halts = ParseStockValues(value, false, options.StockHaltSeconds, out haltCount);
+                        if (halts != null)
+                        {
+                            options.StockHaltSeconds = halts;
+                        }
+                        break;
                     case "currency_version":
                         if (int.TryParse(value, NumberStyles.Integer,
                                 CultureInfo.InvariantCulture, out whole) && whole > 0)
@@ -430,6 +448,10 @@ namespace PokemonTaskbar
                     options.StockDelisted, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_relist_seconds = " + string.Join(", ", Array.ConvertAll(
                     options.StockRelistSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("stock_average_prices = " + string.Join(", ", Array.ConvertAll(
+                    options.StockAveragePrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("stock_halt_seconds = " + string.Join(", ", Array.ConvertAll(
+                    options.StockHaltSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 File.WriteAllLines(path, lines.ToArray());
             }
             catch (Exception)
@@ -2415,6 +2437,7 @@ namespace PokemonTaskbar
         private readonly Label balance;
         private readonly Label[] names = new Label[PetWorld.StockSlotCount];
         private readonly Label[] prices = new Label[PetWorld.StockSlotCount];
+        private readonly Label[] positions = new Label[PetWorld.StockSlotCount];
         private readonly Button[] buys = new Button[PetWorld.StockSlotCount];
         private readonly Button[] sells = new Button[PetWorld.StockSlotCount];
         private readonly StockGraph[] graphs = new StockGraph[PetWorld.StockSlotCount];
@@ -2431,7 +2454,7 @@ namespace PokemonTaskbar
             this.TopMost = true;
             this.BackColor = Color.FromArgb(217, 52, 59);
             this.Padding = new Padding(3);
-            this.ClientSize = new Size(710, 475);
+            this.ClientSize = new Size(710, 525);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             Panel body = new Panel();
@@ -2480,7 +2503,7 @@ namespace PokemonTaskbar
 
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
-                this.CreateStockCard(body, i, 12 + (i % 2) * 342, 82 + (i / 2) * 112);
+                this.CreateStockCard(body, i, 12 + (i % 2) * 342, 82 + (i / 2) * 128);
             }
             this.notice = new Label();
             this.notice.Text = "가격은 20초마다 변동합니다";
@@ -2488,7 +2511,7 @@ namespace PokemonTaskbar
             this.notice.BackColor = body.BackColor;
             this.notice.Font = new Font("Malgun Gothic", 9.0f);
             this.notice.AutoSize = true;
-            this.notice.Location = new Point(220, 430);
+            this.notice.Location = new Point(190, 482);
             body.Controls.Add(this.notice);
             this.RefreshMarket();
         }
@@ -2499,7 +2522,7 @@ namespace PokemonTaskbar
             card.BackColor = Color.FromArgb(255, 253, 247);
             card.BorderStyle = BorderStyle.FixedSingle;
             card.Location = new Point(left, top);
-            card.Size = new Size(330, 105);
+            card.Size = new Size(330, 122);
             parent.Controls.Add(card);
             this.names[index] = new Label();
             this.names[index].Text = this.world.StockName(index);
@@ -2516,17 +2539,24 @@ namespace PokemonTaskbar
             this.prices[index].AutoSize = true;
             this.prices[index].Location = new Point(116, 5);
             card.Controls.Add(this.prices[index]);
+            this.positions[index] = new Label();
+            this.positions[index].ForeColor = Color.FromArgb(168, 145, 125);
+            this.positions[index].BackColor = card.BackColor;
+            this.positions[index].Font = new Font("Malgun Gothic", 8.0f);
+            this.positions[index].Location = new Point(8, 27);
+            this.positions[index].Size = new Size(310, 17);
+            card.Controls.Add(this.positions[index]);
             this.graphs[index] = new StockGraph();
-            this.graphs[index].Location = new Point(8, 30);
-            this.graphs[index].Size = new Size(190, 58);
+            this.graphs[index].Location = new Point(8, 48);
+            this.graphs[index].Size = new Size(190, 65);
             card.Controls.Add(this.graphs[index]);
             this.buys[index] = CreateActionButton("매수", Color.FromArgb(217, 52, 59));
-            this.buys[index].Location = new Point(208, 34);
+            this.buys[index].Location = new Point(208, 52);
             int buyIndex = index;
             this.buys[index].Click += delegate { this.world.BuyStock(buyIndex); };
             card.Controls.Add(this.buys[index]);
             this.sells[index] = CreateActionButton("매도", Color.FromArgb(58, 129, 199));
-            this.sells[index].Location = new Point(268, 34);
+            this.sells[index].Location = new Point(268, 52);
             int sellIndex = index;
             this.sells[index].Click += delegate { this.world.SellStock(sellIndex); };
             card.Controls.Add(this.sells[index]);
@@ -2586,6 +2616,17 @@ namespace PokemonTaskbar
                 {
                     this.prices[i].Text = "상장폐지 · 신규 상장까지 " + this.world.RelistingMinutes(i) + "분";
                     this.prices[i].ForeColor = Color.FromArgb(217, 52, 59);
+                    this.positions[i].Text = "보유 주식 소멸 · 새 종목을 준비하고 있습니다";
+                    this.buys[i].Enabled = false;
+                    this.sells[i].Enabled = false;
+                    this.graphs[i].SetValues(this.world.StockHistory(i));
+                    continue;
+                }
+                if (this.world.IsStockHalted(i))
+                {
+                    this.prices[i].Text = "거래 일시정지 · " + this.world.Options.StockHaltSeconds[i] + "초";
+                    this.prices[i].ForeColor = Color.FromArgb(217, 52, 59);
+                    this.positions[i].Text = this.world.StockPositionText(i);
                     this.buys[i].Enabled = false;
                     this.sells[i].Enabled = false;
                     this.graphs[i].SetValues(this.world.StockHistory(i));
@@ -2595,12 +2636,14 @@ namespace PokemonTaskbar
                     PetWorld.FormatWon(price), percent, shares);
                 this.prices[i].ForeColor = percent > 0 ? Color.FromArgb(47, 155, 103)
                     : percent < 0 ? Color.FromArgb(217, 52, 59) : Color.FromArgb(58, 45, 38);
-                this.buys[i].Enabled = this.world.Options.Coins >= price;
+                this.positions[i].Text = this.world.StockPositionText(i);
+                this.buys[i].Enabled = this.world.Options.Coins >= this.world.StockBuyCost(i);
                 this.sells[i].Enabled = shares > 0;
                 this.graphs[i].SetValues(this.world.StockHistory(i));
             }
             this.notice.Text = string.IsNullOrEmpty(this.world.StockEvent)
                 ? "가격은 20초마다 변동합니다" : this.world.StockEvent;
+            this.notice.Text += "  ·  거래 수수료 2%";
         }
     }
 
@@ -2615,6 +2658,8 @@ namespace PokemonTaskbar
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
         public const int GrowthDropCost = 2500;    // 성장의 물방울 한 개 가격(원)
         public const int MarketUpdateMilliseconds = 20000;
+        public const double StockFeeRate = 0.02;
+        public const int StockHaltSeconds = 40;
         public const int StockSlotCount = 6;
         public const int StockRelistSeconds = 30 * 60;
         public static readonly string[] StockNames = {
@@ -2656,6 +2701,7 @@ namespace PokemonTaskbar
         private List<int>[] stockHistory;
         private StockOverlayForm stockOverlay;
         private Timer marketTimer;
+        private Timer haltTimer;
         private string stockEvent = "";
         private bool quitting;
         private bool rebuilding;
@@ -2692,6 +2738,10 @@ namespace PokemonTaskbar
             this.marketTimer.Interval = MarketUpdateMilliseconds;
             this.marketTimer.Tick += delegate { this.UpdateMarket(); };
             this.marketTimer.Start();
+            this.haltTimer = new Timer();
+            this.haltTimer.Interval = 1000;
+            this.haltTimer.Tick += delegate { this.TickStockHalts(); };
+            this.haltTimer.Start();
             this.BuildTray();
         }
 
@@ -2926,17 +2976,21 @@ namespace PokemonTaskbar
         /// <summary>현재 가격으로 가상 주식 한 주를 산다.</summary>
         public void BuyStock(int index)
         {
-            if (this.IsStockDelisted(index))
+            if (this.IsStockDelisted(index) || this.IsStockHalted(index))
             {
                 return;
             }
-            int price = this.Options.StockPrices[index];
-            if (this.Options.Coins < price)
+            int shares = this.Options.StockShares[index];
+            int cost = this.StockBuyCost(index);
+            if (this.Options.Coins < cost)
             {
                 return;
             }
-            this.Options.Coins -= price;
-            this.Options.StockShares[index]++;
+            this.Options.Coins -= cost;
+            this.Options.StockAveragePrices[index] = (int)Math.Round(
+                (this.Options.StockAveragePrices[index] * (double)shares + cost) / (shares + 1),
+                MidpointRounding.AwayFromZero);
+            this.Options.StockShares[index] = shares + 1;
             this.SaveSettings();
             this.RefreshStockOverlay();
         }
@@ -2944,12 +2998,17 @@ namespace PokemonTaskbar
         /// <summary>현재 가격으로 가상 주식 한 주를 판다.</summary>
         public void SellStock(int index)
         {
-            if (this.IsStockDelisted(index) || this.Options.StockShares[index] <= 0)
+            if (this.IsStockDelisted(index) || this.IsStockHalted(index)
+                || this.Options.StockShares[index] <= 0)
             {
                 return;
             }
             this.Options.StockShares[index]--;
-            this.Options.Coins += this.Options.StockPrices[index];
+            this.Options.Coins += this.StockSellProceeds(index);
+            if (this.Options.StockShares[index] == 0)
+            {
+                this.Options.StockAveragePrices[index] = 0;
+            }
             this.SaveSettings();
             this.RefreshStockOverlay();
         }
@@ -2961,7 +3020,7 @@ namespace PokemonTaskbar
             List<int> active = new List<int>();
             for (int i = 0; i < StockSlotCount; i++)
             {
-                if (!this.IsStockDelisted(i))
+                if (!this.IsStockDelisted(i) && !this.IsStockHalted(i))
                 {
                     active.Add(i);
                 }
@@ -2989,6 +3048,10 @@ namespace PokemonTaskbar
                     }
                     continue;
                 }
+                if (this.IsStockHalted(i))
+                {
+                    continue;
+                }
                 int change = this.Random.Next(-this.StockVolatility(i), this.StockVolatility(i) + 1);
                 if (i == eventIndex)
                 {
@@ -3000,6 +3063,7 @@ namespace PokemonTaskbar
                 {
                     this.Options.StockPrices[i] = 0;
                     this.Options.StockShares[i] = 0;
+                    this.Options.StockAveragePrices[i] = 0;
                     this.Options.StockDelisted[i] = 1;
                     this.Options.StockRelistSeconds[i] = StockRelistSeconds;
                     this.stockEvent = this.StockName(i) + " 상장폐지! 보유 주식은 소멸했습니다.";
@@ -3014,6 +3078,11 @@ namespace PokemonTaskbar
                     this.stockHistory[i].RemoveAt(0);
                 }
             }
+            if (eventIndex >= 0 && !this.IsStockDelisted(eventIndex))
+            {
+                this.Options.StockHaltSeconds[eventIndex] = StockHaltSeconds;
+                this.stockEvent += " · 변동성 완화장치 발동(40초 거래 정지)";
+            }
             this.SaveSettings();
             this.RefreshStockOverlay();
         }
@@ -3021,6 +3090,46 @@ namespace PokemonTaskbar
         public string StockName(int index)
         {
             return StockNames[this.Options.StockListingIds[index] % StockNames.Length];
+        }
+
+        public string StockProfile(int index)
+        {
+            int volatility = this.StockVolatility(index);
+            return volatility <= 10 ? "안정형" : volatility <= 18 ? "성장형" : "고위험형";
+        }
+
+        public int StockBuyCost(int index)
+        {
+            int price = this.Options.StockPrices[index];
+            return price + (int)Math.Ceiling(price * StockFeeRate);
+        }
+
+        public int StockSellProceeds(int index)
+        {
+            int price = this.Options.StockPrices[index];
+            return Math.Max(0, price - (int)Math.Ceiling(price * StockFeeRate));
+        }
+
+        public double StockProfitPercent(int index)
+        {
+            int average = this.Options.StockAveragePrices[index];
+            if (this.Options.StockShares[index] <= 0 || average <= 0)
+            {
+                return 0.0;
+            }
+            return (this.StockSellProceeds(index) - average) * 100.0 / average;
+        }
+
+        public string StockPositionText(int index)
+        {
+            int volatility = this.StockVolatility(index);
+            if (this.Options.StockShares[index] <= 0)
+            {
+                return this.StockProfile(index) + " · 변동폭 ±" + volatility + "% · 보유 없음";
+            }
+            return string.Format("{0} · 변동폭 ±{1}% · 평균 {2} · 수익 {3:+0.0;-0.0;0.0}%",
+                this.StockProfile(index), volatility,
+                FormatWon(this.Options.StockAveragePrices[index]), this.StockProfitPercent(index));
         }
 
         private int StockVolatility(int index)
@@ -3031,6 +3140,11 @@ namespace PokemonTaskbar
         public bool IsStockDelisted(int index)
         {
             return this.Options.StockDelisted[index] != 0;
+        }
+
+        public bool IsStockHalted(int index)
+        {
+            return this.Options.StockHaltSeconds[index] > 0;
         }
 
         public int RelistingMinutes(int index)
@@ -3045,7 +3159,7 @@ namespace PokemonTaskbar
             {
                 if (!this.IsStockDelisted(i))
                 {
-                    total += this.Options.StockPrices[i] * this.Options.StockShares[i];
+                    total += this.StockSellProceeds(i) * this.Options.StockShares[i];
                 }
             }
             return total;
@@ -3079,11 +3193,31 @@ namespace PokemonTaskbar
             this.Options.StockListingIds[index] = next;
             this.Options.StockPrices[index] = StockStartingPrices[next];
             this.Options.StockShares[index] = 0;
+            this.Options.StockAveragePrices[index] = 0;
             this.Options.StockDelisted[index] = 0;
             this.Options.StockRelistSeconds[index] = 0;
+            this.Options.StockHaltSeconds[index] = 0;
             this.stockHistory[index].Clear();
             this.stockHistory[index].Add(this.Options.StockPrices[index]);
             this.stockEvent = this.StockName(index) + " 신규 상장!";
+        }
+
+        private void TickStockHalts()
+        {
+            bool changed = false;
+            for (int i = 0; i < StockSlotCount; i++)
+            {
+                if (this.Options.StockHaltSeconds[i] > 0)
+                {
+                    this.Options.StockHaltSeconds[i]--;
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                this.SaveSettings();
+                this.RefreshStockOverlay();
+            }
         }
 
         /// <summary>현재 실행 중에 쌓인 최근 주가를 오버레이에 넘긴다.</summary>
@@ -3241,6 +3375,11 @@ namespace PokemonTaskbar
             {
                 this.marketTimer.Stop();
                 this.marketTimer.Dispose();
+            }
+            if (this.haltTimer != null)
+            {
+                this.haltTimer.Stop();
+                this.haltTimer.Dispose();
             }
             if (this.tray != null)
             {

@@ -17,6 +17,9 @@ DEFAULTS = {
     "speed": 55.0,
     "offset": 0,
     "on_taskbar": False,
+    "coins": 30,
+    "food": 0,
+    "growth_drops": 0,
 }
 
 
@@ -75,6 +78,10 @@ def parse_text(text, known_species=None):
                 values["offset"] = int(raw)
             elif name == "on_taskbar":
                 values["on_taskbar"] = raw.lower() in ("1", "true", "yes", "on")
+            elif name in ("coins", "food", "growth_drops"):
+                number = int(raw)
+                if number >= 0:
+                    values[name] = number
         except ValueError:
             continue          # 숫자가 아니면 기본값을 그대로 둔다
     return values
@@ -89,6 +96,9 @@ def format_text(values):
         "speed = %g" % values["speed"],
         "offset = %d" % values["offset"],
         "on_taskbar = %s" % ("true" if values["on_taskbar"] else "false"),
+        "coins = %d" % values["coins"],
+        "food = %d" % values["food"],
+        "growth_drops = %d" % values["growth_drops"],
         "",
     ])
 

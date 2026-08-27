@@ -65,6 +65,11 @@ FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라
 EVOLVE_PET_NEED = 8.0       # 이만큼 쓰다듬으면 친밀도 조건을 채운다
 EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
 EVOLVE_WALK_NEED = 600.0    # 이만큼 걸으면 산책 조건을 채운다(px)
+COINS_PER_PET = 1           # 한 번 쓰다듬을 때마다 받는 포켓코인
+COIN_WALK_DISTANCE = 100.0  # 이만큼 걸을 때마다 받는 포켓코인
+FOOD_COST = 4               # 포켓푸드 한 개 가격
+FOOD_FRIENDSHIP = 2.0       # 포켓푸드 한 개가 채우는 친밀도
+GROWTH_DROP_COST = 25       # 성장의 물방울 한 개 가격
 EVOLVE_FLASHES = 7          # 두 모습을 번갈아 번쩍이는 횟수
 EVOLVE_FIRST_SEC = 0.30     # 처음 번쩍임 간격
 EVOLVE_LAST_SEC = 0.07      # 마지막 번쩍임 간격 (점점 빨라진다)
@@ -484,12 +489,23 @@ class PokemonPet:
         menu.add_cascade(label="포켓몬 추가", menu=choose)
         menu.add_command(label="이 포켓몬 보내주기", command=self.release)
 
+        # 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 갱신한다.
+        shop = tk.Menu(menu, tearoff=0)
+        shop.add_command(label="", command=app.buy_food)
+        self.food_buy_index = shop.index("end")
+        shop.add_command(label="", command=app.buy_growth_drop)
+        self.drop_buy_index = shop.index("end")
+        menu.add_cascade(label="", menu=shop)
+        self.shop_index = menu.index("end")
+        menu.add_command(label="", command=lambda: app.feed_pet(self))
+        self.feed_index = menu.index("end")
+
         # 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
         self.evolve_index = None
         if self.next_key:
             menu.add_command(label="", state="disabled", command=self.start_evolving)
             self.evolve_index = menu.index("end")
-            menu.configure(postcommand=self.refresh_menu)
+        menu.configure(postcommand=self.refresh_menu)
         menu.add_separator()
 
         sizes = tk.Menu(menu, tearoff=0)
@@ -591,12 +607,37 @@ class PokemonPet:
     def petted(self):
         """쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다."""
         self.spawn_emote("heart")
+        self.app.earn_coins(COINS_PER_PET)
         if not self.next_key or self.evolving:
             return
         self.friendship = min(EVOLVE_PET_NEED, self.friendship + EVOLVE_PER_PET)
 
+    def fed(self):
+        """포켓푸드를 먹었을 때. 하트가 뜨고 친밀도가 크게 오른다."""
+        self.spawn_emote("heart")
+        if not self.next_key or self.evolving:
+            return
+        self.friendship = min(EVOLVE_PET_NEED, self.friendship + FOOD_FRIENDSHIP)
+
     def refresh_menu(self):
-        """메뉴를 열 때마다 진화 항목을 지금 상태로 고쳐 쓴다."""
+        """메뉴를 열 때마다 상점과 진화 항목을 지금 상태로 고쳐 쓴다."""
+        self.menu.entryconfigure(
+            self.shop_index, label="상점 (포켓코인 %d)" % self.app.coins
+        )
+        self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
+            self.food_buy_index,
+            label="포켓푸드 구매 — %d코인" % FOOD_COST,
+            state="normal" if self.app.coins >= FOOD_COST else "disabled",
+        )
+        self.menu.nametowidget(self.menu.entrycget(self.shop_index, "menu")).entryconfigure(
+            self.drop_buy_index,
+            label="성장의 물방울 구매 — %d코인" % GROWTH_DROP_COST,
+            state="normal" if self.app.coins >= GROWTH_DROP_COST else "disabled",
+        )
+        self.menu.entryconfigure(
+            self.feed_index, label="포켓푸드 주기 (%d개)" % self.app.food,
+            state="normal" if self.app.food else "disabled",
+        )
         if self.evolve_index is None:
             return
         name = POKEMON[self.next_key].name_ko
@@ -612,6 +653,8 @@ class PokemonPet:
                 needs.append("%d번 더 쓰다듬기" % self.pets_left())
             if self.walk_left():
                 needs.append("%dpx 더 산책" % self.walk_left())
+            if not self.app.growth_drops:
+                needs.append("성장의 물방울 1개")
             label = "%s까지 %s" % (name, " · ".join(needs))
             state = "disabled"
         self.menu.entryconfigure(self.evolve_index, label=label, state=state)
@@ -739,6 +782,7 @@ class PokemonPet:
         actual = abs(self.x - before_x)
         self.gait_distance += actual
         self.walked = min(EVOLVE_WALK_NEED, self.walked + actual)
+        self.app.earn_walk_coins(actual)
         return actual
 
     def begin_stop(self, kind, turn_direction=None):
@@ -1027,6 +1071,7 @@ class PokemonPet:
             bool(self.next_key)
             and self.friendship >= EVOLVE_PET_NEED
             and self.walked >= EVOLVE_WALK_NEED
+            and self.app.growth_drops > 0
             and not self.evolving
         )
 
@@ -1043,6 +1088,8 @@ class PokemonPet:
         if not self.can_evolve():
             return
         self.evolution_images()
+        self.app.growth_drops -= 1
+        self.app.save_settings()
         self.evolving = True
         self.evolve_step = 0
         self.evolve_timer = EVOLVE_FIRST_SEC
@@ -1293,6 +1340,10 @@ class App:
         self.paused = False
         self.heartbeat_id = None
         self.settings_path = args.settings
+        self.coins = args.coins
+        self.food = args.food
+        self.growth_drops = args.growth_drops
+        self.coin_walk_progress = 0.0
         # 메뉴의 체크/선택 표시를 여러 창이 함께 쓰도록 앱이 들고 있는다.
         self.scale_var = tk.DoubleVar(master=self.root, value=self.scale)
         self.speed_var = tk.DoubleVar(master=self.root, value=self.speed)
@@ -1316,11 +1367,53 @@ class App:
             "speed": self.speed,
             "offset": self.offset,
             "on_taskbar": self.on_taskbar,
+            "coins": self.coins,
+            "food": self.food,
+            "growth_drops": self.growth_drops,
         }
 
     def save_settings(self):
         """지금 상태를 파일에 남긴다. 실패해도 그냥 넘어간다."""
         settings_file.save(self.current_settings(), self.settings_path)
+
+    def earn_coins(self, amount):
+        """포켓코인을 얻고 설정 파일에도 남긴다."""
+        if amount <= 0:
+            return
+        self.coins += amount
+        self.save_settings()
+
+    def earn_walk_coins(self, distance):
+        """스스로 걸은 100px마다 포켓코인 하나를 얻는다."""
+        self.coin_walk_progress += distance
+        amount = int(self.coin_walk_progress // COIN_WALK_DISTANCE)
+        if amount:
+            self.coin_walk_progress -= amount * COIN_WALK_DISTANCE
+            self.earn_coins(amount)
+
+    def buy_food(self):
+        """포켓푸드를 한 개 산다."""
+        if self.coins < FOOD_COST:
+            return
+        self.coins -= FOOD_COST
+        self.food += 1
+        self.save_settings()
+
+    def buy_growth_drop(self):
+        """진화에 필요한 성장의 물방울을 한 개 산다."""
+        if self.coins < GROWTH_DROP_COST:
+            return
+        self.coins -= GROWTH_DROP_COST
+        self.growth_drops += 1
+        self.save_settings()
+
+    def feed_pet(self, pet):
+        """포켓푸드 하나를 골라 둔 포켓몬에게 준다."""
+        if not self.food or pet.evolving:
+            return
+        self.food -= 1
+        pet.fed()
+        self.save_settings()
 
     def set_scale(self, scale):
         """크기를 바꾸고 지금 있는 포켓몬을 그대로 다시 만든다."""
@@ -1568,6 +1661,9 @@ def parse_args(argv=None):
         args.on_taskbar = saved["on_taskbar"]
     if args.count is None:
         args.count = len(saved["species"]) if not args.species else 1
+    args.coins = saved["coins"]
+    args.food = saved["food"]
+    args.growth_drops = saved["growth_drops"]
 
     if args.scale <= 0:
         parser.error("--scale 은 0보다 커야 합니다")

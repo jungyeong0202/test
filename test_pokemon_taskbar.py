@@ -63,6 +63,9 @@ class SettingsTest(unittest.TestCase):
         values["speed"] = 95.0
         values["offset"] = 12
         values["on_taskbar"] = True
+        values["coins"] = 41
+        values["food"] = 3
+        values["growth_drops"] = 2
         self.assertTrue(settings_file.save(values, self.path))
         self.assertEqual(settings_file.load(self.path), values)
 
@@ -759,6 +762,7 @@ class EvolutionTest(unittest.TestCase):
         for _ in range(int(pt.EVOLVE_PET_NEED)):
             self.pet.petted()
         self.pet.walked = pt.EVOLVE_WALK_NEED
+        self.app.growth_drops = 1
 
     def _start_evolving(self):
         self._meet_requirements()
@@ -799,6 +803,40 @@ class EvolutionTest(unittest.TestCase):
         self.assertFalse(self.pet.evolving)
         self.pet.start_evolving()
         self.assertTrue(self.pet.evolving)
+
+    def test_growth_drop_is_required_for_evolution(self):
+        self._meet_requirements()
+        self.app.growth_drops = 0
+        self.assertFalse(self.pet.can_evolve())
+
+    def test_evolution_uses_one_growth_drop(self):
+        self._meet_requirements()
+        self.pet.start_evolving()
+        self.assertEqual(self.app.growth_drops, 0)
+
+    def test_petting_and_walking_earn_coins(self):
+        before = self.app.coins
+        self.pet.petted()
+        self.assertEqual(self.app.coins, before + pt.COINS_PER_PET)
+        self.pet.x = self.pet.max_x / 2.0
+        self.pet.direction = 1
+        self.pet.advance_walk(pt.COIN_WALK_DISTANCE)
+        self.assertEqual(self.app.coins, before + pt.COINS_PER_PET + 1)
+
+    def test_food_can_be_bought_and_fed(self):
+        self.app.coins = pt.FOOD_COST
+        self.app.buy_food()
+        self.assertEqual(self.app.coins, 0)
+        self.assertEqual(self.app.food, 1)
+        self.app.feed_pet(self.pet)
+        self.assertEqual(self.app.food, 0)
+        self.assertEqual(self.pet.friendship, pt.FOOD_FRIENDSHIP)
+
+    def test_growth_drop_can_be_bought(self):
+        self.app.coins = pt.GROWTH_DROP_COST
+        self.app.buy_growth_drop()
+        self.assertEqual(self.app.coins, 0)
+        self.assertEqual(self.app.growth_drops, 1)
 
     def test_start_evolving_rejects_unmet_conditions(self):
         self.pet.start_evolving()

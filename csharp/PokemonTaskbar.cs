@@ -22,6 +22,9 @@ namespace PokemonTaskbar
         public double Speed = 55.0;
         public int Offset = 0;
         public bool OnTaskbar = false;
+        public int Coins = 30;
+        public int Food = 0;
+        public int GrowthDrops = 0;
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
         public bool ShowList = false;
@@ -222,6 +225,27 @@ namespace PokemonTaskbar
                         string flag = value.ToLowerInvariant();
                         options.OnTaskbar = flag == "1" || flag == "true" || flag == "yes" || flag == "on";
                         break;
+                    case "coins":
+                        if (int.TryParse(value, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out whole) && whole >= 0)
+                        {
+                            options.Coins = whole;
+                        }
+                        break;
+                    case "food":
+                        if (int.TryParse(value, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out whole) && whole >= 0)
+                        {
+                            options.Food = whole;
+                        }
+                        break;
+                    case "growth_drops":
+                        if (int.TryParse(value, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out whole) && whole >= 0)
+                        {
+                            options.GrowthDrops = whole;
+                        }
+                        break;
                 }
             }
         }
@@ -245,6 +269,9 @@ namespace PokemonTaskbar
                 lines.Add("speed = " + options.Speed.ToString("G", CultureInfo.InvariantCulture));
                 lines.Add("offset = " + options.Offset.ToString(CultureInfo.InvariantCulture));
                 lines.Add("on_taskbar = " + (options.OnTaskbar ? "true" : "false"));
+                lines.Add("coins = " + options.Coins.ToString(CultureInfo.InvariantCulture));
+                lines.Add("food = " + options.Food.ToString(CultureInfo.InvariantCulture));
+                lines.Add("growth_drops = " + options.GrowthDrops.ToString(CultureInfo.InvariantCulture));
                 File.WriteAllLines(path, lines.ToArray());
             }
             catch (Exception)
@@ -879,6 +906,27 @@ namespace PokemonTaskbar
 
             menu.Items.Add("이 포켓몬 보내주기", null, delegate { world.Remove(this); });
 
+            // 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 새로 만든다.
+            ToolStripMenuItem shop = new ToolStripMenuItem(
+                string.Format("상점 (포켓코인 {0})", world.Options.Coins));
+            ToolStripMenuItem buyFood = new ToolStripMenuItem(
+                string.Format("포켓푸드 구매 — {0}코인", PetWorld.FoodCost), null,
+                delegate { world.BuyFood(); });
+            buyFood.Enabled = world.Options.Coins >= PetWorld.FoodCost;
+            shop.DropDownItems.Add(buyFood);
+            ToolStripMenuItem buyGrowthDrop = new ToolStripMenuItem(
+                string.Format("성장의 물방울 구매 — {0}코인", PetWorld.GrowthDropCost), null,
+                delegate { world.BuyGrowthDrop(); });
+            buyGrowthDrop.Enabled = world.Options.Coins >= PetWorld.GrowthDropCost;
+            shop.DropDownItems.Add(buyGrowthDrop);
+            menu.Items.Add(shop);
+
+            ToolStripMenuItem feed = new ToolStripMenuItem(
+                string.Format("포켓푸드 주기 ({0}개)", world.Options.Food), null,
+                delegate { world.Feed(this); });
+            feed.Enabled = world.Options.Food > 0 && !this.evolving;
+            menu.Items.Add(feed);
+
             // 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
             if (this.nextKey != null)
             {
@@ -904,6 +952,10 @@ namespace PokemonTaskbar
                     if (this.WalkLeft() > 0)
                     {
                         needs.Add(string.Format("{0}px 더 산책", this.WalkLeft()));
+                    }
+                    if (world.Options.GrowthDrops <= 0)
+                    {
+                        needs.Add("성장의 물방울 1개");
                     }
                     this.evolveItem.Enabled = false;
                     this.evolveItem.Text = string.Format("{0}까지 {1}", name,
@@ -1239,6 +1291,9 @@ namespace PokemonTaskbar
 
         /// <summary>어떤 포켓몬인지(설정 저장에 쓴다).</summary>
         public string SpriteKey { get; private set; }
+
+        /// <summary>진화 연출 중인지. 먹이를 줄 수 없게 하는 데 쓴다.</summary>
+        public bool IsEvolving { get { return this.evolving; } }
 
         /// <summary>진화하면 무엇이 되는지(키). 진화하지 않으면 null.</summary>
         public string NextKey
@@ -1652,6 +1707,7 @@ namespace PokemonTaskbar
             return this.nextKey != null
                 && this.friendship >= EvolvePetNeed
                 && this.walked >= EvolveWalkNeed
+                && this.world.Options.GrowthDrops > 0
                 && !this.evolving;
         }
 
@@ -1676,6 +1732,8 @@ namespace PokemonTaskbar
                 return;
             }
             this.PrepareWhite();
+            this.world.Options.GrowthDrops--;
+            this.world.SaveSettings();
             this.evolving = true;
             this.evolveStep = 0;
             this.evolveTimer = EvolveFirstSeconds;
@@ -1728,11 +1786,24 @@ namespace PokemonTaskbar
         private void Petted()
         {
             this.SpawnEmote("heart");
+            this.world.EarnCoins(PetWorld.CoinsPerPet);
             if (this.nextKey == null || this.evolving)
             {
                 return;
             }
             this.friendship = Math.Min(EvolvePetNeed, this.friendship + EvolvePerPet);
+        }
+
+        /// <summary>포켓푸드를 먹었을 때. 하트가 뜨고 친밀도가 크게 오른다.</summary>
+        public void Fed()
+        {
+            this.SpawnEmote("heart");
+            if (this.nextKey == null || this.evolving)
+            {
+                return;
+            }
+            this.friendship = Math.Min(EvolvePetNeed,
+                this.friendship + PetWorld.FoodFriendship);
         }
 
         /// <summary>걸은 만큼 옮기고, 실제 이동 거리로 보행 프레임과 산책을 진행한다.</summary>
@@ -1744,6 +1815,7 @@ namespace PokemonTaskbar
             double actual = Math.Abs(this.x - beforeX);
             this.gaitDistance += actual;
             this.walked = Math.Min(EvolveWalkNeed, this.walked + actual);
+            this.world.EarnWalkCoins(actual);
             return actual;
         }
 
@@ -2107,9 +2179,16 @@ namespace PokemonTaskbar
     /// <summary>펫 여러 마리를 관리한다.</summary>
     public class PetWorld : ApplicationContext
     {
+        public const int CoinsPerPet = 1;          // 한 번 쓰다듬을 때마다 받는 포켓코인
+        public const double CoinWalkDistance = 100.0; // 이만큼 걸을 때마다 받는 포켓코인
+        public const int FoodCost = 4;             // 포켓푸드 한 개 가격
+        public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
+        public const int GrowthDropCost = 25;      // 성장의 물방울 한 개 가격
+
         public readonly Options Options;
         public readonly Random Random = new Random();
         private readonly List<PetForm> pets = new List<PetForm>();
+        private double coinWalkProgress;
         private bool quitting;
         private bool rebuilding;
         public bool Paused;
@@ -2279,6 +2358,65 @@ namespace PokemonTaskbar
                 species.Add("pikachu");
             }
             SettingsFile.Save(this.Options, species);
+        }
+
+        /// <summary>포켓코인을 얻고 설정 파일에도 남긴다.</summary>
+        public void EarnCoins(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+            this.Options.Coins += amount;
+            this.SaveSettings();
+        }
+
+        /// <summary>스스로 걸은 100px마다 포켓코인 하나를 얻는다.</summary>
+        public void EarnWalkCoins(double distance)
+        {
+            this.coinWalkProgress += distance;
+            int amount = (int)(this.coinWalkProgress / CoinWalkDistance);
+            if (amount > 0)
+            {
+                this.coinWalkProgress -= amount * CoinWalkDistance;
+                this.EarnCoins(amount);
+            }
+        }
+
+        /// <summary>포켓푸드를 한 개 산다.</summary>
+        public void BuyFood()
+        {
+            if (this.Options.Coins < FoodCost)
+            {
+                return;
+            }
+            this.Options.Coins -= FoodCost;
+            this.Options.Food++;
+            this.SaveSettings();
+        }
+
+        /// <summary>진화에 필요한 성장의 물방울을 한 개 산다.</summary>
+        public void BuyGrowthDrop()
+        {
+            if (this.Options.Coins < GrowthDropCost)
+            {
+                return;
+            }
+            this.Options.Coins -= GrowthDropCost;
+            this.Options.GrowthDrops++;
+            this.SaveSettings();
+        }
+
+        /// <summary>포켓푸드 하나를 골라 둔 포켓몬에게 준다.</summary>
+        public void Feed(PetForm pet)
+        {
+            if (this.Options.Food <= 0 || pet.IsEvolving)
+            {
+                return;
+            }
+            this.Options.Food--;
+            pet.Fed();
+            this.SaveSettings();
         }
 
         /// <summary>크기를 바꾸고 지금 있는 포켓몬을 그대로 다시 만든다.</summary>

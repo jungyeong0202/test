@@ -156,6 +156,7 @@ namespace PokemonTaskbar.Tests
                 Poses();
                 Economy();
                 StockText();
+                StockNews();
                 Lifecycle();
                 Evolution();
             }
@@ -663,6 +664,133 @@ namespace PokemonTaskbar.Tests
                 "0원 (0.0%)", "변동이 없을 때");
             Check.That(StockOverlayForm.PortfolioChangeText(330, 1.9).EndsWith(")"),
                 "수익률이 괄호로 닫힌다");
+        }
+
+        // --- 주식 소식 --------------------------------------------------------
+
+        private static void StockNews()
+        {
+            Check.Section("주식 소식");
+
+            // 종목마다 소식이 여러 개 있어야 한다. 하나뿐이면 몇 분 만에 다 보고
+            // 나서 "또 그 소식" 이 된다.
+            bool enough = true;
+            bool distinct = true;
+            for (int listing = 0; listing < PetWorld.StockNames.Length; listing++)
+            {
+                foreach (bool positive in new bool[] { true, false })
+                {
+                    string[] table = PetWorld.StockNewsForTest(listing, positive);
+                    if (table.Length < 3)
+                    {
+                        enough = false;
+                    }
+                    for (int a = 0; a < table.Length; a++)
+                    {
+                        for (int b = a + 1; b < table.Length; b++)
+                        {
+                            if (table[a] == table[b])
+                            {
+                                distinct = false;
+                            }
+                        }
+                    }
+                }
+            }
+            Check.That(enough, "종목마다 호재·악재가 세 개 이상 있다");
+            Check.That(distinct, "한 종목 안에 같은 소식이 겹치지 않는다");
+
+            // 업종 표
+            int[] sectors = PetWorld.StockSectorsForTest;
+            Check.Equal(sectors.Length, PetWorld.StockNames.Length,
+                "모든 종목에 업종이 있다");
+            int[] members = new int[PetWorld.SectorNamesForTest.Length];
+            bool known = true;
+            foreach (int sector in sectors)
+            {
+                if (sector < 0 || sector >= members.Length)
+                {
+                    known = false;
+                    continue;
+                }
+                members[sector]++;
+            }
+            Check.That(known, "업종 번호가 이름표 안에 있다");
+            bool twoEach = true;
+            foreach (int count in members)
+            {
+                if (count < 2)
+                {
+                    twoEach = false;
+                }
+            }
+            // 한 종목뿐인 업종이 있으면 "업종 사건" 이 개별 사건과 구별되지 않는다.
+            Check.That(twoEach, "업종마다 종목이 둘 이상이다");
+
+            // 소식표의 등락 범위: 호재는 오르고 악재는 내린다.
+            bool signs = true;
+            for (int sector = -1; sector < PetWorld.SectorNamesForTest.Length; sector++)
+            {
+                foreach (bool positive in new bool[] { true, false })
+                {
+                    foreach (int bound in PetWorld.BroadNewsRangeForTest(sector, positive))
+                    {
+                        if (positive ? bound <= 0 : bound >= 0)
+                        {
+                            signs = false;
+                        }
+                    }
+                }
+            }
+            Check.That(signs, "호재는 오르고 악재는 내리는 폭만 담고 있다");
+
+            TestWorld world = World("-p", "pikachu");
+            PetWorld app = world.World;
+
+            // 같은 종목·같은 방향이라도 폭이 매번 같으면 안 된다.
+            bool varies = false;
+            int first = app.StockEventPercentForTest(0, true);
+            for (int i = 0; i < 60; i++)
+            {
+                if (app.StockEventPercentForTest(0, true) != first)
+                {
+                    varies = true;
+                }
+            }
+            Check.That(varies, "같은 소식도 등락 폭이 매번 달라진다");
+
+            bool up = true;
+            bool down = true;
+            for (int i = 0; i < 60; i++)
+            {
+                if (app.StockEventPercentForTest(0, true) <= 0)
+                {
+                    up = false;
+                }
+                if (app.StockEventPercentForTest(0, false) >= 0)
+                {
+                    down = false;
+                }
+            }
+            Check.That(up, "호재는 언제나 오른다");
+            Check.That(down, "악재는 언제나 내린다");
+
+            // 국면이 그대로면 "전환" 이라고 알리지 않는다. 알리면 소식창이
+            // 바뀌지도 않은 국면 이야기로 가득 찬다.
+            bool quiet = true;
+            for (int i = 0; i < 200; i++)
+            {
+                int before = app.MarketRegime;
+                int announced = app.StockEventCount;
+                app.RollMarketRegimeForTest();
+                if (app.MarketRegime == before && app.StockEventCount != announced)
+                {
+                    quiet = false;
+                }
+            }
+            Check.That(quiet, "국면이 그대로면 전환을 알리지 않는다");
+
+            world.Dispose();
         }
 
         // --- 뒷정리 -----------------------------------------------------------

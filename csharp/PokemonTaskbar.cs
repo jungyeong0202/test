@@ -5207,6 +5207,11 @@ namespace PokemonTaskbar
         public const int MarketOpenSeconds = 60 * 60;
         public const int MarketClosedSeconds = 5 * 60;
         public const double StockEventChance = 0.13;
+        // 시장 전체 또는 한 업종이 통째로 움직이는 사건. 한 종목짜리 사건보다
+        // 드물게 둔다. 자주 나면 개별 종목을 고르는 재미가 없어진다.
+        public const double MarketEventChance = 0.08;
+        // 예고해 두고 나중에 결판나는 사건(루머·실적 발표).
+        public const double PendingEventChance = 0.10;
         public const double MarketTickScale = 0.70;
         public const double StockFeeRate = 0.02;
         public const int StockHaltSeconds = 20;
@@ -5284,6 +5289,100 @@ namespace PokemonTaskbar
             { 0, 0, 0, 0, 0, 0, .12, 0 };
         private static readonly double[] StockSecondaryNegative =
             { 1, 1, 1, 1, .82, 1.25, 1, 1 };
+        // --- 시장 전체 사건 -------------------------------------------------
+        //
+        // 예전에는 한 번에 한 종목만 흔들렸다. 그러다 보니 무슨 일이 나도 늘 같은
+        // 모양이었다. 시장 전체가 움직이는 날과, 같은 업종이 함께 움직이는 날을
+        // 넣어 장마다 결이 달라지게 한다.
+
+        /// <summary>종목이 속한 업종. 상장 순번(StockNames 차례)과 짝을 맞춘다.</summary>
+        private static readonly int[] StockSectors = {
+            0, 0, 1, 0,     // 피카츄전기, 꼬부기워터, 이상해씨농장, 파이리화력
+            2, 2, 3, 3,     // 메타몽랩, 뮤테크, 이브이패션, 고라파덕물류
+            1, 3, 1, 2,     // 럭키메디컬, 갸라도스해운, 잠만보식품, 팬텀게임즈
+        };
+        private static readonly string[] SectorNames = { "에너지", "생활", "기술", "유통" };
+
+        /// <summary>사건 하나. 문구와 등락 폭(최소~최대)을 함께 둔다.
+        ///
+        /// 폭을 범위로 두는 것이 중요하다. 고정값이면 몇 번 보고 나서 결과를
+        /// 외워 버려 놀라울 것이 없어진다.
+        /// </summary>
+        internal sealed class MarketNews
+        {
+            public readonly string Text;
+            public readonly int Least;
+            public readonly int Most;
+
+            public MarketNews(string text, int least, int most)
+            {
+                this.Text = text;
+                this.Least = least;
+                this.Most = most;
+            }
+        }
+
+        private static readonly MarketNews[] WholeMarketGood = {
+            new MarketNews("포켓몬 리그 개막 · 관중 특수", 5, 13),
+            new MarketNews("금리 인하 · 자금이 시장으로", 7, 16),
+            new MarketNews("관광객 급증 · 소비 심리 회복", 4, 11),
+            new MarketNews("풍년 예보 · 물가 안정", 3, 9),
+            new MarketNews("대형 축제 개최", 4, 12),
+            new MarketNews("무역 협정 타결", 6, 14),
+        };
+        private static readonly MarketNews[] WholeMarketBad = {
+            new MarketNews("지진 발생 · 시설 피해", -15, -6),
+            new MarketNews("금리 인상 · 자금 이탈", -16, -7),
+            new MarketNews("한파 경보 · 조업 차질", -12, -5),
+            new MarketNews("전염병 유행 · 외출 자제", -18, -8),
+            new MarketNews("대규모 정전", -14, -6),
+            new MarketNews("환율 급등 · 수입 물가 상승", -13, -5),
+        };
+        private static readonly MarketNews[][] SectorGood = {
+            new MarketNews[] {                      // 에너지
+                new MarketNews("전력 수요 급증", 10, 22),
+                new MarketNews("발전 단가 하락", 8, 18),
+                new MarketNews("신규 발전소 승인", 12, 25),
+            },
+            new MarketNews[] {                      // 생활
+                new MarketNews("건강 열풍", 9, 19),
+                new MarketNews("수확 호조", 8, 17),
+                new MarketNews("신제품 완판", 11, 23),
+            },
+            new MarketNews[] {                      // 기술
+                new MarketNews("신기술 표준 채택", 13, 28),
+                new MarketNews("대형 투자 유치", 12, 26),
+                new MarketNews("특허 분쟁 승소", 10, 21),
+            },
+            new MarketNews[] {                      // 유통
+                new MarketNews("물동량 사상 최대", 10, 20),
+                new MarketNews("신규 노선 개설", 9, 19),
+                new MarketNews("유가 하락 · 운송비 절감", 8, 17),
+            },
+        };
+        private static readonly MarketNews[][] SectorBad = {
+            new MarketNews[] {                      // 에너지
+                new MarketNews("송전망 사고", -21, -9),
+                new MarketNews("연료비 급등", -19, -8),
+                new MarketNews("발전 설비 점검 명령", -16, -7),
+            },
+            new MarketNews[] {                      // 생활
+                new MarketNews("원재료 값 급등", -18, -8),
+                new MarketNews("위생 규제 강화", -16, -7),
+                new MarketNews("작황 부진", -20, -9),
+            },
+            new MarketNews[] {                      // 기술
+                new MarketNews("보안 사고", -26, -11),
+                new MarketNews("규제 심사 착수", -24, -10),
+                new MarketNews("핵심 인력 이탈", -20, -9),
+            },
+            new MarketNews[] {                      // 유통
+                new MarketNews("항만 파업", -19, -8),
+                new MarketNews("운임 급락", -18, -8),
+                new MarketNews("폭풍 · 항로 폐쇄", -21, -9),
+            },
+        };
+
         private static readonly string[] MarketRegimeNames = {
             "횡보장", "상승장", "하락장", "과열장", "공포장"
         };
@@ -5389,8 +5488,15 @@ namespace PokemonTaskbar
         private Timer haltTimer;
         private string stockEvent = "";
         private readonly List<string> stockEventHistory = new List<string>();
+        // 예고해 두고 나중에 결판나는 사건. 지금 팔지 기다릴지 정할 틈을 준다.
+        private int pendingIndex = -1;
+        private int pendingTicks;          // 시장 갱신 몇 번 뒤에 결판나는가
+        private bool pendingIsRumour;      // 루머(참/거짓)인가, 실적 발표(크게 등락)인가
+        private double pendingSeed;        // 루머로 미리 움직여 둔 폭
+        private string pendingText = "";
         private int marketRegime;
         private int marketRegimeUpdates = 6;
+        private int stockEventCount;
         private int marketSecondsLeft = MarketUpdateMilliseconds / 1000;
         private bool marketOpen = true;
         private int marketSessionSecondsLeft = MarketOpenSeconds;
@@ -5769,10 +5875,24 @@ namespace PokemonTaskbar
                     active.Add(i);
                 }
             }
+            // 한 번에 하나만 터뜨린다. 전체 사건과 개별 사건이 겹치면 무엇 때문에
+            // 움직였는지 알 수 없어진다.
             int eventIndex = -1;
             double eventPercent = 0.0;
             string eventText = "";
-            if (active.Count > 0 && this.Random.NextDouble() < StockEventChance)
+            double[] broadPercent = new double[StockSlotCount];
+            // 예고해 둔 사건이 있으면 그것부터 결판낸다.
+            string broadText = this.ResolvePendingEvent(broadPercent);
+            if (broadText.Length == 0)
+            {
+                broadText = this.RollBroadEvent(active, broadPercent);
+            }
+            if (broadText.Length == 0)
+            {
+                broadText = this.RollPendingEvent(active, broadPercent);
+            }
+            if (broadText.Length == 0
+                && active.Count > 0 && this.Random.NextDouble() < StockEventChance)
             {
                 eventIndex = active[this.Random.Next(active.Count)];
                 bool positive = this.Random.Next(2) == 0;
@@ -5800,6 +5920,7 @@ namespace PokemonTaskbar
                 }
                 int volatility = this.StockVolatility(i);
                 double change = this.StockMarketChange(i, volatility);
+                change += broadPercent[i];
                 if (i == eventIndex)
                 {
                     change += eventPercent;
@@ -5824,7 +5945,13 @@ namespace PokemonTaskbar
                     this.stockHistory[i].RemoveAt(0);
                 }
             }
-            if (eventIndex >= 0 && !this.IsStockDelisted(eventIndex))
+            if (broadText.Length > 0)
+            {
+                // 전체·업종 사건은 거래를 멈추지 않는다. 한 종목이 받은 충격이 아니라
+                // 장 전체가 같이 움직인 것이라, 오히려 그때 사고팔 수 있어야 한다.
+                this.AnnounceStockEvent(broadText);
+            }
+            else if (eventIndex >= 0 && !this.IsStockDelisted(eventIndex))
             {
                 this.Options.StockHaltSeconds[eventIndex] = StockHaltSeconds;
                 this.AnnounceStockEvent(eventText + " · 변동성 완화장치 발동(20초 거래 정지)");
@@ -5841,6 +5968,70 @@ namespace PokemonTaskbar
         public string MarketRegimeLabel
         {
             get { return MarketRegimeNames[this.marketRegime]; }
+        }
+
+        /// <summary>테스트용. 지금까지 알린 소식의 수. 같은 문구가 두 번 나와도 는다.</summary>
+        internal int StockEventCount
+        {
+            get { return this.stockEventCount; }
+        }
+
+        /// <summary>테스트용. 지금 국면 번호.</summary>
+        internal int MarketRegime
+        {
+            get { return this.marketRegime; }
+        }
+
+        /// <summary>테스트용. 국면 굴리기를 한 번 돌린다.</summary>
+        internal void RollMarketRegimeForTest()
+        {
+            this.marketRegimeUpdates = 1;
+            this.UpdateMarketRegime();
+        }
+
+        /// <summary>테스트용. 한 종목의 소식 목록.</summary>
+        internal static string[] StockNewsForTest(int listing, bool positive)
+        {
+            return (positive ? StockGoodNews : StockBadNews)[listing];
+        }
+
+        /// <summary>테스트용. 상장 순번 → 업종 번호 표.</summary>
+        internal static int[] StockSectorsForTest
+        {
+            get { return StockSectors; }
+        }
+
+        /// <summary>테스트용. 업종 이름.</summary>
+        internal static string[] SectorNamesForTest
+        {
+            get { return SectorNames; }
+        }
+
+        /// <summary>테스트용. 시장 전체·업종 소식표에 담긴 등락 범위.</summary>
+        internal static int[] BroadNewsRangeForTest(int sector, bool positive)
+        {
+            MarketNews[] table;
+            if (sector < 0)
+            {
+                table = positive ? WholeMarketGood : WholeMarketBad;
+            }
+            else
+            {
+                table = (positive ? SectorGood : SectorBad)[sector];
+            }
+            List<int> bounds = new List<int>();
+            foreach (MarketNews news in table)
+            {
+                bounds.Add(news.Least);
+                bounds.Add(news.Most);
+            }
+            return bounds.ToArray();
+        }
+
+        /// <summary>테스트용. 종목 사건의 등락 폭을 한 번 뽑는다.</summary>
+        internal int StockEventPercentForTest(int index, bool positive)
+        {
+            return this.StockEventPercent(index, positive);
         }
 
         public int MarketSecondsLeft
@@ -5909,6 +6100,7 @@ namespace PokemonTaskbar
             }
             int roll = this.Random.Next(total);
             int running = 0;
+            int before = this.marketRegime;
             for (int i = 0; i < MarketRegimeWeights.Length; i++)
             {
                 running += MarketRegimeWeights[i];
@@ -5919,7 +6111,12 @@ namespace PokemonTaskbar
                 }
             }
             this.marketRegimeUpdates = this.Random.Next(6, 19);
-            this.AnnounceStockEvent("시장 국면 전환: " + this.MarketRegimeLabel);
+            // 같은 국면이 다시 뽑히는 일이 잦다(횡보장 쪽 가중치가 크다). 그때마다
+            // "전환" 이라고 알리면 소식창이 바뀌지도 않은 국면 이야기로 가득 찬다.
+            if (this.marketRegime != before)
+            {
+                this.AnnounceStockEvent("시장 국면 전환: " + this.MarketRegimeLabel);
+            }
         }
 
         private double StockMarketChange(int index, int volatility)
@@ -6207,6 +6404,7 @@ namespace PokemonTaskbar
         private void AnnounceStockEvent(string text)
         {
             this.stockEvent = text;
+            this.stockEventCount++;
             this.stockEventHistory.Insert(0, DateTime.Now.ToString("HH:mm") + "  " + text);
             if (this.stockEventHistory.Count > 5)
             {
@@ -6214,24 +6412,227 @@ namespace PokemonTaskbar
             }
         }
 
+        private static readonly string[] RumourTexts = {
+            "인수합병설", "대형 계약설", "신제품 유출설", "실적 개선설", "지분 매각설"
+        };
+
+        /// <summary>결판날 때가 된 예고 사건을 처리한다. 없으면 빈 문자열.</summary>
+        private string ResolvePendingEvent(double[] broadPercent)
+        {
+            if (this.pendingIndex < 0)
+            {
+                return "";
+            }
+            if (this.IsStockDelisted(this.pendingIndex))
+            {
+                this.pendingIndex = -1;      // 그 사이 없어졌다
+                return "";
+            }
+            this.pendingTicks--;
+            if (this.pendingTicks > 0)
+            {
+                return "";
+            }
+
+            int index = this.pendingIndex;
+            string name = this.StockName(index);
+            this.pendingIndex = -1;
+
+            if (this.pendingIsRumour)
+            {
+                if (this.Random.Next(2) == 0)
+                {
+                    // 사실이었다. 미리 오른 만큼 더 간다.
+                    double more = this.StockEventChange(index, this.pendingSeed * 1.6);
+                    broadPercent[index] = more;
+                    return name + " " + this.pendingText + " 공식 확인!  "
+                        + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", more);
+                }
+                // 사실무근. 미리 움직인 만큼 되돌린다.
+                double back = this.StockEventChange(index, -this.pendingSeed * 1.1);
+                broadPercent[index] = back;
+                return name + " " + this.pendingText + " 사실무근으로 밝혀짐  "
+                    + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", back);
+            }
+
+            // 실적 발표. 예고만 해 두었다가 이때 크게 움직인다.
+            //
+            // 1.2 배까지 키우되 50% 에서 끊는다. 기준 폭이 큰 종목(뮤테크)에 상한 쪽
+            // 값이 뽑히고 성격 배수까지 겹치면 한 번에 -60% 가 나와, 예고를 보고
+            // 팔 겨를도 없이 상장폐지까지 밀려 버린다.
+            bool good = this.Random.Next(2) == 0;
+            double percent = this.StockEventChange(index,
+                this.StockEventPercent(index, good) * 1.2);
+            if (percent > 50.0) { percent = 50.0; }
+            if (percent < -50.0) { percent = -50.0; }
+            broadPercent[index] = percent;
+            return name + " 실적 " + (good ? "어닝 서프라이즈!" : "어닝 쇼크!") + "  "
+                + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", percent);
+        }
+
+        /// <summary>새 예고 사건을 굴린다. 루머는 지금 조금 움직이고, 실적은 예고만 한다.</summary>
+        private string RollPendingEvent(List<int> active, double[] broadPercent)
+        {
+            if (this.pendingIndex >= 0 || active.Count == 0
+                || this.Random.NextDouble() >= PendingEventChance)
+            {
+                return "";
+            }
+            int index = active[this.Random.Next(active.Count)];
+            this.pendingIndex = index;
+            this.pendingTicks = 3 + this.Random.Next(4);      // 30~60초 뒤
+            this.pendingIsRumour = this.Random.Next(2) == 0;
+            string name = this.StockName(index);
+            int after = this.pendingTicks * (MarketUpdateMilliseconds / 1000);
+
+            if (this.pendingIsRumour)
+            {
+                this.pendingText = RumourTexts[this.Random.Next(RumourTexts.Length)];
+                // 루머만으로도 조금 움직인다. 확인되면 더 가고, 아니면 되돌린다.
+                this.pendingSeed = 4 + this.Random.Next(7);
+                double now = this.StockEventChange(index, this.pendingSeed);
+                broadPercent[index] = now;
+                return name + " " + this.pendingText + " 확산  "
+                    + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", now)
+                    + " · " + after + "초 뒤 확인";
+            }
+
+            this.pendingText = "";
+            this.pendingSeed = 0.0;
+            return name + " " + after + "초 뒤 실적 발표 예정";
+        }
+
+        /// <summary>업종 번호. 상장 순번으로 정해진다.</summary>
+        internal int StockSector(int index)
+        {
+            return StockSectors[this.Options.StockListingIds[index] % StockSectors.Length];
+        }
+
+        /// <summary>사건 하나에서 실제 등락 폭을 뽑는다. 같은 소식도 매번 크기가 다르다.</summary>
+        private double PickNewsPercent(MarketNews news)
+        {
+            int span = news.Most - news.Least;
+            return news.Least + (span <= 0 ? 0 : this.Random.Next(span + 1));
+        }
+
+        /// <summary>시장 전체 또는 한 업종을 흔드는 사건을 굴린다.
+        ///
+        /// 일어났으면 종목별 추가 등락을 broadPercent 에 채우고 알릴 문구를 돌려준다.
+        /// 일어나지 않았으면 빈 문자열.
+        /// </summary>
+        private string RollBroadEvent(List<int> active, double[] broadPercent)
+        {
+            if (active.Count == 0 || this.Random.NextDouble() >= MarketEventChance)
+            {
+                return "";
+            }
+            bool positive = this.Random.Next(2) == 0;
+            bool wholeMarket = this.Random.Next(2) == 0;
+
+            if (wholeMarket)
+            {
+                MarketNews[] table = positive ? WholeMarketGood : WholeMarketBad;
+                MarketNews news = table[this.Random.Next(table.Length)];
+                double percent = this.PickNewsPercent(news);
+                foreach (int i in active)
+                {
+                    // 종목 성격에 따라 같은 소식도 다르게 받는다.
+                    broadPercent[i] = this.StockEventChange(i, percent);
+                }
+                return "전체 시장 · " + news.Text + "  "
+                    + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", percent);
+            }
+
+            // 업종 사건: 그 업종에 속한 종목만 함께 움직인다.
+            int sector = this.Random.Next(SectorNames.Length);
+            List<int> members = new List<int>();
+            foreach (int i in active)
+            {
+                if (this.StockSector(i) == sector)
+                {
+                    members.Add(i);
+                }
+            }
+            // 한 종목만 남은 업종은 "업종 사건" 이라 부를 수 없다. 상장폐지나 거래
+            // 정지로 식구가 줄었을 때 "(1종목)" 이라고 알리면 개별 사건과 구별이
+            // 안 된다. 그럴 때는 사건을 접고 개별 사건에 자리를 넘긴다.
+            if (members.Count < 2)
+            {
+                return "";
+            }
+            MarketNews[] sectorTable = (positive ? SectorGood : SectorBad)[sector];
+            MarketNews sectorNews = sectorTable[this.Random.Next(sectorTable.Length)];
+            double sectorPercent = this.PickNewsPercent(sectorNews);
+            foreach (int i in members)
+            {
+                broadPercent[i] = this.StockEventChange(i, sectorPercent);
+            }
+            return SectorNames[sector] + "주 · " + sectorNews.Text + "  "
+                + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", sectorPercent)
+                + " (" + members.Count + "종목)";
+        }
+
+        /// <summary>종목별 소식. 종목마다 여러 개를 두고 매번 하나를 고른다.
+        ///
+        /// 예전에는 종목당 호재 하나, 악재 하나뿐이라 피카츄전기는 평생 "번개 발전소
+        /// 증설" 아니면 "송전탑 고장" 둘뿐이었다. 몇 분이면 다 보고 나면 놀라울 것이
+        /// 없어진다.
+        /// </summary>
+        private static readonly string[][] StockGoodNews = {
+            new string[] { "번개 발전소 증설", "송전망 현대화 수주", "전기 요금 인상 승인" },
+            new string[] { "정수장 장기 계약", "생수 수출 확대", "수질 인증 획득" },
+            new string[] { "친환경 농장 수확", "종자 특허 등록", "유기농 인증 통과" },
+            new string[] { "화력 발전 수요 급증", "열병합 설비 준공", "연료 장기 계약" },
+            new string[] { "변신 연구 특허", "신물질 합성 성공", "국책 과제 선정" },
+            new string[] { "신기술 발표", "초전도 소재 개발", "해외 기술 수출" },
+            new string[] { "신작 컬렉션 완판", "해외 매장 진출", "인기 모델 계약" },
+            new string[] { "물류 허브 확장", "당일 배송 개시", "대형 화주 확보" },
+            new string[] { "건강식 수요 증가", "신약 임상 통과", "병원 공급 계약" },
+            new string[] { "해운 노선 확대", "대형 선박 인도", "운임 상승" },
+            new string[] { "간식 판매 호조", "신제품 대박", "대형 마트 입점" },
+            new string[] { "대형 게임 출시", "동시 접속 최고치", "e스포츠 리그 개막" },
+        };
+        private static readonly string[][] StockBadNews = {
+            new string[] { "송전탑 고장", "정전 사고 배상", "발전기 화재" },
+            new string[] { "가뭄 경보", "수질 오염 적발", "취수장 폐쇄" },
+            new string[] { "병충해 주의보", "냉해 피해", "농약 잔류 논란" },
+            new string[] { "화산재 공급 차질", "연료비 급등", "배출 규제 강화" },
+            new string[] { "실험 결과 논란", "연구비 삭감", "논문 철회" },
+            new string[] { "연구소 보안 사고", "핵심 인력 이탈", "특허 소송 패소" },
+            new string[] { "유행 변화", "재고 급증", "디자인 표절 시비" },
+            new string[] { "배송 지연", "창고 화재", "기사 파업" },
+            new string[] { "진료비 규제", "부작용 보고", "허가 반려" },
+            new string[] { "폭풍 운항 중단", "좌초 사고", "유가 급등" },
+            new string[] { "원재료 가격 급등", "이물질 논란", "리콜 결정" },
+            new string[] { "서버 장애", "확률 조작 논란", "출시 연기" },
+        };
+
         private string StockEventText(int index, bool positive)
         {
             int listing = this.Options.StockListingIds[index] % StockNames.Length;
-            string[] good = { "번개 발전소 증설", "정수장 장기 계약", "친환경 농장 수확",
-                "화력 발전 수요 급증", "변신 연구 특허", "신기술 발표", "신작 컬렉션 완판",
-                "물류 허브 확장", "건강식 수요 증가", "해운 노선 확대", "간식 판매 호조", "대형 게임 출시" };
-            string[] bad = { "송전탑 고장", "가뭄 경보", "병충해 주의보", "화산재 공급 차질",
-                "실험 결과 논란", "연구소 보안 사고", "유행 변화", "배송 지연", "진료비 규제",
-                "폭풍 운항 중단", "원재료 가격 급등", "서버 장애" };
-            return positive ? good[listing] : bad[listing];
+            string[] table = (positive ? StockGoodNews : StockBadNews)[listing];
+            return table[this.Random.Next(table.Length)];
         }
 
+        /// <summary>종목별 사건의 등락 폭. 고정값이 아니라 범위에서 뽑는다.
+        ///
+        /// 종목마다 기준 폭이 다르고(뮤테크는 크게, 럭키메디컬은 작게), 같은 종목도
+        /// 매번 그 언저리에서 달라진다.
+        /// </summary>
         private int StockEventPercent(int index, bool positive)
         {
             int listing = this.Options.StockListingIds[index] % StockNames.Length;
             int[] good = { 18, 11, 15, 24, 30, 38, 20, 26, 14, 29, 17, 34 };
             int[] bad = { -16, -12, -14, -22, -28, -35, -18, -23, -13, -27, -16, -31 };
-            return positive ? good[listing] : bad[listing];
+            int middle = positive ? good[listing] : bad[listing];
+            // 기준의 60% ~ 130% 사이에서 뽑는다.
+            int least = (int)Math.Round(middle * 0.6);
+            int most = (int)Math.Round(middle * 1.3);
+            if (least > most)
+            {
+                int swap = least; least = most; most = swap;
+            }
+            return least + this.Random.Next(most - least + 1);
         }
 
         private void RelistStock(int index)

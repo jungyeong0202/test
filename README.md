@@ -520,3 +520,7 @@ Store 버전은 `python` 을 입력하면 스토어 페이지만 열리는 경�
 
 포켓몬은 닌텐도 / 크리쳐스 / 게임프리크의 상표입니다. 이 저장소의 도트 그림은 공식 리소스를 사용하지 않고
 직접 그린 오마주이며, 개인적인 용도로만 사용하세요.
+
+UI 글꼴은 [Noto Sans KR](https://fonts.google.com/noto/specimen/Noto+Sans+KR)을 사용합니다.
+폰트는 SIL Open Font License 1.1에 따라 EXE에 포함되며, 라이선스 원문은
+`assets/fonts/OFL.txt`에 있습니다.

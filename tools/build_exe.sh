@@ -22,10 +22,14 @@ SDK=4.8
 
 mcs -sdk:$SDK -target:winexe -optimize+ -win32icon:csharp/pokemon.ico \
     -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll \
+    -resource:assets/fonts/NotoSansKR-VF.ttf,PokemonTaskbar.NotoSansKR.ttf \
+    -resource:assets/fonts/OFL.txt,PokemonTaskbar.NotoSansKR.OFL.txt \
     -out:dist/PokemonTaskbar.exe csharp/PokemonTaskbar.cs csharp/Sprites.cs
 # 콘솔 판. 창이 안 뜰 때 원인을 글자로 보여 준다(같은 소스, 콘솔 서브시스템).
 mcs -sdk:$SDK -target:exe -optimize+ -win32icon:csharp/pokemon.ico \
     -r:System.dll -r:System.Drawing.dll -r:System.Windows.Forms.dll \
+    -resource:assets/fonts/NotoSansKR-VF.ttf,PokemonTaskbar.NotoSansKR.ttf \
+    -resource:assets/fonts/OFL.txt,PokemonTaskbar.NotoSansKR.OFL.txt \
     -out:dist/PokemonTaskbar-debug.exe csharp/PokemonTaskbar.cs csharp/Sprites.cs
 
 # 그래도 혹시 모르니 만들어진 IL 을 직접 검사한다.

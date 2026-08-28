@@ -25,6 +25,8 @@ DEFAULTS = {
     "stock_prices": [1000, 1800, 2700, 1300, 2200, 3500],
     "stock_shares": [0, 0, 0, 0, 0, 0],
     "stock_listing_ids": [0, 1, 2, 3, 4, 5],
+    "stock_primary_trait_ids": [0, 1, 2, 3, 4, 5],
+    "stock_secondary_trait_ids": [0, 2, 4, 6, 1, 3],
     "stock_delisted": [0, 0, 0, 0, 0, 0],
     "stock_relist_seconds": [0, 0, 0, 0, 0, 0],
     "stock_average_prices": [0, 0, 0, 0, 0, 0],
@@ -61,6 +63,7 @@ def parse_text(text, known_species=None):
     values = dict(DEFAULTS)
     values["species"] = list(DEFAULTS["species"])
     for name in ("stock_prices", "stock_shares", "stock_listing_ids",
+                 "stock_primary_trait_ids", "stock_secondary_trait_ids",
                  "stock_delisted", "stock_relist_seconds", "stock_average_prices",
                  "stock_halt_seconds", "food_boost_seconds"):
         values[name] = list(DEFAULTS[name])
@@ -108,6 +111,7 @@ def parse_text(text, known_species=None):
                     stored_currency_version = number
                     values[name] = number
             elif name in ("stock_prices", "stock_shares", "stock_listing_ids",
+                          "stock_primary_trait_ids", "stock_secondary_trait_ids",
                           "stock_delisted", "stock_relist_seconds", "stock_average_prices",
                           "stock_halt_seconds", "food_boost_seconds"):
                 numbers = [int(part.strip()) for part in raw.split(",")]
@@ -143,6 +147,10 @@ def format_text(values):
         "stock_prices = %s" % ", ".join(str(price) for price in values["stock_prices"]),
         "stock_shares = %s" % ", ".join(str(shares) for shares in values["stock_shares"]),
         "stock_listing_ids = %s" % ", ".join(str(value) for value in values["stock_listing_ids"]),
+        "stock_primary_trait_ids = %s" % ", ".join(
+            str(value) for value in values["stock_primary_trait_ids"]),
+        "stock_secondary_trait_ids = %s" % ", ".join(
+            str(value) for value in values["stock_secondary_trait_ids"]),
         "stock_delisted = %s" % ", ".join(str(value) for value in values["stock_delisted"]),
         "stock_relist_seconds = %s" % ", ".join(str(value) for value in values["stock_relist_seconds"]),
         "stock_average_prices = %s" % ", ".join(str(value) for value in values["stock_average_prices"]),
@@ -162,6 +170,7 @@ def load(path=None, known_species=None):
         values = dict(DEFAULTS)
         values["species"] = list(DEFAULTS["species"])
         for name in ("stock_prices", "stock_shares", "stock_listing_ids",
+                     "stock_primary_trait_ids", "stock_secondary_trait_ids",
                      "stock_delisted", "stock_relist_seconds", "stock_average_prices",
                      "stock_halt_seconds", "food_boost_seconds"):
             values[name] = list(DEFAULTS[name])

@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - "csharp/**"
+      - "assets/fonts/**"
       - ".github/workflows/build-windows-exe.yml"
   workflow_dispatch:
 
@@ -23,6 +24,8 @@ jobs:
           "%CSC%" /nologo /target:winexe /optimize+ /win32icon:csharp\pokemon.ico ^
             /out:PokemonTaskbar.exe ^
             /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+            /resource:assets\fonts\NotoSansKR-VF.ttf,PokemonTaskbar.NotoSansKR.ttf ^
+            /resource:assets\fonts\OFL.txt,PokemonTaskbar.NotoSansKR.OFL.txt ^
             csharp\PokemonTaskbar.cs csharp\Sprites.cs
 
       - name: Check that it is a Windows GUI assembly

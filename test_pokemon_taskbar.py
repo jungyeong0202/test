@@ -68,6 +68,8 @@ class SettingsTest(unittest.TestCase):
         values["growth_drops"] = 2
         values["stock_prices"] = [11, 19, 28, 31, 37, 41]
         values["stock_shares"] = [2, 0, 4, 1, 3, 0]
+        values["stock_primary_trait_ids"] = [11, 10, 9, 8, 7, 6]
+        values["stock_secondary_trait_ids"] = [7, 6, 5, 4, 3, 2]
         values["food_boost_seconds"] = [241, 0] + [0] * 10
         self.assertTrue(settings_file.save(values, self.path))
         self.assertEqual(settings_file.load(self.path), values)
@@ -942,6 +944,19 @@ class EvolutionTest(unittest.TestCase):
         self.assertIn("평가 2,940원", text)
         self.assertIn("손익 +240원", text)
 
+    def test_stock_percentage_colours_distinguish_gain_loss_and_flat(self):
+        self.assertEqual(pt.StockOverlay.percent_colour(1.0), pt.StockOverlay.RISE)
+        self.assertEqual(pt.StockOverlay.percent_colour(-1.0), pt.GameMenuOverlay.BLUE)
+        self.assertEqual(pt.StockOverlay.percent_colour(0.0), pt.GameMenuOverlay.MUTED)
+        self.assertEqual(
+            pt.StockOverlay.split_signed_percent("호재 +18%"), ("호재", "+18%", 18.0))
+        self.assertEqual(
+            pt.StockOverlay.split_signed_percent("악재 -12%"), ("악재", "-12%", -12.0))
+        self.app.stock_prices[0] = 1000
+        self.app.stock_shares[0] = 3
+        self.app.stock_average_prices[0] = 900
+        self.assertNotIn("%", self.app.stock_position_text(0, include_percent=False))
+
     def test_stock_event_pauses_trading_for_forty_seconds(self):
         with mock.patch("pokemon_taskbar.random.random", return_value=0.0), \
                 mock.patch("pokemon_taskbar.random.choice", side_effect=[0, ("번개 발전소 증설", 18)]), \
@@ -983,7 +998,26 @@ class EvolutionTest(unittest.TestCase):
             self.app.update_market()
         self.assertFalse(self.app.stock_delisted[0])
         self.assertEqual(self.app.stock_listing_ids[0], 7)
+        self.assertEqual(self.app.stock_primary_trait_ids[0], 7)
+        self.assertEqual(self.app.stock_secondary_trait_ids[0], 7)
         self.assertEqual(self.app.stock_prices[0], pt.STOCK_LISTINGS[7][1])
+
+    def test_stock_profile_combines_primary_and_secondary_traits(self):
+        self.app.stock_primary_trait_ids[0] = 3
+        self.app.stock_secondary_trait_ids[0] = 4
+        self.assertEqual(self.app.stock_profile(0), "추세형 · 회복력")
+        self.assertIn("상승·하락 방향", self.app.stock_profile_description(0))
+        self.assertIn("급락 뒤", self.app.stock_profile_description(0))
+
+    def test_news_and_event_resistance_change_event_impact(self):
+        self.app.stock_primary_trait_ids[0] = 5
+        self.app.stock_secondary_trait_ids[0] = 7
+        self.assertAlmostEqual(self.app.stock_event_change(0, 20), 18.7)
+
+    def test_stock_traits_are_kept_in_settings(self):
+        current = self.app.current_settings()
+        self.assertEqual(current["stock_primary_trait_ids"], self.app.stock_primary_trait_ids)
+        self.assertEqual(current["stock_secondary_trait_ids"], self.app.stock_secondary_trait_ids)
 
     def test_stock_history_keeps_the_latest_twenty_prices(self):
         with mock.patch("pokemon_taskbar.random.random", return_value=1.0), \
@@ -1523,6 +1557,27 @@ class GeneratedCSharpTest(unittest.TestCase):
             generator.build(),
             "csharp/Sprites.cs 가 오래됐습니다. python tools/gen_sprites_cs.py 를 실행하세요.",
         )
+
+    def test_noto_sans_kr_is_packaged_for_both_versions(self):
+        root = os.path.dirname(os.path.abspath(__file__))
+        font_path = os.path.join(root, "assets", "fonts", "NotoSansKR-VF.ttf")
+        license_path = os.path.join(root, "assets", "fonts", "OFL.txt")
+        self.assertGreater(os.path.getsize(font_path), 1_000_000)
+        with open(license_path, encoding="utf-8") as handle:
+            self.assertIn("SIL OPEN FONT LICENSE Version 1.1", handle.read())
+        self.assertEqual(pt.UI_FONT_FAMILY, "Noto Sans KR")
+
+    def test_every_csharp_build_embeds_the_font_and_license(self):
+        root = os.path.dirname(os.path.abspath(__file__))
+        for path in (
+                os.path.join(root, "tools", "build_exe.sh"),
+                os.path.join(root, "csharp", "run.bat"),
+                os.path.join(root, ".github", "workflows", "build-windows-exe.yml")):
+            with open(path, encoding="utf-8") as handle:
+                build = handle.read()
+            self.assertIn("NotoSansKR-VF.ttf", build, path)
+            self.assertIn("PokemonTaskbar.NotoSansKR.ttf", build, path)
+            self.assertIn("PokemonTaskbar.NotoSansKR.OFL.txt", build, path)
 
 
 if __name__ == "__main__":

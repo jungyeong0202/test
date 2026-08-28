@@ -3097,7 +3097,7 @@ namespace PokemonTaskbar
         {
             control.Click += delegate {
                 this.selectedStock = index;
-                if (this.tossRows[index] != null) this.tossRows[index].Focus();
+                this.ActiveControl = null;
                 this.RefreshTossMarket();
             };
             KeyboardSelectionPanel row = control as KeyboardSelectionPanel;
@@ -3686,7 +3686,6 @@ namespace PokemonTaskbar
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            this.Focus();
             base.OnMouseDown(e);
         }
 

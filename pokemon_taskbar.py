@@ -2532,7 +2532,7 @@ class StockOverlay:
             change = tk.Label(row, bg=GameMenuOverlay.PANEL, anchor="e", font=(UI_FONT_FAMILY, 10, "bold"))
             change.place(x=141, y=37, width=94)
             for widget in (row, accent, name, holding, price, change):
-                widget.bind("<Button-1>", lambda _event, index=index: self.select_stock(index, True))
+                widget.bind("<Button-1>", lambda _event, index=index: self.select_stock(index, False))
             row.bind("<Return>", lambda _event, index=index: self.select_stock(index, True))
             row.bind("<space>", lambda _event, index=index: self.select_stock(index, True))
             row.bind("<Up>", lambda _event, index=index: self.select_stock((index - 1) % STOCK_COUNT, True))
@@ -2645,6 +2645,8 @@ class StockOverlay:
         self.selected_index = index
         if focus:
             self.list_rows[index][0].focus_set()
+        else:
+            self.window.focus_set()
         self.refresh_toss()
         return "break"
 

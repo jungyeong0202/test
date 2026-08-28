@@ -1654,6 +1654,30 @@ namespace PokemonTaskbar
         public double IncomeMultiplierValue { get { return this.IncomeMultiplier(); } }
         public Bitmap MenuImage { get { return this.images[0][0]; } }
 
+        /// <summary>걸은 거리를 바로 채운다. 테스트가 몇 분씩 기다리지 않게 한다.</summary>
+        internal void SetWalked(double distance)
+        {
+            this.walked = Math.Min(this.EvolveWalkNeed, Math.Max(0.0, distance));
+        }
+
+        /// <summary>진화에 필요한 걷기 거리.</summary>
+        internal double WalkNeedForTest
+        {
+            get { return this.EvolveWalkNeed; }
+        }
+
+        /// <summary>바닥에서 떠 있는 높이(px). 테스트가 들여다본다.</summary>
+        internal double Lift
+        {
+            get { return this.lift; }
+        }
+
+        /// <summary>시간을 한 칸 흘린다. 테스트가 타이머를 기다리지 않게 한다.</summary>
+        internal void Tick()
+        {
+            this.OnTick(this, EventArgs.Empty);
+        }
+
         /// <summary>보고 있는 방향. 진화한 뒤에도 그대로 이어받는다.</summary>
         public int Facing
         {
@@ -6388,6 +6412,12 @@ namespace PokemonTaskbar
             {
                 this.SaveSettings();
             }
+        }
+
+        /// <summary>지금 있는 포켓몬들. 테스트가 들여다본다.</summary>
+        internal List<PetForm> Pets
+        {
+            get { return this.pets; }
         }
 
         public void QuitAll()

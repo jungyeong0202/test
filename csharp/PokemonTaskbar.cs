@@ -929,7 +929,12 @@ namespace PokemonTaskbar
         // 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이
         // 바뀌면 곤란하므로, 진화할지 말지는 플레이어가 메뉴에서 정한다.
         private static readonly double[] EvolvePetNeeds = { 10.0, 25.0 };
-        private static readonly double[] EvolveWalkNeeds = { 10000.0, 40000.0 };
+        // 진화에 필요한 산책 거리(px).
+        //
+        // 서 있는 시간을 늘리면서 걷는 시간이 79%에서 36%로 줄었다. 예전 값을
+        // 그대로 두면 같은 진화에 두 배 넘게 걸린다. 걸리는 시간이 예전과
+        // 비슷하도록 줄였다(기본 속도로 4분쯤).
+        private static readonly double[] EvolveWalkNeeds = { 4500.0, 18000.0 };
         private static readonly int[] EvolveDropNeeds = { 1, 3 };
         private static readonly double[] EvolutionIncomeMultipliers = { 1.0, 1.5, 2.25 };
         private const int EvolveFlashes = 7;           // 두 모습을 번갈아 번쩍이는 횟수
@@ -938,6 +943,14 @@ namespace PokemonTaskbar
         private const double EvolveHoldSeconds = 0.55; // 끝에 새하얗게 머무는 시간
         private const double LandDustSpeed = 60.0;    // 이보다 세게 떨어져야 먼지가 인다
         private const double NapChance = 0.18;        // 멈춰 설 때 이 확률로 낮잠
+        // 걷다가 멈춰 설 확률(틱마다)과 서 있는 시간.
+        //
+        // 서 있을 때 원본 GIF 의 애니메이션이 돌아가므로, 걷는 시간보다 서 있는
+        // 시간이 길어야 그 그림을 볼 수 있다. 예전 값(0.005 / 0.8~3.0초)으로는
+        // 걷는 시간이 79% 였다.
+        private const double StopChance = 0.014;
+        private const double IdleSecondsMin = 4.0;
+        private const double IdleSecondsSpan = 6.5;
         private const double ZzzEvery = 1.1;
         private const double LandSquashTime = 0.12;
         private const double BreathSeconds = 0.9;
@@ -1508,6 +1521,13 @@ namespace PokemonTaskbar
         {
             double dt = TickMs / 1000.0;
             this.ticks++;
+            if (!this.world.Paused && !this.evolving)
+            {
+                // 먹이를 먹었으면 그동안 벌이도 두 배가 된다. 예전에는 걸음이
+                // 빨라져서 저절로 그렇게 됐다.
+                double boost = this.foodBoostLeft > 0 ? PetWorld.FoodSpeedMultiplier : 1.0;
+                this.world.EarnTimeCoins(dt, this.IncomeMultiplier() * boost);
+            }
             // 그림 넘김에 쓰는 시계. 예전에는 떠다니는 포켓몬(FloatStep)에서만
             // 흘러서, 서 있을 때 돌리는 대기 장이 첫 장에 멈춰 있었다.
             this.animTime += dt;
@@ -1712,6 +1732,12 @@ namespace PokemonTaskbar
         }
 
         /// <summary>진화에 필요한 걷기 거리.</summary>
+        /// <summary>테스트용. 지금 걷고 있는가(감속 중 포함).</summary>
+        internal bool WalkingForTest
+        {
+            get { return this.walking || this.stopKind != null; }
+        }
+
         /// <summary>테스트용. 지금 고른 자세 이름(없으면 null).</summary>
         internal string PoseForTest
         {
@@ -2138,7 +2164,6 @@ namespace PokemonTaskbar
             double actual = Math.Abs(this.x - beforeX);
             this.gaitDistance += actual;
             this.walked = Math.Min(this.EvolveWalkNeed, this.walked + actual);
-            this.world.EarnWalkCoins(actual * this.IncomeMultiplier());
             return actual;
         }
 
@@ -2175,7 +2200,8 @@ namespace PokemonTaskbar
                 }
                 else
                 {
-                    this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                    this.idleLeft = IdleSecondsMin
+                        + this.random.NextDouble() * IdleSecondsSpan;
                 }
             }
         }
@@ -2220,7 +2246,7 @@ namespace PokemonTaskbar
             {
                 this.BeginStop("turn", -this.direction);
             }
-            else if (this.random.NextDouble() < 0.005)
+            else if (this.random.NextDouble() < StopChance)
             {
                 this.BeginStop(this.random.NextDouble() < PlayChance ? "play" : "idle",
                     this.direction);
@@ -2296,7 +2322,8 @@ namespace PokemonTaskbar
                     }
                     else
                     {
-                        this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
+                        this.idleLeft = IdleSecondsMin
+                        + this.random.NextDouble() * IdleSecondsSpan;
                         }
                 }
             }
@@ -4854,10 +4881,10 @@ namespace PokemonTaskbar
                 this.gradeBadge.Left = this.homeName.Right + 6;
                 this.stageBadge.Text = stage + "단계";
                 this.portrait.Sprite = pet.MenuImage;
-                this.homeHeadingHint.Text = (this.world.Paused ? "산책 일시정지 · 수입 x" : "산책 중 · 수입 x")
+                this.homeHeadingHint.Text = (this.world.Paused ? "일시정지 · 수입 x" : "함께 있는 중 · 수입 x")
                     + pet.IncomeMultiplierValue.ToString("0.##", CultureInfo.InvariantCulture);
-                this.income.Text = "+" + ((int)Math.Round(PetWorld.CoinsPerWalk * pet.IncomeMultiplierValue))
-                    .ToString("N0", CultureInfo.InvariantCulture) + "원 / 100px";
+                this.income.Text = "+" + ((int)Math.Round(PetWorld.CoinsPerSecond * pet.IncomeMultiplierValue))
+                    .ToString("N0", CultureInfo.InvariantCulture) + "원 / 초";
                 double displayedFriendship = pet.DisplayedFriendshipValue;
                 this.friendshipText.Metric = displayedFriendship.ToString("0", CultureInfo.InvariantCulture)
                     + " / " + pet.FriendshipNeed.ToString("0", CultureInfo.InvariantCulture);
@@ -5096,8 +5123,13 @@ namespace PokemonTaskbar
     /// <summary>펫 여러 마리를 관리한다.</summary>
     public class PetWorld : ApplicationContext
     {
-        public const int CoinsPerWalk = 100;       // 100px를 걸을 때마다 받는 돈(원)
-        public const double CoinWalkDistance = 100.0; // 이만큼 걸을 때마다 돈을 받는다
+        // 데리고 있는 동안 1초마다 받는 돈(원).
+        //
+        // 예전에는 걸은 거리로 줬다(100px 마다 100원). 그러면 서 있는 동안에는
+        // 한 푼도 못 벌어서, 가만히 있는 모습을 오래 보여 주면 그만큼 손해가
+        // 됐다. 시간으로 주면 무엇을 하고 있든 벌이가 같다.
+        // 55원/초는 예전 기본 속도(55px/초)로 쉬지 않고 걸었을 때와 같은 벌이다.
+        public const int CoinsPerSecond = 55;
         // 기본 속도 55px/초로 두 시간 산책: 55 × 2 × 60 × 60 ÷ 100 × 100 = 396,000원.
         public const int PokemonPrice = 396000;
         public const int FoodCost = 8000;          // 5분 2배 산책으로 얻는 추가 수입보다 조금 낮춘 가격(원)
@@ -5724,15 +5756,19 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
-        /// <summary>스스로 걸은 100px마다 100원을 얻는다.</summary>
-        public void EarnWalkCoins(double distance)
+        /// <summary>데리고 있는 동안 시간에 맞춰 돈을 얻는다.
+        ///
+        /// 원 단위로 딱 떨어지지 않으므로 남는 몫을 모아 두었다가 1원이 될 때
+        /// 준다. 그러지 않으면 매 틱 버림이 쌓여 실제보다 적게 번다.
+        /// </summary>
+        public void EarnTimeCoins(double seconds, double multiplier)
         {
-            this.coinWalkProgress += distance;
-            int amount = (int)(this.coinWalkProgress / CoinWalkDistance);
+            this.coinWalkProgress += seconds * CoinsPerSecond * multiplier;
+            int amount = (int)this.coinWalkProgress;
             if (amount > 0)
             {
-                this.coinWalkProgress -= amount * CoinWalkDistance;
-                this.EarnCoins(amount * CoinsPerWalk);
+                this.coinWalkProgress -= amount;
+                this.EarnCoins(amount);
             }
         }
 

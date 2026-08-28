@@ -154,6 +154,7 @@ namespace PokemonTaskbar.Tests
                 Dragging();
                 Poses();
                 IdleAnimation();
+                Income();
                 Economy();
                 StockText();
                 StockNews();
@@ -533,6 +534,61 @@ namespace PokemonTaskbar.Tests
                 pet.Release(100, pet.BaseY);
                 pet.Tick();
                 Check.That(pet.Lift > 0.0, "짧게 누르면 폴짝 뛴다");
+            }
+        }
+
+        // --- 벌이 ------------------------------------------------------------
+
+        private static void Income()
+        {
+            Check.Section("벌이");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                PetWorld app = world.World;
+
+                // 걸은 거리가 아니라 흐른 시간으로 번다. 서 있어도 들어와야 한다.
+                pet.StandStillForTest();
+                int before = app.Options.Coins;
+                double standX = pet.Position;
+                for (int i = 0; i < 250; i++)     // 10초
+                {
+                    pet.Tick();
+                    pet.StandStillForTest();
+                }
+                int earned = app.Options.Coins - before;
+                Check.That(earned > 0, "서 있어도 돈이 들어온다");
+                Check.Near(earned, PetWorld.CoinsPerSecond * 10, PetWorld.CoinsPerSecond,
+                    "10초면 10초치가 들어온다");
+                Check.Near(pet.Position, standX, 1.0, "서 있는 동안 자리를 지켰다");
+            }
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                // 일시정지 중에는 벌지 않는다.
+                PetForm pet = world.Pets[0];
+                PetWorld app = world.World;
+                app.TogglePause();
+                int before = app.Options.Coins;
+                for (int i = 0; i < 250; i++) { pet.Tick(); }
+                Check.Equal(app.Options.Coins, before, "멈춰 두면 벌지 않는다");
+            }
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                // 서 있는 시간이 걷는 시간보다 길어야 원본 애니메이션을 볼 수 있다.
+                PetForm pet = world.Pets[0];
+                int walking = 0;
+                int total = 25 * 60 * 5;          // 5분
+                for (int i = 0; i < total; i++)
+                {
+                    pet.Tick();
+                    if (pet.WalkingForTest) { walking++; }
+                }
+                Check.That(walking * 2 < total,
+                    "서 있는 시간이 걷는 시간보다 길다 (걷기 "
+                        + (walking * 100 / total) + "%)");
             }
         }
 

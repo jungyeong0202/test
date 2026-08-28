@@ -152,7 +152,6 @@ namespace PokemonTaskbar.Tests
                 Ground();
                 Movement();
                 Dragging();
-                Effects();
                 Poses();
                 Economy();
                 StockText();
@@ -456,8 +455,8 @@ namespace PokemonTaskbar.Tests
                 Check.That(pet.BaseY + pet.WindowH <= screen.Bottom,
                     "창 아래가 화면을 넘지 않는다");
                 Check.That(pet.BaseY >= screen.Top, "창 위가 화면을 넘지 않는다");
-                Check.That(pet.WindowW > pet.SpriteW, "효과가 튀어나갈 가로 여백이 있다");
-                Check.That(pet.WindowH > pet.SpriteH, "효과가 튀어나갈 세로 여백이 있다");
+                Check.That(pet.WindowW > pet.SpriteW, "진화 번쩍임이 들어갈 가로 여백이 있다");
+                Check.That(pet.WindowH > pet.SpriteH, "진화 번쩍임이 들어갈 세로 여백이 있다");
             }
 
             // --offset 을 아무리 크게 줘도 창은 화면 안에 있어야 한다.
@@ -533,43 +532,6 @@ namespace PokemonTaskbar.Tests
                 pet.Release(100, pet.BaseY);
                 pet.Tick();
                 Check.That(pet.Lift > 0.0, "짧게 누르면 폴짝 뛴다");
-            }
-        }
-
-        // --- 효과 -----------------------------------------------------------
-
-        private static void Effects()
-        {
-            Check.Section("효과");
-
-            using (TestWorld world = World("-p", "pikachu"))
-            {
-                PetForm pet = world.Pets[0];
-                int before = pet.EffectCount;
-                pet.Press(100, pet.BaseY);
-                pet.Release(100, pet.BaseY);
-                Check.That(pet.EffectCount > before, "쓰다듬으면 하트가 뜬다");
-
-                // 낸 효과는 시간이 지나면 사라진다. (포켓몬이 스스로 내는 것도 있어서
-                //  개수가 0 이 되는지가 아니라 줄어드는지를 본다.)
-                int peak = pet.EffectCount;
-                bool faded = false;
-                for (int i = 0; i < 120 && !faded; i++)
-                {
-                    pet.Tick();
-                    faded = pet.EffectCount < peak;
-                }
-                Check.That(faded, "효과는 시간이 지나면 사라진다");
-            }
-
-            using (TestWorld world = World("-p", "pikachu"))
-            {
-                PetForm pet = world.Pets[0];
-                pet.Press(100, pet.BaseY);
-                pet.DragTo(400, pet.BaseY - 200);
-                int before = pet.EffectCount;
-                pet.Release(400, pet.BaseY - 200);
-                Check.Equal(pet.EffectCount, before, "끌어다 놓은 것은 쓰다듬은 게 아니다");
             }
         }
 

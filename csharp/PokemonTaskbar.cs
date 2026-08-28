@@ -929,19 +929,12 @@ namespace PokemonTaskbar
         private const double EvolveFirstSeconds = 0.30;
         private const double EvolveLastSeconds = 0.07; // 갈수록 빨라진다
         private const double EvolveHoldSeconds = 0.55; // 끝에 새하얗게 머무는 시간
-        private const double EffectGravity = 260.0;   // 먼지가 떨어지는 가속도
-        private const double DustLife = 0.40;
-        private const double EmoteLife = 0.90;
         private const double LandDustSpeed = 60.0;    // 이보다 세게 떨어져야 먼지가 인다
         private const double NapChance = 0.18;        // 멈춰 설 때 이 확률로 낮잠
         private const double ZzzEvery = 1.1;
         private const double LandSquashTime = 0.12;
         private const double BreathSeconds = 0.9;
         private const double WiggleSeconds = 0.10;
-        private const double IdleActionChance = 0.55;
-        private const double IdleActionMinSeconds = 0.9;
-        private const double IdleActionMaxSeconds = 1.6;
-        private const double IdleEffectEvery = 0.55;
         public const double GreetingDistance = 150.0;
         private const double GreetingSeconds = 1.15;
         private const double GreetingCooldown = 5.0;
@@ -993,18 +986,7 @@ namespace PokemonTaskbar
         private const uint SwpNoMove = 0x0002;
         private const uint SwpNoActivate = 0x0010;
 
-        private class Effect
-        {
-            public string Kind;
-            public double X;
-            public double Y;
-            public double SpeedX;
-            public double SpeedY;
-            public double Life;
-            public Color Tint;
-        }
 
-        private readonly List<Effect> effects = new List<Effect>();
         private readonly Dictionary<string, Bitmap>[] poseImages =
             new Dictionary<string, Bitmap>[2];
         private double landSquash;
@@ -1063,10 +1045,6 @@ namespace PokemonTaskbar
         private string hopState = "rest";
         private double hopTimer;
         private double idleLeft;
-        private string idleAction;
-        private double idleActionLeft;
-        private double idleEffectLeft;
-        private double idlePhase;
         private double greetingLeft;
         private double greetingPhase;
         private double greetingCooldown;
@@ -1404,17 +1382,12 @@ namespace PokemonTaskbar
             // 들려 있으면 버둥거린다.
             int sway = (this.dragging && (int)(this.wiggle / WiggleSeconds) % 2 == 1)
                 ? this.dot : 0;
-            if (this.idleAction == "wiggle" && (int)(this.idlePhase / WiggleSeconds) % 2 == 1)
-            {
-                sway += this.dot;
-            }
             int greetBob = this.GreetingSpeaking()
                 ? (int)Math.Floor(this.dot * 0.45) : 0;
             e.Graphics.DrawImageUnscaled(
                 image,
                 this.marginX + this.ownOffsetX + sway,
                 this.marginTop + this.hop + this.ownOffsetY - bounce - greetBob);
-            this.PaintEffects(e.Graphics);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -1501,7 +1474,6 @@ namespace PokemonTaskbar
                         // 쓰다듬으면 기분 좋게 조금 더 떠오른다.
                         this.floatTarget = Math.Min(this.lift + FloatNudge, this.Ceiling());
                         this.floatTimer = Math.Max(this.floatTimer, 1.2);
-                        this.Petted();
                     }
                 }
                 else if (this.dragMoved)
@@ -1511,7 +1483,6 @@ namespace PokemonTaskbar
                 else
                 {
                     this.verticalSpeed = JumpSpeed;
-                    this.Petted();
                 }
             }
             base.OnMouseUp(e);
@@ -1606,7 +1577,6 @@ namespace PokemonTaskbar
                     // 세게 떨어졌으면 발밑에 먼지가 인다.
                     if (-this.verticalSpeed >= LandDustSpeed)
                     {
-                        this.SpawnDust();
                         this.landSquash = LandSquashTime;
                     }
                     this.lift = 0.0;
@@ -1615,15 +1585,12 @@ namespace PokemonTaskbar
             }
 
             this.UpdateTimers(dt);
-            this.UpdateIdleAction(dt);
-            this.UpdateEffects(dt);
             if (this.napping)
             {
                 this.zzzTimer -= dt;
                 if (this.zzzTimer <= 0)
                 {
                     this.zzzTimer = ZzzEvery;
-                    this.SpawnEmote("zzz");
                 }
             }
 
@@ -1707,11 +1674,6 @@ namespace PokemonTaskbar
             get { return this.dragging; }
         }
 
-        /// <summary>지금 떠 있는 효과(먼지·하트·Zzz)의 수.</summary>
-        internal int EffectCount
-        {
-            get { return this.effects.Count; }
-        }
 
         /// <summary>창 위쪽 y. 바닥선 검사에 쓴다.</summary>
         internal int BaseY
@@ -1790,127 +1752,12 @@ namespace PokemonTaskbar
 
         // --- 효과 ------------------------------------------------------
 
-        /// <summary>착지할 때 발밑에서 먼지가 인다.</summary>
-        private void SpawnDust()
-        {
-            double feetX = this.marginX + this.spriteWidth / 2.0;
-            double feetY = this.marginTop + this.hop + this.spriteHeight;
-            for (int index = 0; index < 6; index++)
-            {
-                int side = index % 2 == 0 ? -1 : 1;
-                double spread = 0.4 + this.random.NextDouble() * 0.9;
-                Effect dust = new Effect();
-                dust.Kind = "dust";
-                dust.X = feetX + side * this.spriteWidth * 0.18 * spread;
-                dust.Y = feetY - this.dot;
-                dust.SpeedX = side * (30 + this.random.NextDouble() * 55);
-                dust.SpeedY = -(20 + this.random.NextDouble() * 45);
-                dust.Life = DustLife * (0.7 + this.random.NextDouble() * 0.6);
-                dust.Tint = index % 2 == 1
-                    ? Color.FromArgb(242, 242, 242)
-                    : Color.FromArgb(192, 192, 192);
-                this.effects.Add(dust);
-            }
-        }
 
-        /// <summary>머리 위로 하트·Zzz·말풍선을 띄운다.</summary>
-        private void SpawnEmote(string kind)
-        {
-            Effect emote = new Effect();
-            emote.Kind = kind;
-            emote.X = this.marginX + this.spriteWidth * (0.55 + this.random.NextDouble() * 0.2);
-            emote.Y = this.marginTop;
-            emote.SpeedX = 8 + this.random.NextDouble() * 10;
-            emote.SpeedY = -28.0;
-            emote.Life = EmoteLife;
-            emote.Tint = kind == "heart"
-                ? Color.FromArgb(255, 95, 131)
-                : Color.FromArgb(255, 255, 255);
-            this.effects.Add(emote);
-        }
 
-        /// <summary>포켓몬마다 다른 짧은 대기 모션을 시작한다.</summary>
-        private void StartIdleAction()
-        {
-            if (this.random.NextDouble() >= IdleActionChance)
-            {
-                return;
-            }
-            this.idleAction = this.IdleActionForSprite();
-            if (this.idleAction == null)
-            {
-                return;
-            }
-            this.idleActionLeft = IdleActionMinSeconds + this.random.NextDouble()
-                * (IdleActionMaxSeconds - IdleActionMinSeconds);
-            this.idleEffectLeft = 0.0;
-            this.idlePhase = 0.0;
-        }
 
-        private string IdleActionForSprite()
-        {
-            switch (this.SpriteKey)
-            {
-                case "pikachu": return "spark";
-                case "charmander": return "flame";
-                case "bulbasaur": return "leaf";
-                case "squirtle":
-                case "wartortle": return "bubble";
-                case "ditto": return "wiggle";
-                case "mew": return "twinkle";
-                default: return null;
-            }
-        }
 
-        private Color IdleColor()
-        {
-            switch (this.idleAction)
-            {
-                case "spark": return Color.FromArgb(255, 225, 77);
-                case "flame": return Color.FromArgb(255, 120, 61);
-                case "leaf": return Color.FromArgb(121, 201, 93);
-                case "bubble": return Color.FromArgb(139, 217, 255);
-                case "wiggle": return Color.FromArgb(220, 122, 232);
-                default: return Color.FromArgb(246, 165, 229);
-            }
-        }
 
-        private void UpdateIdleAction(double dt)
-        {
-            if (this.idleAction == null)
-            {
-                return;
-            }
-            this.idlePhase += dt;
-            this.idleActionLeft -= dt;
-            this.idleEffectLeft -= dt;
-            if (this.idleEffectLeft <= 0)
-            {
-                this.idleEffectLeft = IdleEffectEvery;
-                this.SpawnIdleEffect();
-            }
-            if (this.idleActionLeft <= 0)
-            {
-                this.idleAction = null;
-            }
-        }
 
-        private void SpawnIdleEffect()
-        {
-            if (this.idleAction == "wiggle")
-            {
-                return;
-            }
-            Effect effect = new Effect();
-            effect.Kind = this.idleAction;
-            effect.X = this.marginX + this.spriteWidth * (0.48 + this.random.NextDouble() * 0.24);
-            effect.Y = this.marginTop + this.spriteHeight * 0.16;
-            effect.SpeedX = -8 + this.random.NextDouble() * 16;
-            effect.SpeedY = -18.0;
-            effect.Life = EmoteLife;
-            effect.Tint = this.IdleColor();
-            this.effects.Add(effect);
-        }
 
         /// <summary>다른 포켓몬을 만났을 때 인사할 수 있는 상태인지.</summary>
         public bool CanGreet()
@@ -1927,7 +1774,6 @@ namespace PokemonTaskbar
             this.stopKind = null;
             this.playState = null;
             this.napping = false;
-            this.idleAction = null;
             this.walkSpeed = 0.0;
             this.greetingLeft = GreetingSeconds;
             this.greetingPhase = 0.0;
@@ -1954,7 +1800,6 @@ namespace PokemonTaskbar
                 this.greetingTalkTurn = turn;
                 if (this.GreetingSpeaking())
                 {
-                    this.SpawnEmote("talk");
                 }
             }
             if (this.greetingLeft <= 0)
@@ -2004,66 +1849,10 @@ namespace PokemonTaskbar
             {
                 return this.GreetingSpeaking() ? "stretch" : "squash";
             }
-            if (this.idleAction != null && (int)(this.idlePhase / 0.22) % 2 == 1)
-            {
-                return this.idleAction == "spark" || this.idleAction == "flame"
-                    || this.idleAction == "twinkle" ? "stretch" : "squash";
-            }
             return null;
         }
 
-        private void UpdateEffects(double dt)
-        {
-            for (int index = this.effects.Count - 1; index >= 0; index--)
-            {
-                Effect effect = this.effects[index];
-                effect.Life -= dt;
-                if (effect.Life <= 0)
-                {
-                    this.effects.RemoveAt(index);
-                    continue;
-                }
-                effect.X += effect.SpeedX * dt;
-                effect.Y += effect.SpeedY * dt;
-                if (effect.Kind == "dust")
-                {
-                    effect.SpeedY += EffectGravity * dt;
-                }
-            }
-        }
 
-        /// <summary>효과를 사각형으로 찍는다.</summary>
-        private void PaintEffects(Graphics graphics)
-        {
-            foreach (Effect effect in this.effects)
-            {
-                using (SolidBrush brush = new SolidBrush(effect.Tint))
-                {
-                    if (effect.Kind == "dust")
-                    {
-                        // 사라질수록 작아진다
-                        int size = Math.Max(1, (int)(this.dot * (0.6 + 0.8 * effect.Life / DustLife)));
-                        graphics.FillRectangle(brush, (int)effect.X, (int)effect.Y, size, size);
-                        continue;
-                    }
-
-                    // 절반쯤 남으면 깜빡이며 사라진다
-                    if (effect.Life < EmoteLife * 0.35 && (int)(effect.Life * 20) % 2 == 0)
-                    {
-                        continue;
-                    }
-                    int[,] dots = EmoteDots(effect.Kind);
-                    for (int row = 0; row < dots.GetLength(0); row++)
-                    {
-                        graphics.FillRectangle(
-                            brush,
-                            (int)effect.X + dots[row, 0] * this.dot,
-                            (int)effect.Y + dots[row, 1] * this.dot,
-                            this.dot, this.dot);
-                    }
-                }
-            }
-        }
 
         private static int[,] EmoteDots(string kind)
         {
@@ -2257,21 +2046,11 @@ namespace PokemonTaskbar
                 this.whiteImages[form][side],
                 this.marginX + this.whiteOffsetX[form],
                 this.marginTop + this.hop + this.whiteOffsetY[form]);
-            this.PaintEffects(graphics);
-        }
-
-        /// <summary>쓰다듬었을 때. 친밀도와 별개로 하트 반응만 보여 준다.
-        ///
-        /// </summary>
-        private void Petted()
-        {
-            this.SpawnEmote("heart");
         }
 
         /// <summary>포켓푸드로 친밀도와 누적되는 5분짜리 2배 산책 버프를 준다.</summary>
         public void Fed()
         {
-            this.SpawnEmote("heart");
             this.foodBoostLeft += PetWorld.FoodBoostSeconds;
             if (this.evolving)
             {
@@ -2349,7 +2128,6 @@ namespace PokemonTaskbar
                 else
                 {
                     this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
-                    this.StartIdleAction();
                 }
             }
         }
@@ -2473,8 +2251,7 @@ namespace PokemonTaskbar
                     else
                     {
                         this.idleLeft = 0.8 + this.random.NextDouble() * 2.2;
-                        this.StartIdleAction();
-                    }
+                        }
                 }
             }
             else
@@ -2584,7 +2361,6 @@ namespace PokemonTaskbar
             {
                 this.hopState = "rest";
                 this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
-                this.StartIdleAction();
                 if (this.random.NextDouble() < HopTurnChance)
                 {
                     this.direction = -this.direction;

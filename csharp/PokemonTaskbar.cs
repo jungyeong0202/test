@@ -5201,7 +5201,9 @@ namespace PokemonTaskbar
         public const int StockHaltSeconds = 20;
         public const int StockSlotCount = 6;
         public const int StockMaxOrderQuantity = int.MaxValue;
-        public const int StockRelistSeconds = 30 * 60;
+        // 상장폐지된 자리에 새 종목이 들어오기까지 걸리는 시간.
+        // 30분이면 여섯 자리 중 하나가 너무 오래 비어 있는다.
+        public const int StockRelistSeconds = 10 * 60;
         // 상장폐지선과 위기선은 금액이 아니라 기준가에 대한 비율이다.
         //
         // 예전에는 둘 다 600원 고정이었다. 그러면 종목마다 뜻이 달라진다 —
@@ -6109,6 +6111,12 @@ namespace PokemonTaskbar
         internal int StockEventCount
         {
             get { return this.stockEventCount; }
+        }
+
+        /// <summary>테스트용. 장을 열어 둔다. 휴장 중에는 시세가 움직이지 않는다.</summary>
+        internal void OpenMarketForTest()
+        {
+            this.marketOpen = true;
         }
 
         /// <summary>테스트용. 지금 국면 번호.</summary>

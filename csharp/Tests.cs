@@ -159,6 +159,7 @@ namespace PokemonTaskbar.Tests
                 StockText();
                 StockNews();
                 StockSpecialEvents();
+                Relisting();
                 DangerousActions();
                 Lifecycle();
                 Evolution();
@@ -1006,6 +1007,37 @@ namespace PokemonTaskbar.Tests
                 "루머 문구가 열 개 이상이다");
 
             world.Dispose();
+        }
+
+        // --- 상장폐지와 재상장 -----------------------------------------------
+
+        private static void Relisting()
+        {
+            Check.Section("상장폐지와 재상장");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                Check.Equal(PetWorld.StockRelistSeconds, 10 * 60,
+                    "재상장까지 10분이다");
+
+                // 값을 폐지선 밑으로 밀어 놓고 갱신하면 상장폐지된다.
+                app.Options.StockPrices[0] = 1;
+                app.OpenMarketForTest();
+                app.UpdateMarket();
+                Check.That(app.IsStockDelisted(0), "값이 무너지면 상장폐지된다");
+                Check.Equal(app.Options.StockRelistSeconds[0], PetWorld.StockRelistSeconds,
+                    "재상장 시계가 10분으로 걸린다");
+                Check.Equal(app.RelistingMinutes(0), 10, "남은 시간을 10분으로 보여 준다");
+                Check.Equal(app.Options.StockShares[0], 0, "보유 주식이 사라진다");
+
+                // 시간이 다 가면 새 종목이 들어온다.
+                app.Options.StockRelistSeconds[0] = 5;
+                app.OpenMarketForTest();
+                app.UpdateMarket();
+                Check.That(!app.IsStockDelisted(0), "시간이 지나면 새 종목이 들어온다");
+                Check.That(app.Options.StockPrices[0] > 0, "새 종목에 값이 붙는다");
+            }
         }
 
         // --- 주식 특별 사건 ---------------------------------------------------

@@ -1528,10 +1528,14 @@ namespace PokemonTaskbar
             this.ticks++;
             if (!this.world.Paused && !this.evolving)
             {
-                // 먹이를 먹었으면 그동안 벌이도 두 배가 된다. 예전에는 걸음이
-                // 빨라져서 저절로 그렇게 됐다.
-                double boost = this.foodBoostLeft > 0 ? PetWorld.FoodSpeedMultiplier : 1.0;
-                this.world.EarnTimeCoins(dt, this.IncomeMultiplier() * boost);
+                // 먹이는 등급 배수에 곱하지 않고 기본 벌이만큼을 더한다.
+                //
+                // 곱하면 귀한 포켓몬일수록 먹이가 남는 장사가 된다. 8,000원짜리
+                // 먹이 하나가 일반은 16,500원, 초전설은 82,500원을 만들어 냈다.
+                // 게다가 먹이 효과는 쌓이므로 돈을 찍어내는 셈이었다. 더하기로
+                // 두면 누구에게 주든 16,500원으로 같다.
+                double boost = this.foodBoostLeft > 0 ? 1.0 : 0.0;
+                this.world.EarnTimeCoins(dt, this.IncomeMultiplier() + boost);
             }
             // 그림 넘김에 쓰는 시계. 예전에는 떠다니는 포켓몬(FloatStep)에서만
             // 흘러서, 서 있을 때 돌리는 대기 장이 첫 장에 멈춰 있었다.
@@ -4490,7 +4494,7 @@ namespace PokemonTaskbar
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             this.shopFood = this.AddShopTile(grid, 0, 0, "●", "포켓푸드",
-                "5분 동안 산책 속도가 2배가 되고 친밀도가 2 올라갑니다.", PetWorld.FoodCost,
+                "5분 동안 걸음이 빨라지고 초당 55원을 더 법니다. 친밀도도 2 올라갑니다.", PetWorld.FoodCost,
                 delegate { this.BuyFoodFromShop(); }, out this.shopFoodOwned);
             this.shopDrop = this.AddShopTile(grid, 1, 0, "◆", "성장의 물방울",
                 "진화 조건을 모두 채운 포켓몬이 진화할 때 사용합니다.", PetWorld.GrowthDropCost,

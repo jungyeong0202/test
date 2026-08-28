@@ -604,6 +604,28 @@ namespace PokemonTaskbar.Tests
                 "초전설이 준전설보다 많이 번다");
             Check.That(PetWorld.PokemonIncomeMultiplier("mew") > 2.25,
                 "초전설이 3단계 진화체보다 많이 번다");
+            // 먹이는 등급에 곱하지 않고 기본 벌이만큼을 더한다. 곱하면 귀한
+            // 포켓몬일수록 먹이가 남는 장사가 되어 돈을 찍어낼 수 있다.
+            using (TestWorld world = World("-p", "mew"))
+            {
+                PetForm pet = world.Pets[0];
+                PetWorld app = world.World;
+                int before = app.Options.Coins;
+                for (int i = 0; i < 250; i++) { pet.Tick(); }
+                int plain = app.Options.Coins - before;
+
+                pet.Fed();
+                before = app.Options.Coins;
+                for (int i = 0; i < 250; i++) { pet.Tick(); }
+                int fed = app.Options.Coins - before;
+
+                Check.Near(fed - plain, PetWorld.CoinsPerSecond * 10,
+                    PetWorld.CoinsPerSecond,
+                    "먹이는 등급과 상관없이 10초에 " + (PetWorld.CoinsPerSecond * 10) + "원을 더 준다");
+                Check.That(fed - plain < PetWorld.FoodCost,
+                    "먹이 하나로 그 값만큼을 10초 만에 벌지는 못한다");
+            }
+
             // 준전설은 진화를 못 한다. 일반 포켓몬을 끝까지 키운 것보다는
             // 나아야 10% 를 뚫고 뽑은 값을 한다.
             Check.That(PetWorld.PokemonIncomeMultiplier("ditto") > 2.25,

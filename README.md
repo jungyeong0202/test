@@ -298,6 +298,19 @@ GIF 도 그대로 넣을 수 있습니다. 여러 장이 들어 있으면 `--fra
 빼면 첫 장을 씁니다. 투명한 배경은 흰 종이 위에 올려서 읽으므로 따로 지우지
 않아도 됩니다.
 
+피카츄는 `assets/images/pikachu-f.gif`(51x46, 112장)에서 이렇게 들여왔습니다.
+
+```bash
+python3 tools/import_sprite.py assets/images/pikachu-f.gif \
+    --key pikachu --name 피카츄 --colors 14 --facing left \
+    --grid 40 --rows 46 \
+    --part lfoot:0,39,11,45 --part rfoot:13,39,23,45 \
+    --motion "lfoot:0,0;0,-2;0,0;0,0" \
+    --motion "rfoot:0,0;0,0;0,0;0,-2" \
+    --eyes 3,13,7,17 --eyes 13,11,17,16 \
+    --pose-squash 1 --preview 확인용.png
+```
+
 이상해씨는 `assets/images/bulbasaur.gif`(37x38, 99장)에서 이렇게 들여왔습니다.
 원본이 이미 도트 해상도라 격자를 자동으로 재게 두지 않고 `--grid`/`--rows` 로
 1:1 이라고 알려 줍니다.
@@ -471,7 +484,7 @@ exe 를 새로 받아도 이전 것이 그대로 도는 경우가 있습니다. 
 `--list` 는 이렇게 나옵니다. 크기와 프레임 수가 아래와 다르면 예전 빌드입니다.
 
 ```
-pikachu       피카츄    39x41  4프레임  왼쪽 보는 그림
+pikachu       피카츄    41x47  4프레임  정면을 보는 그림
 charmander    파이리    40x44  4프레임  왼쪽 보는 그림
 bulbasaur     이상해씨  36x34  4프레임  왼쪽 보는 그림
 squirtle      꼬부기    40x41  4프레임  왼쪽 보는 그림

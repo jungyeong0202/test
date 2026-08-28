@@ -1141,6 +1141,49 @@ namespace PokemonTaskbar.Tests
                     "상장폐지된 값으로 정산해 담보보다 많이 돌려받는다");
             }
 
+            // 오래 굴려도 값이 깨지지 않아야 한다. 상장폐지·강제 청산·거래정지가
+            // 겹치는 자리가 많아, 눈으로 짚은 몇 가지만으로는 안심할 수 없다.
+            bool broken = false;
+            for (int seed = 0; seed < 5 && !broken; seed++)
+            {
+                using (TestWorld world = World("-p", "pikachu"))
+                {
+                    PetWorld app = world.World;
+                    app.Options.Coins = 5000000;
+                    for (int i = 0; i < PetWorld.StockSlotCount; i++)
+                    {
+                        app.Options.StockBasePrices[i] = app.Options.StockPrices[i];
+                    }
+                    for (int tick = 0; tick < 300 && !broken; tick++)
+                    {
+                        app.OpenMarketForTest();
+                        for (int i = 0; i < PetWorld.StockSlotCount; i++)
+                        {
+                            if ((tick + i + seed) % 7 == 0) app.ShortStock(i, 1 + tick % 3);
+                            if ((tick + i + seed) % 11 == 0) app.CoverStock(i, 1);
+                        }
+                        app.UpdateMarket();
+                        if (app.Options.Coins < 0) broken = true;
+                        for (int i = 0; i < PetWorld.StockSlotCount; i++)
+                        {
+                            int shorts = app.Options.StockShorts[i];
+                            int entry = app.Options.StockShortPrices[i];
+                            // 수량과 진입가는 늘 함께 있거나 함께 없다.
+                            if (shorts < 0 || (shorts > 0) != (entry > 0)) broken = true;
+                            // 상장폐지된 자리에 공매도가 남으면 담보가 갇힌다.
+                            if (app.IsStockDelisted(i) && shorts > 0) broken = true;
+                            // 담보가 녹았으면 그 자리에서 정리돼 있어야 한다.
+                            if (shorts > 0 && app.Options.StockPrices[i] >= app.StockShortWipePrice(i))
+                                broken = true;
+                            // 아무리 잘돼도 담보의 두 배를 넘겨 받지는 못한다.
+                            if (entry > 0 && PetWorld.ShortPayout(entry, app.Options.StockPrices[i])
+                                > entry * 2) broken = true;
+                        }
+                    }
+                }
+            }
+            Check.That(!broken, "장을 오래 굴려도 공매도 값이 깨지지 않는다");
+
             // 목록 한 줄에 보유와 공매도가 함께 나온다.
             using (TestWorld world = World("-p", "pikachu"))
             {
@@ -1182,6 +1225,21 @@ namespace PokemonTaskbar.Tests
             Check.Equal(app.Options.StockAveragePrices[0], 3000, "평균 단가도 반이 된다");
             Check.Equal((int)after, (int)before, "액면분할로 재산이 늘거나 줄지 않는다");
             Check.That(said.IndexOf("액면분할") >= 0, "액면분할을 알린다");
+
+            // 공매도도 같이 나뉜다. 진입가만 그대로 두면 값이 반이 된 것이 그대로
+            // 이익으로 잡혀, 아무 일도 없었는데 담보의 절반이 공짜로 붙는다.
+            app.Options.StockShorts[1] = 10;
+            app.Options.StockShortPrices[1] = 1000;
+            app.Options.StockBasePrices[1] = 1000;
+            app.Options.StockPrices[1] = 1000;
+            int shortWorthBefore = app.StockShortValue(1);
+            app.SplitStock(1);
+            Check.Equal(app.Options.StockShorts[1], 20, "액면분할하면 공매도도 두 배가 된다");
+            Check.Equal(app.Options.StockShortPrices[1], 500, "진입가도 반이 된다");
+            Check.Equal(app.StockShortValue(1), shortWorthBefore,
+                "액면분할로 공매도 재산이 늘거나 줄지 않는다");
+            Check.Equal(app.StockShortWipePrice(1), 1000,
+                "강제 청산가도 값을 따라 반이 된다");
 
             // 기준가도 같이 나뉘어야 한다. 이걸 빠뜨리면 평균 회귀가 분할 전 값으로
             // 도로 끌어올려, 재산이 그대로여야 할 분할이 공짜 돈이 된다.

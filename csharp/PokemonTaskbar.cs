@@ -3430,7 +3430,7 @@ namespace PokemonTaskbar
             {
                 string action = TossModeName(mode);
                 string warning = mode == TossShort
-                    ? "\n값이 " + PetWorld.FormatWon(this.world.Options.StockPrices[index] * 2)
+                    ? "\n값이 " + PetWorld.FormatWon((long)this.world.Options.StockPrices[index] * 2)
                         + "까지 오르면 담보를 다 잃습니다."
                     : "";
                 if (MessageBox.Show(action + " " + quantity + "주\n" + PetWorld.FormatWon(amount)
@@ -3614,6 +3614,7 @@ namespace PokemonTaskbar
                 this.tossOrderSummary.Text = "상장폐지 종목은 주문할 수 없습니다.";
                 this.tossAction.Text = "주문할 수 없습니다";
                 this.tossAction.Enabled = false;
+                this.tossCoverAction.Text = "주문할 수 없습니다";
                 this.tossCoverAction.Enabled = false;
                 this.UpdateTossActionAccessibility();
                 return;
@@ -3644,6 +3645,7 @@ namespace PokemonTaskbar
                 this.tossOrderSummary.Text = "휴장 중에는 주문할 수 없습니다.";
                 this.tossAction.Text = "휴장 중 · 주문 불가";
                 this.tossAction.Enabled = false;
+                this.tossCoverAction.Text = "휴장 중 · 주문 불가";
                 this.tossCoverAction.Enabled = false;
                 this.UpdateTossActionAccessibility();
                 return;
@@ -3654,6 +3656,7 @@ namespace PokemonTaskbar
                 this.tossOrderSummary.Text = "변동성 완화장치가 해제되면 주문할 수 있습니다.";
                 this.tossAction.Text = "거래 정지 · 주문 불가";
                 this.tossAction.Enabled = false;
+                this.tossCoverAction.Text = "거래 정지 · 주문 불가";
                 this.tossCoverAction.Enabled = false;
                 this.UpdateTossActionAccessibility();
                 return;
@@ -7105,6 +7108,12 @@ namespace PokemonTaskbar
                 this.Options.StockAveragePrices[index] / 2;
             this.Options.StockShares[index] =
                 shares > int.MaxValue / 2 ? int.MaxValue : shares * 2;
+            // 공매도도 똑같이 나눠야 한다. 진입가만 그대로 두면 값이 반이 된 것이
+            // 그대로 이익으로 잡혀, 아무 일도 없었는데 담보의 절반이 공짜로 붙는다.
+            int shorts = this.Options.StockShorts[index];
+            this.Options.StockShortPrices[index] = this.Options.StockShortPrices[index] / 2;
+            this.Options.StockShorts[index] =
+                shorts > int.MaxValue / 2 ? int.MaxValue : shorts * 2;
             // 차트도 같이 나눠야 반토막 절벽이 생기지 않는다.
             for (int i = 0; i < this.stockHistory[index].Count; i++)
             {

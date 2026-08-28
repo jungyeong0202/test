@@ -697,9 +697,33 @@ def register(source, constant):
     return source[: match.start()] + replacement + source[match.end():]
 
 
+def load_frame(path, index):
+    """그림 한 장을 흰 배경 위에 올려 RGB 로 읽는다.
+
+    투명한 부분을 그냥 convert("RGB") 하면 팔레트의 투명 자리에 적힌 색이
+    그대로 나온다. 검정일 때도, 자홍(#ff00ff)일 때도 있다. 이 도구는 '거의
+    흰색'만 배경으로 보므로, 그대로 두면 배경이 그림의 일부가 되어 버린다.
+    흰 종이 위에 올린 셈 치면 뒤쪽 계산을 하나도 건드리지 않아도 된다.
+
+    GIF 처럼 여러 장이 든 파일은 index 번째 장을 쓴다.
+    """
+    with Image.open(path) as source:
+        total = getattr(source, "n_frames", 1)
+        if index:
+            if index >= total:
+                raise SystemExit("프레임 %d 번은 없다. 이 파일에는 %d 장이 들어 있다."
+                                 % (index, total))
+            source.seek(index)
+        if total > 1:
+            print("여러 장이 든 파일이다: %d 장 중 %d 번째를 쓴다." % (total, index))
+        image = source.convert("RGBA")
+    paper = Image.new("RGBA", image.size, (255, 255, 255, 255))
+    return Image.alpha_composite(paper, image).convert("RGB")
+
+
 def main():
     parser = argparse.ArgumentParser(description="도트 이미지를 스프라이트로 변환")
-    parser.add_argument("image", help="변환할 png/jpg 파일")
+    parser.add_argument("image", help="변환할 png/jpg/gif 파일")
     parser.add_argument("--key", required=True, help="포켓몬 키 (예: pikachu)")
     parser.add_argument("--name", required=True, help="한글 이름 (예: 피카츄)")
     parser.add_argument("--colors", type=int, default=8, help="쓸 색 개수 (기본 8)")
@@ -725,11 +749,13 @@ def main():
                         help="원본 그림이 보고 있는 방향 (기본 right)")
     parser.add_argument("--no-bounce", action="store_true",
                         help="프로그램이 주는 위아래 흔들림을 끄고 프레임에 담긴 움직임만 쓴다")
+    parser.add_argument("--frame", type=int, default=0, metavar="번호",
+                        help="여러 장이 든 파일(GIF)에서 쓸 장 번호 (기본 0)")
     parser.add_argument("--preview", default="", help="확인용 png 경로")
     parser.add_argument("--dry-run", action="store_true", help="파일을 고치지 않는다")
     args = parser.parse_args()
 
-    image = Image.open(args.image).convert("RGB")
+    image = load_frame(args.image, args.frame)
 
     def is_background(color):
         return color[0] > 235 and color[1] > 235 and color[2] > 235

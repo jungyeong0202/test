@@ -141,6 +141,89 @@ class CellSizeTest(unittest.TestCase):
         self.assertLess(got, cell * 1.5, "칸을 배수로 잡았습니다: %.2f" % got)
 
 
+class AnimatedGifTest(unittest.TestCase):
+    """움직이는 GIF 를 원본으로 받을 때.
+
+    GIF 는 투명한 자리에 팔레트의 색이 그대로 남는다. 그 색이 검정일 때가
+    많은데, 이 도구는 '거의 흰색' 만 배경으로 보므로 그냥 읽으면 배경이
+    그림의 일부가 된다. 내용 상자가 캔버스 전체로 잡혀 도트 격자부터
+    어긋난다.
+    """
+
+    def setUp(self):
+        try:
+            from PIL import Image                       # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow 가 필요합니다")
+        spec = importlib.util.spec_from_file_location(
+            "import_sprite", os.path.join(os.path.dirname(__file__),
+                                          "tools", "import_sprite.py")
+        )
+        self.tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.tool)
+
+    def _gif(self, path, transparent_color):
+        """투명 배경을 가진 두 장짜리 GIF. 두 장의 그림 위치가 다르다."""
+        from PIL import Image
+
+        frames = []
+        for shift in (0, 6):
+            frame = Image.new("P", (60, 60), 0)
+            frame.putpalette(list(transparent_color) + [30, 160, 90]
+                             + [0] * (256 * 3 - 6))
+            for y in range(20, 45):
+                for x in range(15 + shift, 40 + shift):
+                    frame.putpixel((x, y), 1)
+            frames.append(frame)
+        frames[0].save(path, save_all=True, append_images=frames[1:],
+                       transparency=0, disposal=2, duration=200, loop=0)
+
+    @staticmethod
+    def _is_background(color):
+        return color[0] > 235 and color[1] > 235 and color[2] > 235
+
+    def test_transparent_background_becomes_white(self):
+        import tempfile
+
+        # 투명 자리가 검정이든 자홍이든 배경으로 읽혀야 한다.
+        for transparent in ((0, 0, 0), (255, 0, 255)):
+            with tempfile.NamedTemporaryFile(suffix=".gif") as handle:
+                self._gif(handle.name, transparent)
+                image = self.tool.load_frame(handle.name, 0)
+                self.assertTrue(self._is_background(image.getpixel((0, 0))),
+                                "투명한 자리가 배경으로 안 읽힌다: %r" % (transparent,))
+
+    def test_content_box_finds_the_drawing_not_the_canvas(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".gif") as handle:
+            self._gif(handle.name, (0, 0, 0))
+            image = self.tool.load_frame(handle.name, 0)
+            box = self.tool.content_box(image, self._is_background)
+            self.assertEqual(box, (15, 20, 39, 44))
+            self.assertNotEqual(box, (0, 0, 59, 59), "캔버스 전체를 그림으로 봤다")
+
+    def test_each_frame_can_be_read(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".gif") as handle:
+            self._gif(handle.name, (0, 0, 0))
+            first = self.tool.content_box(self.tool.load_frame(handle.name, 0),
+                                          self._is_background)
+            second = self.tool.content_box(self.tool.load_frame(handle.name, 1),
+                                           self._is_background)
+            # 두 장의 그림 위치가 6 픽셀 다르다.
+            self.assertEqual(second[0] - first[0], 6)
+
+    def test_asking_for_a_frame_that_is_not_there_says_so(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".gif") as handle:
+            self._gif(handle.name, (0, 0, 0))
+            with self.assertRaises(SystemExit):
+                self.tool.load_frame(handle.name, 9)
+
+
 class Net48CheckTest(unittest.TestCase):
     """만든 exe 가 .NET Framework 4.8 API 만 쓰는지 보는 검사기.
 

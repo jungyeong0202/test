@@ -4107,6 +4107,7 @@ namespace PokemonTaskbar
         private Button homeStockShortcut;
         private Button petFeed;
         private Button petEvolve;
+        private Label petEvolutionNote;
         private Button petRecall;
         private Button petRelease;
         private Button petRecruit;
@@ -4558,7 +4559,9 @@ namespace PokemonTaskbar
             layout.ColumnCount = 1; layout.RowCount = 4;
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 230));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+            // 진화 상태 줄이 들어갈 자리까지 잡는다. 110 이던 시절에는 줄을 더하자
+            // 버튼 밑동이 잘렸다.
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 146));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); page.Controls.Add(layout);
             Panel heading = new Panel(); heading.Dock = DockStyle.Fill; heading.Margin = new Padding(0);
             heading.BackColor = Paper;
@@ -4582,9 +4585,24 @@ namespace PokemonTaskbar
             if (recruitGame != null) { recruitGame.ShowDepth = false; recruitGame.EdgeColor = Line; recruitGame.CornerRadius = 12; }
             rosterSection.Controls.Add(this.petRecruit, 0, 1);
             layout.Controls.Add(rosterSection, 0, 1);
+            // 제목·버튼·상태줄을 TableLayoutPanel 로 나눈다. Dock.Top/Fill/Bottom 을
+            // 겹쳐 두면 버튼이 다른 칸을 밟고 올라간다(설정 화면에서 겪었다).
             Panel detailCard = Card(); detailCard.Dock = DockStyle.Fill; detailCard.Margin = new Padding(0, 10, 0, 0);
-            Label manageTitle = NewLabel("선택 포켓몬 관리", detailCard, Ink, 10.0f, FontStyle.Bold);
-            manageTitle.Dock = DockStyle.Top; manageTitle.Height = 32; manageTitle.Padding = new Padding(12, 4, 0, 0);
+            TableLayoutPanel detailLayout = new TableLayoutPanel(); detailLayout.Dock = DockStyle.Fill;
+            detailLayout.BackColor = PanelColor; detailLayout.ColumnCount = 1; detailLayout.RowCount = 3;
+            detailLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            detailLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+            detailCard.Controls.Add(detailLayout);
+            Label manageTitle = NewLabel("선택 포켓몬 관리", detailLayout, Ink, 10.0f, FontStyle.Bold);
+            manageTitle.Dock = DockStyle.Fill; manageTitle.TextAlign = ContentAlignment.MiddleLeft;
+            manageTitle.Padding = new Padding(12, 0, 0, 0);
+            detailLayout.Controls.Add(manageTitle, 0, 0);
+            this.petEvolutionNote = NewLabel("", detailLayout, Muted, 9.0f, FontStyle.Regular);
+            this.petEvolutionNote.Dock = DockStyle.Fill;
+            this.petEvolutionNote.TextAlign = ContentAlignment.MiddleLeft;
+            this.petEvolutionNote.Padding = new Padding(13, 0, 0, 0);
+            detailLayout.Controls.Add(this.petEvolutionNote, 0, 2);
             FlowLayoutPanel actions = ActionRow(); actions.Dock = DockStyle.Fill;
             this.petFeed = NewButton("먹이 주기", Red, delegate { this.FeedSelected(); });
             this.petEvolve = NewButton("진화", Blue, delegate { this.EvolveSelected(); });
@@ -4594,7 +4612,7 @@ namespace PokemonTaskbar
                 button.Width = 145; button.Height = 56; actions.Controls.Add(button);
             }
             MakeDangerous(this.petRelease);
-            actions.Padding = new Padding(12, 2, 0, 0); detailCard.Controls.Add(actions); actions.BringToFront();
+            actions.Padding = new Padding(12, 2, 0, 0); detailLayout.Controls.Add(actions, 0, 1);
             layout.Controls.Add(detailCard, 0, 2);
         }
 
@@ -5067,7 +5085,12 @@ namespace PokemonTaskbar
                     canFeed ? "포켓푸드 한 개를 사용합니다." : feedReason);
             foreach (Button button in new Button[] { this.homeEvolve, this.petEvolve })
                 this.SetActionButton(button, canEvolve, "진화", evolveReason,
-                    canEvolve ? "준비된 다음 단계로 진화합니다." : (pet == null ? evolveReason : this.EvolutionStatus(pet)));
+                    canEvolve ? "준비된 다음 단계로 진화합니다." : (pet == null ? evolveReason : this.EvolutionStatus(pet)),
+                    false);
+            if (this.petEvolutionNote != null) {
+                this.petEvolutionNote.Text = pet == null
+                    ? "포켓몬이 없습니다." : this.EvolutionStatus(pet);
+            }
             this.petRelease.Enabled = pet != null && pets.Length > 1;
             this.petRelease.Text = this.petRelease.Enabled ? "보내주기…" : "보내주기\r\n마지막 포켓몬";
             this.buttonHints.SetToolTip(this.petRelease, this.petRelease.Enabled
@@ -5113,7 +5136,7 @@ namespace PokemonTaskbar
         private string StockPositionPreview()
         {
             List<string> lines = new List<string>();
-            for (int i = 0; i < PetWorld.StockSlotCount && lines.Count < 3; i++)
+            for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
                 int shares = this.world.Options.StockShares[i];
                 if (shares <= 0) continue;
@@ -5132,12 +5155,16 @@ namespace PokemonTaskbar
                 return Math.Abs(this.world.StockChangePercent(right)).CompareTo(
                     Math.Abs(this.world.StockChangePercent(left)));
             });
+            // 여섯 종목을 다 적는다. 예전에는 둘만 적어서, 카드 안에 자리가 남는데도
+            // "시장 한눈에" 가 시장의 3분의 1만 보여 주었다.
             List<string> lines = new List<string>();
-            for (int i = 0; i < Math.Min(2, indexes.Length); i++)
+            for (int i = 0; i < indexes.Length; i++)
             {
                 int index = indexes[i];
                 lines.Add(this.world.StockName(index) + "  "
-                    + string.Format(CultureInfo.InvariantCulture, "{0:+0.0;-0.0;0.0}%", this.world.StockChangePercent(index)));
+                    + (this.world.IsStockDelisted(index) ? "상장폐지"
+                        : string.Format(CultureInfo.InvariantCulture, "{0:+0.0;-0.0;0.0}%",
+                            this.world.StockChangePercent(index))));
             }
             string news = string.IsNullOrEmpty(this.world.StockEvent) ? "새 소식을 기다리는 중"
                 : this.world.StockEvent;
@@ -5161,9 +5188,21 @@ namespace PokemonTaskbar
 
         private void SetActionButton(Button button, bool enabled, string action, string reason, string hint)
         {
+            this.SetActionButton(button, enabled, action, reason, hint, true);
+        }
+
+        /// <summary>동작 버튼의 상태를 맞춘다.
+        ///
+        /// showReason 이 거짓이면 못 누르는 까닭을 버튼에 적지 않는다. 진화가
+        /// 그렇다 — 버튼 바로 밑에 이유를 적는 줄이 따로 있는데 버튼에도 적으니
+        /// 같은 말이 두 번 나오고, 두 줄로 눌린 글자가 읽기도 나빴다.
+        /// </summary>
+        private void SetActionButton(Button button, bool enabled, string action, string reason,
+            string hint, bool showReason)
+        {
             if (button == null) return;
             button.Enabled = enabled;
-            button.Text = enabled ? action : action + "\r\n" + reason;
+            button.Text = enabled || !showReason ? action : action + "\r\n" + reason;
             this.buttonHints.SetToolTip(button, hint);
         }
 

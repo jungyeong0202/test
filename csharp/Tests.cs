@@ -630,21 +630,21 @@ namespace PokemonTaskbar.Tests
             // 빨리 걸어도 얻는 것이 없으면서 보기만 부산해진다.
             using (TestWorld world = World("-p", "pikachu"))
             {
+                // 걸은 거리로 재면 무작위로 멈추고 돌아서는 탓에 흔들린다.
+                // 걸음 속도가 설정한 최고 속도를 넘는지로 본다.
                 PetForm pet = world.Pets[0];
-                double start = pet.Position;
-                for (int i = 0; i < 250; i++) { pet.Tick(); }
-                double plain = System.Math.Abs(pet.Position - start);
-
                 pet.Fed();
-                start = pet.Position;
-                for (int i = 0; i < 250; i++) { pet.Tick(); }
-                double fed = System.Math.Abs(pet.Position - start);
-
-                // 걸음은 무작위로 멈추고 돌아서므로 정확히 같지는 않다.
-                // 두 배가 되지 않는 것만 본다.
-                Check.That(fed < plain * 1.6,
-                    "먹이를 먹어도 걷는 속도가 빨라지지 않는다 ("
-                        + (int)plain + "px → " + (int)fed + "px)");
+                double fastest = 0.0;
+                for (int i = 0; i < 500; i++)
+                {
+                    pet.Tick();
+                    fastest = System.Math.Max(fastest, pet.WalkSpeedForTest);
+                }
+                Check.That(fastest <= pet.TopSpeedForTest + 0.001,
+                    "먹이를 먹어도 설정한 속도를 넘지 않는다 ("
+                        + (int)fastest + " ≤ " + (int)pet.TopSpeedForTest + ")");
+                Check.That(fastest > pet.TopSpeedForTest * 0.5,
+                    "그래도 제 속도로는 걷는다");
             }
 
             // 준전설은 진화를 못 한다. 일반 포켓몬을 끝까지 키운 것보다는

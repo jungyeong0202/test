@@ -1741,6 +1741,17 @@ namespace PokemonTaskbar
         }
 
         /// <summary>진화에 필요한 걷기 거리.</summary>
+        /// <summary>테스트용. 지금 걸음 속도와 설정된 최고 속도.</summary>
+        internal double WalkSpeedForTest
+        {
+            get { return this.walkSpeed; }
+        }
+
+        internal double TopSpeedForTest
+        {
+            get { return this.speedValue; }
+        }
+
         /// <summary>테스트용. 지금 걷고 있는가(감속 중 포함).</summary>
         internal bool WalkingForTest
         {

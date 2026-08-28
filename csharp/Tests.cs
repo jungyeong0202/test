@@ -591,9 +591,23 @@ namespace PokemonTaskbar.Tests
             // 등급과 진화 단계에 따른 배수가 시간 벌이에도 그대로 곱해져야 한다.
             // 걸은 거리로 주던 시절의 배수가 그대로 살아 있는지 확인한다.
             CheckEarnsPerSecond("pikachu", 1.0, "일반은 그대로");
-            CheckEarnsPerSecond("ditto", 1.6, "준전설은 1.6배");
-            CheckEarnsPerSecond("mew", 2.5, "초전설은 2.5배");
+            CheckEarnsPerSecond("ditto", 3.0, "준전설은 3배");
+            CheckEarnsPerSecond("mew", 5.0, "초전설은 5배");
             CheckEarnsPerSecond("wartortle", 1.5, "2단계는 1.5배");
+            CheckEarnsPerSecond("blastoise", 2.25, "3단계는 2.25배");
+
+            // 뽑기로만 만나는 등급이 열심히 키운 3단계보다는 나아야 한다.
+            // 초전설은 2% 로 뽑히는데 2.5배이던 시절에는 3단계(2.25배)와
+            // 거의 같았다.
+            Check.That(PetWorld.PokemonIncomeMultiplier("mew")
+                    > PetWorld.PokemonIncomeMultiplier("ditto"),
+                "초전설이 준전설보다 많이 번다");
+            Check.That(PetWorld.PokemonIncomeMultiplier("mew") > 2.25,
+                "초전설이 3단계 진화체보다 많이 번다");
+            // 준전설은 진화를 못 한다. 일반 포켓몬을 끝까지 키운 것보다는
+            // 나아야 10% 를 뚫고 뽑은 값을 한다.
+            Check.That(PetWorld.PokemonIncomeMultiplier("ditto") > 2.25,
+                "준전설이 3단계 진화체보다 많이 번다");
 
             using (TestWorld world = World("-p", "pikachu"))
             {

@@ -28,7 +28,11 @@ WATCHED = ("mscorlib", "System", "System.Core", "System.Drawing", "System.Window
 
 MEMBER_REF = re.compile(r"\[([\w.]+)\]([\w.`/]+)(?:<[^>]*>)?::(\.?\w+)\s*\(")
 END_OF_METHOD = re.compile(r"\}\s*//\s*end of method ([\w.`/]+)::(\.?\w+)")
-METHOD_END = ("cil managed", "runtime managed", "il managed")
+# 메서드 선언은 "... cil managed" 로 끝나지만, 뒤에 noinlining / internalcall /
+# preservesig 같은 말이 더 붙는 경우가 많다. 그래서 끝을 글자로 맞추지 않고
+# "괄호가 닫혔고 managed 가 나왔는가" 로 본다. 예전에는 끝을 못 알아보고 뒤따르는
+# 메서드들을 통째로 삼켜, 멀쩡한 API 를 없는 것으로 잘못 신고했다.
+MANAGED = re.compile(r"\b(managed|unmanaged)\b")
 
 
 def disassemble(path):
@@ -63,6 +67,25 @@ def split_arguments(text, open_paren):
     return None
 
 
+def strip_call(text, word):
+    """`marshal( ... )` 처럼 괄호가 중첩된 장식을 통째로 걷어낸다."""
+    while True:
+        start = text.find(word + "(")
+        if start < 0:
+            return text
+        depth = 0
+        for index in range(start + len(word), len(text)):
+            if text[index] == "(":
+                depth += 1
+            elif text[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    text = text[:start] + text[index + 1:]
+                    break
+        else:
+            return text[:start]
+
+
 NOISE = ("valuetype", "class", "instance", "explicit", "default", "modopt", "modreq")
 
 
@@ -71,6 +94,7 @@ def normalise_type(text, drop_name):
     text = re.sub(r"\[[\w.]+\]", "", text)          # [mscorlib] 같은 접두사
     text = re.sub(r"modopt\([^)]*\)", "", text)
     text = re.sub(r"modreq\([^)]*\)", "", text)
+    text = strip_call(text, "marshal")
     text = text.replace("valuetype", " ").replace("class", " ")
     text = re.sub(r"\s+", " ", text).strip()
     if not text:
@@ -127,6 +151,13 @@ def class_name(rest):
     return None
 
 
+def declaration_ended(text):
+    """메서드 선언(서명)이 여기서 끝났는지. 괄호가 닫히고 managed 가 나오면 끝이다."""
+    if "(" not in text or not MANAGED.search(text):
+        return False
+    return text.count("(") <= text.count(")")
+
+
 def methods_defined(il):
     """참조 어셈블리가 실제로 가진 (타입, 메서드, 인자타입) 모음."""
     defined = set()
@@ -138,7 +169,7 @@ def methods_defined(il):
 
         if collecting:
             buffer.append(line)
-            if any(line.endswith(tail) for tail in METHOD_END):
+            if declaration_ended(" ".join(buffer)):
                 collecting = False
                 text = " ".join(buffer)
                 paren = text.find("(")
@@ -164,7 +195,7 @@ def methods_defined(il):
         if line.startswith(".method"):
             collecting = True
             buffer = [line]
-            if any(line.endswith(tail) for tail in METHOD_END):
+            if declaration_ended(" ".join(buffer)):
                 collecting = False
                 text = line
                 paren = text.find("(")

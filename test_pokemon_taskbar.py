@@ -9,6 +9,7 @@ GUI(디스플레이)가 없는 환경에서는 화면이 필요한 테스트만 
 import contextlib
 import io
 import importlib.util
+import math
 import os
 import shutil
 import tempfile
@@ -42,6 +43,19 @@ else:  # 화면이 필요 없는 부분만 쓰기 위해 지연 임포트
 needs_display = unittest.skipUnless(HAS_DISPLAY, "tkinter 디스플레이가 필요합니다")
 
 
+def fresh_settings():
+    """저장된 설정을 지워 테스트끼리 영향을 주지 않게 한다.
+
+    앱은 여러 상황에서 설정을 파일에 저장한다. 한 테스트가 `--offset 5000` 처럼
+    극단적인 값을 주면 그것이 파일에 남아, 같은 프로세스의 다음 테스트가 그대로
+    물려받는다(창이 화면 밖으로 밀려 base_y 가 0 이 되는 식이다). 테스트마다
+    깨끗한 상태에서 시작하도록 파일을 지운다.
+    """
+    path = os.environ[settings_file.ENV_OVERRIDE]
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def tearDownModule():
     shutil.rmtree(_SETTINGS_DIR, ignore_errors=True)
 
@@ -50,6 +64,7 @@ class SettingsTest(unittest.TestCase):
     """설정 저장/불러오기. 화면이 없어도 확인할 수 있다."""
 
     def setUp(self):
+        fresh_settings()
         self.path = os.path.join(_SETTINGS_DIR, "case.txt")
 
     def tearDown(self):
@@ -201,6 +216,7 @@ class CellSizeTest(unittest.TestCase):
     """
 
     def setUp(self):
+        fresh_settings()
         try:
             from PIL import Image                       # noqa: F401
         except ImportError:
@@ -256,6 +272,52 @@ class CellSizeTest(unittest.TestCase):
         cell = 8.0
         got = self._measure(self._blown_up(28, 24, cell))
         self.assertLess(got, cell * 1.5, "칸을 배수로 잡았습니다: %.2f" % got)
+
+
+class Net48CheckTest(unittest.TestCase):
+    """만든 exe 가 .NET Framework 4.8 API 만 쓰는지 보는 검사기.
+
+    이 검사기는 빌드를 막는 관문이므로, 멀쩡한 API 를 없다고 잘못 신고하면
+    아무도 빌드할 수 없게 된다. 실제로 메서드 선언이 어디서 끝나는지 잘못 봐서
+    (`cil managed noinlining` 처럼 뒤에 말이 더 붙는 경우) 뒤따르는 메서드들을
+    통째로 놓친 적이 있다.
+    """
+
+    def setUp(self):
+        fresh_settings()
+        if not os.path.isdir("/usr/lib/mono/4.8-api"):
+            self.skipTest("4.8 참조 어셈블리가 없습니다")
+        spec = importlib.util.spec_from_file_location(
+            "check_net48", os.path.join(os.path.dirname(__file__),
+                                        "tools", "check_net48.py")
+        )
+        self.tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.tool)
+        self.defined = self.tool.methods_defined(
+            self.tool.disassemble("/usr/lib/mono/4.8-api/mscorlib.dll")
+        )
+
+    def test_it_finds_plain_methods(self):
+        self.assertIn(("System.String", "Split", ("char[]",)), self.defined)
+
+    def test_it_finds_methods_after_a_decorated_one(self):
+        """선언 끝을 못 알아보면 뒤따르는 메서드들이 통째로 사라진다."""
+        self.assertIn(
+            ("System.Runtime.InteropServices.Marshal", "Copy",
+             ("uint8[]", "int32", "nativeint", "int32")),
+            self.defined,
+        )
+        self.assertIn(("System.Decimal", ".ctor", ("int32",)), self.defined)
+
+    def test_it_reads_a_useful_number_of_methods(self):
+        # 파서가 조용히 망가지면 개수가 뚝 떨어진다.
+        self.assertGreater(len(self.defined), 10000)
+
+    def test_it_still_catches_a_mono_only_overload(self):
+        """Mono 에만 있는 오버로드는 반드시 걸려야 한다."""
+        everywhere = {(t, n, sig) for t, n, sig in self.defined}
+        mono_only = ("System.String", "Split", ("char", "System.StringSplitOptions"))
+        self.assertNotIn(mono_only, everywhere)
 
 
 @needs_display
@@ -387,6 +449,7 @@ class ImageTest(unittest.TestCase):
 @needs_display
 class PetMovementTest(unittest.TestCase):
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["-p", "pikachu", "--speed", "200"]))
 
     def tearDown(self):
@@ -602,6 +665,7 @@ class HopTest(unittest.TestCase):
     """메타몽처럼 뛰어다니는 이동."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["-p", "ditto"]))
         self.pet = self.app.pets[0]
 
@@ -636,11 +700,16 @@ class HopTest(unittest.TestCase):
         self.assertEqual(self.pet.x, before)
 
     def test_it_travels_over_time(self):
+        # 끝난 자리만 보면 방향을 바꿔 제자리로 돌아왔을 때 헛되이 실패한다.
+        # 도중에 얼마나 멀리 갔는지를 본다.
         start = self.pet.x
-        self._run(6.0)
-        self.assertNotAlmostEqual(self.pet.x, start, places=1)
-        self.assertGreaterEqual(self.pet.x, 0)
-        self.assertLessEqual(self.pet.x, self.pet.max_x)
+        farthest = 0.0
+        for _ in range(int(6.0 / (pt.TICK_MS / 1000.0))):
+            self.pet.tick()
+            farthest = max(farthest, abs(self.pet.x - start))
+            self.assertGreaterEqual(self.pet.x, 0)
+            self.assertLessEqual(self.pet.x, self.pet.max_x)
+        self.assertGreater(farthest, 1.0, "6초 동안 거의 움직이지 않았다")
 
     def test_frames_follow_the_hop(self):
         self.pet.hop_state = "rest"
@@ -677,6 +746,7 @@ class FloatTest(unittest.TestCase):
     """뮤처럼 공중에 떠다니는 이동."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["-p", "mew"]))
         self.pet = self.app.pets[0]
 
@@ -762,6 +832,7 @@ class EvolutionTest(unittest.TestCase):
     """함께 산책하고 아껴 준 뒤, 직접 선택해서 진화한다."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["-p", "squirtle"]))
         self.pet = self.app.pets[0]
 
@@ -967,7 +1038,7 @@ class EvolutionTest(unittest.TestCase):
         self.app.stock_average_prices[0] = 900
         text = self.app.stock_position_text(0)
         self.assertIn("보유 3주", text)
-        self.assertIn("평가 2,940원", text)
+        self.assertIn("평가액 2,940원", text)
         self.assertIn("손익 +240원", text)
 
     def test_stock_percentage_colours_distinguish_gain_loss_and_flat(self):
@@ -1211,6 +1282,7 @@ class DragTest(unittest.TestCase):
     """클릭한 채로 끌어서 옮기기."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args([]))
         self.pet = self.app.pets[0]
         self.pet.x = 100
@@ -1331,6 +1403,7 @@ class EffectTest(unittest.TestCase):
     """착지 먼지 / 클릭 하트 / 낮잠 Zzz."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["-p", "pikachu"]))
         self.pet = self.app.pets[0]
 
@@ -1380,12 +1453,17 @@ class EffectTest(unittest.TestCase):
         self.assertIn("zzz", self._kinds())
 
     def test_effects_fade_away(self):
+        # 도는 동안 포켓몬이 새 효과를 스스로 내기도 하므로(착지 먼지, 낮잠 Zzz),
+        # 남은 개수가 아니라 "우리가 낸 것들이 사라졌는가"를 본다.
         self.pet.spawn_dust()
         self.pet.spawn_emote("heart")
-        self.assertGreater(len(self.pet.effects), 0)
+        spawned = list(self.pet.effects)
+        self.assertGreater(len(spawned), 0)
         for _ in range(60):          # 2.4초면 전부 사라진다
             self.pet.tick()
-        self.assertEqual(self.pet.effects, [])
+        alive = [effect for effect in self.pet.effects
+                 if any(effect is one for one in spawned)]
+        self.assertEqual(alive, [], "낸 효과가 사라지지 않았다")
 
     def test_window_has_room_for_effects(self):
         pet = self.pet
@@ -1400,6 +1478,7 @@ class PoseTest(unittest.TestCase):
     """같은 도트에서 만들어 낸 자세들(눌림·늘어남·눈 감기)."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["-p", "pikachu"]))
         self.pet = self.app.pets[0]
 
@@ -1471,6 +1550,7 @@ class MenuTest(unittest.TestCase):
     """우클릭 메뉴로 하는 일들이 실제로 반영되고 저장되는지."""
 
     def setUp(self):
+        fresh_settings()
         self.path = os.path.join(_SETTINGS_DIR, "menu.txt")
         if os.path.exists(self.path):
             os.remove(self.path)
@@ -1532,24 +1612,38 @@ class MenuTest(unittest.TestCase):
                 pet.tick()
         self.assertNotAlmostEqual(pet.x, start, places=1)
 
-    def _add_menu_labels(self, pet):
-        labels = []
-        submenu = pet.pet_purchase_menu
-        for index in range(submenu.index("end") + 1):
-            if submenu.type(index) == "command":
-                labels.append(submenu.entrycget(index, "label"))
-        return labels
+    def test_menu_offers_paid_random_recruitment(self):
+        """이제 목록에서 고르는 게 아니라 값을 치르고 랜덤으로 영입한다."""
+        pet = self.app.pets[0]
+        pet.refresh_menu()
+        label = pet.pet_purchase_menu.entrycget(pet.random_purchase_index, "label")
+        self.assertIn("랜덤 영입", label)
+        self.assertIn(pt.format_won(pt.POKEMON_PRICE), label)
 
-    def test_menu_has_every_starting_pokemon(self):
-        labels = self._add_menu_labels(self.app.pets[0])
-        for key in sprites.base_species():
-            self.assertIn(sprites.POKEMON[key].name_ko, labels)
+    def test_recruiting_needs_the_price(self):
+        pet = self.app.pets[0]
+        self.app.coins = pt.POKEMON_PRICE - 1
+        pet.refresh_menu()
+        self.assertEqual(
+            str(pet.pet_purchase_menu.entrycget(pet.random_purchase_index, "state")),
+            "disabled",
+        )
+        self.app.coins = pt.POKEMON_PRICE
+        pet.refresh_menu()
+        self.assertEqual(
+            str(pet.pet_purchase_menu.entrycget(pet.random_purchase_index, "state")),
+            "normal",
+        )
 
-    def test_menu_hides_evolved_pokemon(self):
-        """진화체는 진화로만 만날 수 있어야 한다."""
-        labels = self._add_menu_labels(self.app.pets[0])
+    def test_recruiting_never_gives_an_evolved_pokemon(self):
+        """진화체는 진화로만 만날 수 있어야 한다. 뽑기로 나오면 안 된다."""
+        for grade, _chance in pt.GRADE_DRAW_CHANCES:
+            pool = [key for key in sprites.base_species()
+                    if pt.pokemon_grade(key)[0] == grade]
+            for key in pool:
+                self.assertNotIn(key, sprites.EVOLVED_ONLY, "%s 등급에 진화체" % grade)
         for key in sprites.EVOLVED_ONLY:
-            self.assertNotIn(sprites.POKEMON[key].name_ko, labels)
+            self.assertNotIn(key, sprites.base_species())
 
     def test_autostart_is_safe_off_windows(self):
         # 윈도우가 아니면 등록되지 않고, 예외도 나지 않아야 한다.
@@ -1566,6 +1660,7 @@ class LifecycleTest(unittest.TestCase):
     """종료 경로에서 예외나 오류 출력이 없어야 한다."""
 
     def setUp(self):
+        fresh_settings()
         self.app = pt.App(pt.parse_args(["--count", "2"]))
 
     def tearDown(self):

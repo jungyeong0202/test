@@ -863,7 +863,7 @@ class PokemonPet:
         )
         self.pet_purchase_menu.entryconfigure(
             self.random_purchase_index,
-            label="랜덤 영입 — %s  (일반 88% · 준전설 10% · 초전설 2%%)" % format_won(POKEMON_PRICE),
+            label="랜덤 영입 — %s  (일반 88%% · 준전설 10%% · 초전설 2%%)" % format_won(POKEMON_PRICE),
             state="normal" if self.app.coins >= POKEMON_PRICE else "disabled",
         )
         self.menu.entryconfigure(

@@ -1,4 +1,4 @@
-// 배포하는 프로그램(C# 판)을 직접 검사한다.
+﻿// 배포하는 프로그램(C# 판)을 직접 검사한다.
 //
 // 예전에는 테스트가 파이썬 판에만 있었다. 정작 사용자가 실행하는 것은 이 exe 인데,
 // 이쪽을 지키는 테스트가 하나도 없어서 윈도우에서만 죽는 문제를 오래 못 잡았다.
@@ -854,6 +854,19 @@ namespace PokemonTaskbar.Tests
                 "0원 (0.0%)", "변동이 없을 때");
             Check.That(StockOverlayForm.PortfolioChangeText(330, 1.9).EndsWith(")"),
                 "수익률이 괄호로 닫힌다");
+
+            // 시장 이벤트 카드는 새 소식이 왔을 때만 깜빡인다. 갱신할 때마다
+            // 번쩍이면 "새 소식" 이라는 뜻이 없어진다.
+            Check.That(StockOverlayForm.ShouldFlashEvent("", "꼬부기워터 급등 +7.2%"),
+                "새 소식이 오면 깜빡인다");
+            Check.That(StockOverlayForm.ShouldFlashEvent("옛 소식", "새 소식"),
+                "다른 소식으로 바뀌면 깜빡인다");
+            Check.That(!StockOverlayForm.ShouldFlashEvent("같은 소식", "같은 소식"),
+                "같은 소식으로는 다시 깜빡이지 않는다");
+            Check.That(!StockOverlayForm.ShouldFlashEvent("옛 소식", ""),
+                "소식이 없어질 때는 깜빡이지 않는다");
+            Check.That(!StockOverlayForm.ShouldFlashEvent(null, null),
+                "소식이 아예 없으면 깜빡이지 않는다");
         }
 
         // --- 주식 소식 --------------------------------------------------------

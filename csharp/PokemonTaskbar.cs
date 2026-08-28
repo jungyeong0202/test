@@ -2709,6 +2709,14 @@ namespace PokemonTaskbar
         private Label tossEventTitle;
         private Label tossEventPercent;
         private Label tossDetailEvent;
+        private Timer tossEventFlashTimer;
+        private int tossEventFlashLeft;
+        private string tossEventFlashKey;
+        private Color tossEventBack;
+        private Color tossEventBorder;
+        /// <summary>새 이벤트가 떴을 때 테두리를 깜빡이는 횟수와 간격.</summary>
+        private const int EventFlashCount = 8;
+        private const int EventFlashMilliseconds = 260;
         private StockGraph tossGraph;
         private NumericUpDown tossQuantity;
         private GameActionButton tossBuyTab;
@@ -2824,10 +2832,45 @@ namespace PokemonTaskbar
             close.Click += delegate { this.Close(); };
             header.Controls.Add(close);
 
+            // 시장 이벤트는 사고팔 때를 정하는 값이라 창에서 가장 먼저 보여야 한다.
+            // 예전에는 상세 카드 안쪽 490x62 자리에 있어 그래프와 주문창 사이에
+            // 묻혔다. 이제 머리글 바로 아래에 전체 폭으로 둔다.
+            this.tossEventCard = new GameCardPanel();
+            this.tossEventCard.BackColor = Color.FromArgb(40, 61, 90);
+            this.tossEventCard.BorderColor = MenuLine; this.tossEventCard.CornerRadius = 12;
+            this.tossEventCard.BorderThickness = 1;
+            this.tossEventCard.Location = new Point(12, 56);
+            this.tossEventCard.Size = new Size(784, 82);
+            body.Controls.Add(this.tossEventCard);
+            this.tossEventTitle = TossLabel(this.tossEventCard, new Point(16, 9), new Size(470, 25),
+                ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
+            this.tossEventTitle.BackColor = this.tossEventCard.BackColor;
+            this.tossEventTitle.ForeColor = MenuYellow;
+            this.tossDetailEvent = TossLabel(this.tossEventCard, new Point(16, 38), new Size(752, 36),
+                ContentAlignment.TopLeft, 11.0f, FontStyle.Regular);
+            this.tossDetailEvent.BackColor = this.tossEventCard.BackColor;
+            this.tossDetailEvent.ForeColor = MenuInk;
+            this.tossEventPercent = TossLabel(this.tossEventCard, new Point(600, 7), new Size(168, 29),
+                ContentAlignment.MiddleRight, 14.0f, FontStyle.Bold);
+            this.tossEventPercent.BackColor = this.tossEventCard.BackColor;
+            this.tossEventPercent.AccessibleName = "이벤트 등락률";
+            // 새 이벤트가 뜨면 테두리를 몇 번 깜빡여 눈에 걸리게 한다.
+            this.tossEventFlashTimer = new Timer();
+            this.tossEventFlashTimer.Interval = EventFlashMilliseconds;
+            this.tossEventFlashTimer.Tick += delegate {
+                this.tossEventFlashLeft--;
+                if (this.tossEventFlashLeft <= 0)
+                {
+                    this.tossEventFlashLeft = 0;
+                    this.tossEventFlashTimer.Stop();
+                }
+                this.ApplyTossEventFlash();
+            };
+
             GameCardPanel portfolio = new GameCardPanel();
             portfolio.BackColor = MenuPanel;
             portfolio.BorderColor = MenuLine; portfolio.CornerRadius = 14;
-            portfolio.Location = new Point(12, 56);
+            portfolio.Location = new Point(12, 148);
             portfolio.Size = new Size(784, 100);
             body.Controls.Add(portfolio);
             // 주식창에서 가장 궁금한 값은 "지금 얼마인가"(평가액)이므로 맨 앞의 큰
@@ -2870,8 +2913,8 @@ namespace PokemonTaskbar
             GameCardPanel watch = new GameCardPanel();
             watch.BackColor = MenuPanel;
             watch.BorderColor = MenuLine; watch.CornerRadius = 14;
-            watch.Location = new Point(12, 166);
-            watch.Size = new Size(250, 710);
+            watch.Location = new Point(12, 258);
+            watch.Size = new Size(250, 610);
             body.Controls.Add(watch);
             this.tossAllStocksTab = CreateQuickButton("전체");
             this.tossAllStocksTab.Location = new Point(8, 6);
@@ -2918,8 +2961,8 @@ namespace PokemonTaskbar
             GameCardPanel detail = new GameCardPanel();
             detail.BackColor = MenuPanel;
             detail.BorderColor = MenuLine; detail.CornerRadius = 14;
-            detail.Location = new Point(274, 166);
-            detail.Size = new Size(522, 710);
+            detail.Location = new Point(274, 258);
+            detail.Size = new Size(522, 610);
             body.Controls.Add(detail);
             this.tossDetailName = TossLabel(detail, new Point(16, 10), new Size(490, 29),
                 ContentAlignment.MiddleLeft, 15.0f, FontStyle.Bold);
@@ -2948,29 +2991,10 @@ namespace PokemonTaskbar
                 ContentAlignment.MiddleRight, 11.0f, FontStyle.Bold);
             this.tossDetailProfitPercent.BackColor = MenuSoft;
             this.tossDetailProfitPercent.AccessibleName = "선택 종목 보유 수익률";
-            this.tossEventCard = new GameCardPanel();
-            this.tossEventCard.BackColor = Color.FromArgb(40, 61, 90);
-            this.tossEventCard.BorderColor = MenuLine; this.tossEventCard.CornerRadius = 9;
-            this.tossEventCard.BorderThickness = 1;
-            this.tossEventCard.Location = new Point(16, 378);
-            this.tossEventCard.Size = new Size(490, 62);
-            detail.Controls.Add(this.tossEventCard);
-            this.tossEventTitle = TossLabel(this.tossEventCard, new Point(12, 5), new Size(462, 21),
-                ContentAlignment.MiddleLeft, 9.5f, FontStyle.Bold);
-            this.tossEventTitle.BackColor = this.tossEventCard.BackColor;
-            this.tossEventTitle.ForeColor = MenuYellow;
-            this.tossDetailEvent = TossLabel(this.tossEventCard, new Point(12, 27), new Size(462, 28),
-                ContentAlignment.TopLeft, 10.0f, FontStyle.Regular);
-            this.tossDetailEvent.BackColor = this.tossEventCard.BackColor;
-            this.tossDetailEvent.ForeColor = MenuInk;
-            this.tossEventPercent = TossLabel(this.tossEventCard, new Point(390, 5), new Size(84, 21),
-                ContentAlignment.MiddleRight, 10.0f, FontStyle.Bold);
-            this.tossEventPercent.BackColor = this.tossEventCard.BackColor;
-            this.tossEventPercent.AccessibleName = "이벤트 등락률";
             GameCardPanel orderCard = new GameCardPanel();
             orderCard.BackColor = MenuSoft; orderCard.BorderColor = MenuLine;
             orderCard.CornerRadius = 11; orderCard.BorderThickness = 1;
-            orderCard.Location = new Point(16, 448); orderCard.Size = new Size(490, 210);
+            orderCard.Location = new Point(16, 378); orderCard.Size = new Size(490, 210);
             detail.Controls.Add(orderCard);
             this.tossBuyTab = CreateSegmentButton("매수", true);
             this.tossBuyTab.Location = new Point(12, 10); this.tossBuyTab.Size = new Size(226, 36);
@@ -3025,7 +3049,7 @@ namespace PokemonTaskbar
             this.tossToast = new GameCardPanel();
             this.tossToast.BackColor = Color.FromArgb(37, 72, 67);
             this.tossToast.BorderColor = MenuGreen; this.tossToast.CornerRadius = 11;
-            this.tossToast.Location = new Point(294, 65);
+            this.tossToast.Location = new Point(294, 152);
             this.tossToast.Size = new Size(500, 72);
             this.tossToast.Visible = false;
             body.Controls.Add(this.tossToast);
@@ -3042,7 +3066,14 @@ namespace PokemonTaskbar
             };
             this.FormClosed += delegate {
                 if (this.tossToastTimer != null) { this.tossToastTimer.Stop(); this.tossToastTimer.Dispose(); }
+                if (this.tossEventFlashTimer != null)
+                {
+                    this.tossEventFlashTimer.Stop(); this.tossEventFlashTimer.Dispose();
+                }
             };
+            // 창을 열 때 이미 떠 있던 소식으로는 깜빡이지 않는다. 열 때마다 같은
+            // 소식이 번쩍이면 "새 이벤트" 라는 뜻이 흐려진다.
+            this.tossEventFlashKey = this.world.StockEvent;
             this.RefreshTossMarket();
         }
 
@@ -3182,11 +3213,6 @@ namespace PokemonTaskbar
             }
             double eventPercent;
             string eventPercentText = ExtractSignedPercent(ref text, out eventPercent);
-            this.tossEventCard.BackColor = background;
-            this.tossEventCard.BorderColor = border;
-            this.tossEventTitle.BackColor = background;
-            this.tossDetailEvent.BackColor = background;
-            this.tossEventPercent.BackColor = background;
             this.tossEventTitle.ForeColor = titleColor;
             this.tossEventTitle.Text = title;
             this.tossEventPercent.Text = eventPercentText;
@@ -3194,7 +3220,47 @@ namespace PokemonTaskbar
                 ? MenuMuted : PercentColor(eventPercent);
             this.tossDetailEvent.Text = text;
             this.tossDetailEvent.ForeColor = MenuInk;
+            this.tossEventBack = background;
+            this.tossEventBorder = border;
+            if (ShouldFlashEvent(this.tossEventFlashKey, this.world.StockEvent))
+            {
+                this.tossEventFlashLeft = EventFlashCount;
+                this.tossEventFlashTimer.Stop();
+                this.tossEventFlashTimer.Start();
+            }
+            this.tossEventFlashKey = this.world.StockEvent;
+            this.ApplyTossEventFlash();
+        }
+
+        /// <summary>이벤트 카드를 깜빡일 때인지 본다. 소식이 바뀔 때만이다.</summary>
+        public static bool ShouldFlashEvent(string previous, string current)
+        {
+            if (string.IsNullOrEmpty(current))
+            {
+                return false;
+            }
+            return !string.Equals(previous, current, StringComparison.Ordinal);
+        }
+
+        private void ApplyTossEventFlash()
+        {
+            bool bright = this.tossEventFlashLeft % 2 == 1;
+            Color background = bright ? Lighten(this.tossEventBack, 0.22) : this.tossEventBack;
+            this.tossEventCard.BackColor = background;
+            this.tossEventCard.BorderColor = bright ? MenuYellow : this.tossEventBorder;
+            this.tossEventCard.BorderThickness = this.tossEventFlashLeft > 0 ? 3 : 1;
+            this.tossEventTitle.BackColor = background;
+            this.tossDetailEvent.BackColor = background;
+            this.tossEventPercent.BackColor = background;
             this.tossEventCard.Invalidate();
+        }
+
+        private static Color Lighten(Color color, double amount)
+        {
+            return Color.FromArgb(
+                (int)Math.Round(color.R + (255 - color.R) * amount),
+                (int)Math.Round(color.G + (255 - color.G) * amount),
+                (int)Math.Round(color.B + (255 - color.B) * amount));
         }
 
         private static string ExtractSignedPercent(ref string text, out double value)

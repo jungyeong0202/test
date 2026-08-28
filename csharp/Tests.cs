@@ -414,12 +414,28 @@ namespace PokemonTaskbar.Tests
                 Check.Equal(scaled.Width, scaled.Height, "정사각형은 정사각형으로 남는다");
             }
 
-            // 그림이 보는 방향과 가는 방향을 맞춘다.
-            foreach (PokemonSprite sprite in PokemonTaskbar.Sprites.All)
+            // 걸을 때 몸 전체가 움직인다. 프레임과 자세가 같은 캔버스에 놓여야
+            // 갈아 끼울 때 튀지 않는다.
+            PokemonSprite pikachu = PokemonTaskbar.Sprites.Find("pikachu");
+            List<Color?[][]> frames = SpriteFactory.Frames(pikachu);
+            List<Color?[][]> walking = SpriteFactory.WholeWalkFrames(frames);
+            Check.Equal(walking.Count, frames.Count, "걷기 프레임 수가 그대로다");
+            int wide = walking[0][0].Length;
+            int tall = walking[0].Length;
+            bool sameCanvas = true;
+            foreach (Color?[][] frame in walking)
             {
-                bool looksRightWhenGoingRight = sprite.FacesRight != !sprite.FacesRight;
-                Check.That(looksRightWhenGoingRight,
-                    sprite.Key + ": 보는 방향이 정해져 있다");
+                if (frame.Length != tall || frame[0].Length != wide)
+                {
+                    sameCanvas = false;
+                }
+            }
+            Check.That(sameCanvas, "걷기 프레임이 모두 같은 캔버스에 놓인다");
+            foreach (KeyValuePair<string, Color?[][]> pose in SpriteFactory.Poses(pikachu))
+            {
+                Color?[][] padded = SpriteFactory.PadOnGround(pose.Value, wide, tall);
+                Check.That(padded.Length == tall && padded[0].Length == wide,
+                    pose.Key + " 자세도 같은 캔버스에 놓인다");
             }
         }
 

@@ -1,8 +1,12 @@
 # AGENTS.md
 
-작업 표시줄 위를 돌아다니는 포켓몬 데스크톱 펫. **파이썬 판과 C# 판이 같은 동작을 각자
-구현**하고 있고, 사용자에게 배포하는 것은 C# 으로 만든 윈도우용 `dist/PokemonTaskbar.exe`
-하나다(설치도, 런타임 설치도 필요 없다).
+작업 표시줄 위를 돌아다니는 포켓몬 데스크톱 펫. 프로그램은 **C# 한 벌**이고, 배포하는
+것은 윈도우용 `dist/PokemonTaskbar.exe` 하나다(설치도, 런타임 설치도 필요 없다).
+
+도트 그림과 그것을 다루는 도구만 파이썬으로 만든다. 예전에는 파이썬 판 프로그램이
+따로 있었지만, 기능을 넣을 때마다 두 번 써야 했고 테스트가 전부 그쪽에 걸려 있어
+**정작 배포하는 exe 를 지키는 테스트가 하나도 없었다.** 그래서 파이썬 판을 지우고
+테스트를 C# 으로 옮겼다.
 
 사람이 읽을 문서는 `README.md` 에 있다. 이 파일은 **코드를 고칠 때 알아야 할 것**만 적는다.
 
@@ -61,20 +65,19 @@ git add dist/ && git commit
 | 파일 | 하는 일 |
 | --- | --- |
 | `sprites.py` | 도트 그림 데이터(원본). tkinter 를 쓰지 않는다 |
-| `pokemon_taskbar.py` | 파이썬 판 본체 (tkinter) |
-| `settings.py` | 설정 파일 읽기/쓰기 |
-| `csharp/PokemonTaskbar.cs` | C# 판 본체 (WinForms). 파이썬 판을 그대로 옮긴 것 |
+| `csharp/PokemonTaskbar.cs` | 프로그램 본체 (WinForms) |
+| `csharp/Tests.cs` | 프로그램 테스트. 배포용 exe 에는 안 들어간다 |
 | `csharp/Sprites.cs` | **자동 생성물.** 손으로 고치지 말 것 |
 | `tools/import_sprite.py` | 그림 → 도트 데이터 변환기 |
 | `tools/gen_sprites_cs.py` | `sprites.py` → `csharp/Sprites.cs` |
 | `tools/check_net48.py` | 만든 exe 가 .NET Framework 4.8 API 만 쓰는지 검사 |
 | `tools/build_exe.sh` | 리눅스/맥에서 윈도우용 exe 빌드 |
-| `test_pokemon_taskbar.py` | 파이썬 테스트 (127개) |
+| `test_tools.py` | 도트 데이터와 도구 테스트 (파이썬) |
 
 ## 규칙
 
-1. **파이썬과 C# 을 항상 같이 고친다.** 한쪽만 고치면 두 판의 동작이 갈라진다.
-   상수 이름·값, 함수 이름, 주석까지 서로 대응시켜 두었다.
+1. **동작을 고쳤으면 `csharp/Tests.cs` 도 같이 고친다.** 배포하는 프로그램을
+   지키는 것은 이 테스트뿐이다.
 2. **`sprites.py` 를 고쳤으면 `python3 tools/gen_sprites_cs.py` 를 돌린다.**
    안 돌리면 테스트가 잡아낸다(`test_sprites_cs_is_up_to_date`).
 3. **`csharp/Sprites.cs` 는 손으로 고치지 않는다.** 다음 생성 때 사라진다.
@@ -85,29 +88,28 @@ git add dist/ && git commit
 ## 명령
 
 ```bash
-# 테스트 (화면이 없으면 GUI 테스트는 자동으로 건너뛴다)
-python3 -m unittest test_pokemon_taskbar -q
+# 테스트 (도구 + 프로그램). 화면이 없으면 Xvfb 를 알아서 띄운다
+sh tools/run_tests.sh
 
-# 화면 없는 리눅스에서 GUI 테스트까지 돌리려면
-Xvfb :99 -screen 0 1280x720x24 &
-DISPLAY=:99 python3 -m unittest test_pokemon_taskbar -q
+# 윈도우에서
+csharp\run_tests.bat
 
-# 파이썬 판 실행
-python3 pokemon_taskbar.py
+# 도구만
+python3 -m unittest test_tools -q
 
 # 윈도우용 exe 빌드 (Mono 필요)
 sh tools/build_exe.sh
 ```
 
-테스트에는 **tkinter 가 있는 파이썬 3** 가 필요하다. 배포판에 따라 `python3` 에
-tkinter 가 없을 수 있으니(`apt install python3-tk`), 없으면 있는 쪽을 골라 쓴다.
+도구 테스트에는 **Pillow 가 있는 파이썬 3** 가 필요하다(`tools/import_sprite.py` 가 쓴다).
 
 빌드에는 `mono-devel`(mcs)과 `mono-utils`(ikdasm)가 필요하다. `tools/check_net48.py` 는
 `/usr/lib/mono/4.8-api` 를 읽는다. 없으면 검사를 건너뛴다고 알리고 넘어간다.
 
 테스트는 환경 변수 `POKEMON_TASKBAR_SETTINGS` 로 설정 파일을 임시 폴더로 돌려 두므로
 **진짜 사용자 설정을 건드리지 않는다.** 직접 스크립트를 짜서 앱을 띄울 때도 이 변수를
-반드시 설정할 것.
+반드시 설정할 것. 그리고 테스트마다 그 파일을 지우고 시작한다. 앱은 여러 상황에서
+설정을 저장하므로, 앞 테스트가 남긴 값을 물려받으면 엉뚱한 곳에서 실패한다.
 
 ## 반드시 지켜야 하는 것들 (전부 실제로 사고가 났던 것)
 
@@ -179,8 +181,8 @@ GUI 프로그램은 실패해도 흔적이 안 남는다. 그래서:
 
 ## 이동 방식
 
-포켓몬마다 `move` 가 다르다. 새 방식을 더하려면 `sprites.py` 의 검증, 파이썬 `tick`/`draw`,
-C# `OnTick`/`OnPaint`, 그리고 `tools/gen_sprites_cs.py` 를 모두 손봐야 한다.
+포켓몬마다 `move` 가 다르다. 새 방식을 더하려면 `sprites.py` 의 검증, C# 의
+`OnTick`/`OnPaint`, 그리고 `tools/gen_sprites_cs.py` 를 모두 손봐야 한다.
 
 | 방식 | 누가 | 어떻게 |
 | --- | --- | --- |
@@ -215,8 +217,7 @@ python3 tools/import_sprite.py 그림.png --key 키 --name 한글이름 \
 
 고치고 나서 아래가 전부 통과해야 한다.
 
-- `python3 -m unittest test_pokemon_taskbar -q` (127개)
+- `sh tools/run_tests.sh` — 도구 18개와 프로그램 150개가 모두 통과
 - `sh tools/build_exe.sh` — 경고 없이 빌드되고 API 검사를 통과
-- 파이썬과 C# 의 도트 데이터가 완전히 일치 (양쪽에서 덤프해 `diff`)
 - 실제로 앱을 띄워 눈으로 확인 — 테스트가 잡지 못하는 문제가 많다
   (흰 테두리, 뭉갠 도트, 창이 안 보임 같은 것들은 전부 눈으로 발견했다)

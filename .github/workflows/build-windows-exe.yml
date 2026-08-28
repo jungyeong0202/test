@@ -35,6 +35,11 @@ jobs:
           "size: $($exe.Length) bytes"
           [System.Reflection.AssemblyName]::GetAssemblyName($exe.FullName) | Format-List
 
+      # 진짜 윈도우에서 프로그램 테스트를 돌린다. 이게 배포하는 것을 지키는 유일한 그물이다.
+      - name: Run the C# tests
+        shell: cmd
+        run: csharp\run_tests.bat
+
       # 실제로 한 번 돌려 본다. 컴파일만 되고 윈도우에서 죽는 일이 있었다
       # (Mono 로 빌드하면 .NET Framework 에 없는 API 를 부르는 exe 가 나온다).
       - name: Smoke test - does it actually run?

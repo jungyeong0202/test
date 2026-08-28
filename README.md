@@ -47,7 +47,7 @@ pikachu    charmander    bulbasaur    squirtle      ditto       mew
 파이썬 3.8 이상이 필요합니다.
 
 ```bash
-python pokemon_taskbar.py
+PokemonTaskbar.exe
 ```
 
 윈도우에서는 `run.bat`을 더블클릭하면 콘솔 창 없이 실행됩니다.
@@ -91,7 +91,7 @@ csharp\run.bat --count 3 --scale 6
 csharp\PokemonTaskbar.exe -p squirtle --offset 45
 ```
 
-옵션은 파이썬 판과 동일합니다. 도트 그림도 같은 데이터(`sprites.py`)에서 생성하므로 결과가 똑같습니다.
+도트 그림은 `sprites.py` 에서 생성합니다.
 `sprites.py` 를 고쳤다면 아래 명령으로 C# 쪽 데이터를 다시 만들어 주세요.
 
 ```bash
@@ -212,7 +212,6 @@ on_taskbar = false
 ```
 
 한 줄에 하나씩인 단순한 텍스트라 직접 고쳐도 되고, **파일을 지우면 처음 상태로 돌아갑니다.**
-파이썬 판과 exe 가 같은 파일을 쓰므로 설정이 서로 이어집니다.
 명령줄로 값을 주면 그때만 설정보다 우선합니다 (`--scale 3` 처럼).
 다른 경로를 쓰려면 `--settings 파일` 또는 환경 변수 `POKEMON_TASKBAR_SETTINGS` 를 쓰세요.
 
@@ -224,14 +223,6 @@ on_taskbar = false
 
 ## 옵션
 
-```bash
-python pokemon_taskbar.py --list                 # 사용 가능한 포켓몬 목록
-python pokemon_taskbar.py -p squirtle            # 꼬부기 한 마리
-python pokemon_taskbar.py -p pikachu -p charmander   # 두 마리 같이
-python pokemon_taskbar.py --count 5              # 무작위로 5마리
-python pokemon_taskbar.py --scale 6 --speed 90   # 더 크고 빠르게
-python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 올려놓기
-```
 
 | 옵션 | 설명 | 기본값 |
 | --- | --- | --- |
@@ -258,10 +249,11 @@ python pokemon_taskbar.py --offset 40            # 작업 표시줄 위쪽에 �
 
 | 파일 | 내용 |
 | --- | --- |
-| `pokemon_taskbar.py` | 창 생성, 이동/애니메이션, 마우스 조작 등 프로그램 본체 |
+| `csharp/PokemonTaskbar.cs` | 창 생성, 이동/애니메이션, 마우스 조작 등 프로그램 본체 |
 | `sprites.py` | 도트 그림 데이터 (문자 그리드 + 색 팔레트). tkinter에 의존하지 않음 |
 | `settings.py` | 사용자 설정 저장/불러오기 (C# 판과 같은 파일 형식) |
-| `test_pokemon_taskbar.py` | 스프라이트 데이터와 이동 로직 테스트 |
+| `csharp/Tests.cs` | 프로그램 테스트 |
+| `test_tools.py` | 도트 데이터와 도구 테스트 |
 | `run.bat` / `run_debug.bat` | 윈도우용 실행 스크립트 (일반 실행 / 오류 확인용) |
 | `csharp/` | 파이썬 없이 도는 C# 판 (`run.bat` 이 빌드까지 해 줍니다) |
 | `dist/PokemonTaskbar.exe` | 바로 실행할 수 있는 빌드 결과물 |
@@ -402,7 +394,7 @@ Codex 는 이 파일을, Claude Code 는 `AGENTS.md` 를 가져다 쓰는 `CLAUD
 ## 테스트
 
 ```bash
-python -m unittest test_pokemon_taskbar -v
+sh tools/run_tests.sh
 ```
 
 화면(디스플레이)이 없는 환경에서는 GUI가 필요한 테스트는 자동으로 건너뜁니다.

@@ -4798,22 +4798,36 @@ namespace PokemonTaskbar
             layout.Controls.Add(row, 0, 1);
         }
 
+        /// <summary>고르는 칸이 있는 설정 카드.
+        ///
+        /// 제목과 버튼줄을 TableLayoutPanel 로 나눈다. 예전에는 제목을 Dock.Top,
+        /// 버튼줄을 Dock.Fill 로 겹쳐 두었는데, 그때는 버튼이 제목 자리까지
+        /// 올라와 글자의 윗부분이 잘렸다("작게"가 밑동만 보였다). 같은 화면의
+        /// 다른 카드(AddSettingsActionCard)는 처음부터 이 방식이라 멀쩡했다.
+        /// </summary>
         private void AddChoiceCard(Control parent, string title, string[] names, double[] values, bool scale)
         {
-            Panel card = Card(); card.Dock = DockStyle.Top; card.Height = 96; card.Padding = new Padding(12);
+            Panel card = Card(); card.Dock = DockStyle.Top; card.Height = 104;
+            card.Padding = new Padding(12); card.Margin = new Padding(0, 3, 0, 3);
             parent.Controls.Add(card); card.BringToFront();
-            Label label = NewLabel(title, card, Ink, 10.0f, FontStyle.Bold); label.Dock = DockStyle.Top; label.Height = 28;
-            FlowLayoutPanel row = ActionRow(); row.Dock = DockStyle.Fill;
+            TableLayoutPanel layout = new TableLayoutPanel(); layout.Dock = DockStyle.Fill;
+            layout.BackColor = PanelColor; layout.ColumnCount = 1; layout.RowCount = 2;
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); card.Controls.Add(layout);
+            Label label = NewLabel(title, layout, Ink, 10.0f, FontStyle.Bold);
+            label.Dock = DockStyle.Fill; label.TextAlign = ContentAlignment.MiddleLeft;
+            layout.Controls.Add(label, 0, 0);
+            FlowLayoutPanel row = ActionRow(); row.Dock = DockStyle.Fill; row.Padding = new Padding(0);
             for (int i = 0; i < names.Length; i++) {
                 double value = values[i];
                 Button button = NewButton(names[i], Blue, delegate {
                     if (scale) this.world.SetScale(value); else this.world.SetSpeed(value);
                     this.RefreshGameState();
                 });
-                button.Tag = value; button.Width = 110; button.Height = 42; row.Controls.Add(button);
+                button.Tag = value; button.Width = 110; button.Height = 46; row.Controls.Add(button);
                 if (scale) this.scaleButtons.Add(button); else this.speedButtons.Add(button);
             }
-            card.Controls.Add(row); card.Controls.Add(label);
+            layout.Controls.Add(row, 0, 1);
         }
 
         private static TableLayoutPanel PageLayout(Control page, int rows, float[] heights)

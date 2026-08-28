@@ -626,6 +626,27 @@ namespace PokemonTaskbar.Tests
                     "먹이 하나로 그 값만큼을 10초 만에 벌지는 못한다");
             }
 
+            // 먹이는 걷는 속도를 바꾸지 않는다. 벌이가 시간 기준이 된 뒤로는
+            // 빨리 걸어도 얻는 것이 없으면서 보기만 부산해진다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                double start = pet.Position;
+                for (int i = 0; i < 250; i++) { pet.Tick(); }
+                double plain = System.Math.Abs(pet.Position - start);
+
+                pet.Fed();
+                start = pet.Position;
+                for (int i = 0; i < 250; i++) { pet.Tick(); }
+                double fed = System.Math.Abs(pet.Position - start);
+
+                // 걸음은 무작위로 멈추고 돌아서므로 정확히 같지는 않다.
+                // 두 배가 되지 않는 것만 본다.
+                Check.That(fed < plain * 1.6,
+                    "먹이를 먹어도 걷는 속도가 빨라지지 않는다 ("
+                        + (int)plain + "px → " + (int)fed + "px)");
+            }
+
             // 준전설은 진화를 못 한다. 일반 포켓몬을 끝까지 키운 것보다는
             // 나아야 10% 를 뚫고 뽑은 값을 한다.
             Check.That(PetWorld.PokemonIncomeMultiplier("ditto") > 2.25,

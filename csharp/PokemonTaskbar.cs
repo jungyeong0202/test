@@ -1250,7 +1250,7 @@ namespace PokemonTaskbar
             ToolStripMenuItem shop = new ToolStripMenuItem(
                 string.Format("◆ 상점 · 보유금 {0}", PetWorld.FormatWon(world.Options.Coins)));
             ToolStripMenuItem buyFood = new ToolStripMenuItem(
-                string.Format("포켓푸드 · {0} · 2배 산책 5분 · 현재 {1}개",
+                string.Format("포켓푸드 · {0} · 5분 동안 벌이 +55원/초 · 현재 {1}개",
                     PetWorld.FormatWon(PetWorld.FoodCost), world.Options.Food), null,
                 delegate { world.BuyFood(); });
             buyFood.Enabled = world.Options.Coins >= PetWorld.FoodCost;
@@ -2148,7 +2148,7 @@ namespace PokemonTaskbar
                 this.marginTop + this.hop + this.whiteOffsetY[form]);
         }
 
-        /// <summary>포켓푸드로 친밀도와 누적되는 5분짜리 2배 산책 버프를 준다.</summary>
+        /// <summary>포켓푸드로 친밀도와, 5분 동안 벌이가 늘어나는 시간을 누적해 준다.</summary>
         public void Fed()
         {
             this.foodBoostLeft += PetWorld.FoodBoostSeconds;
@@ -2165,10 +2165,10 @@ namespace PokemonTaskbar
         {
             if (this.foodBoostLeft <= 0)
             {
-                return "2배 산책 5분";
+                return "벌이 +5분";
             }
             int seconds = (int)Math.Ceiling(this.foodBoostLeft);
-            return string.Format("2배 산책 {0}:{1:00}", seconds / 60, seconds % 60);
+            return string.Format("벌이 늘어남 {0}:{1:00}", seconds / 60, seconds % 60);
         }
 
         public int FoodBoostSecondsLeft
@@ -2259,9 +2259,10 @@ namespace PokemonTaskbar
         /// <summary>가속하며 걷고, 실제 이동 거리에 맞춰 발 프레임을 진행한다.</summary>
         private void WalkStep(double dt)
         {
-            double multiplier = this.foodBoostLeft > 0 ? PetWorld.FoodSpeedMultiplier : 1.0;
-            this.walkSpeed = Math.Min(this.speedValue * multiplier,
-                this.walkSpeed + WalkAccel * multiplier * dt);
+            // 걷는 속도는 설정한 속도 그대로다. 예전에는 먹이를 먹으면 두 배로
+            // 빨라졌는데, 벌이가 시간 기준이 된 뒤로는 빨리 걸어도 얻는 것이
+            // 없으면서 보기만 부산해졌다.
+            this.walkSpeed = Math.Min(this.speedValue, this.walkSpeed + WalkAccel * dt);
             double intended = this.walkSpeed * dt;
             double actual = this.AdvanceWalk(intended);
             if (actual + 0.01 < intended)
@@ -4494,7 +4495,7 @@ namespace PokemonTaskbar
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             this.shopFood = this.AddShopTile(grid, 0, 0, "●", "포켓푸드",
-                "5분 동안 걸음이 빨라지고 초당 55원을 더 법니다. 친밀도도 2 올라갑니다.", PetWorld.FoodCost,
+                "5분 동안 초당 55원을 더 법니다. 친밀도도 2 올라갑니다.", PetWorld.FoodCost,
                 delegate { this.BuyFoodFromShop(); }, out this.shopFoodOwned);
             this.shopDrop = this.AddShopTile(grid, 1, 0, "◆", "성장의 물방울",
                 "진화 조건을 모두 채운 포켓몬이 진화할 때 사용합니다.", PetWorld.GrowthDropCost,
@@ -5169,9 +5170,8 @@ namespace PokemonTaskbar
         public const double PokemonPriceGrowth = 1.5;
         // 값이 int 를 넘지 않게 끊는다. 여기 닿으면 사실상 더 못 산다.
         public const int PokemonPriceCap = 1000000000;
-        public const int FoodCost = 8000;          // 5분 2배 산책으로 얻는 추가 수입보다 조금 낮춘 가격(원)
+        public const int FoodCost = 8000;          // 5분간 늘어나는 수입(16,500원)보다 낮춘 값(원)
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
-        public const double FoodSpeedMultiplier = 2.0;
         public const int FoodBoostSeconds = 5 * 60;
         public const int GrowthDropCost = 15000;   // 성장의 물방울 한 개 가격(원)
         public const int MarketUpdateMilliseconds = 10000;

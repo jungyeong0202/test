@@ -148,7 +148,14 @@ namespace PokemonTaskbar.Tests
                 Options();
                 Settings();
                 Sprites();
+                Images();
+                Ground();
                 Movement();
+                Dragging();
+                Effects();
+                Poses();
+                Economy();
+                Lifecycle();
                 Evolution();
             }
             finally
@@ -367,6 +374,277 @@ namespace PokemonTaskbar.Tests
                 Check.That(highest > 5.0, "메타몽은 뛰어오른다");
                 Check.That(touched, "메타몽은 다시 바닥에 닿는다");
             }
+        }
+
+        // --- 그림 그리기 ---------------------------------------------------
+
+        private static void Images()
+        {
+            Check.Section("그림 그리기");
+
+            Color?[][] grid = new Color?[][] {
+                new Color?[] { Color.Red, null, null },
+                new Color?[] { null, Color.Blue, null },
+            };
+            using (Bitmap plain = SpriteFactory.Render(grid, 1.0, false))
+            using (Bitmap flipped = SpriteFactory.Render(grid, 1.0, true))
+            {
+                Check.Equal(plain.Width, 3, "배율 1이면 폭이 그대로다");
+                Check.Equal(plain.Height, 2, "배율 1이면 높이가 그대로다");
+                Check.That(plain.GetPixel(0, 0).R > 200 && plain.GetPixel(0, 0).A == 255,
+                    "첫 도트가 제 색으로 찍힌다");
+                Check.That(plain.GetPixel(2, 0).A == 0, "빈 칸은 투명하다");
+                Check.That(flipped.GetPixel(2, 0).R > 200, "뒤집으면 좌우가 바뀐다");
+            }
+
+            // 소수 배율에서도 가로세로 비율이 크게 어긋나면 안 된다.
+            Color?[][] square = new Color?[20][];
+            for (int y = 0; y < 20; y++)
+            {
+                square[y] = new Color?[20];
+                for (int x = 0; x < 20; x++)
+                {
+                    square[y][x] = Color.Red;
+                }
+            }
+            using (Bitmap scaled = SpriteFactory.Render(square, 1.5, false))
+            {
+                Check.Equal(scaled.Width, 30, "소수 배율에서 폭이 맞는다");
+                Check.Equal(scaled.Height, 30, "소수 배율에서 높이가 맞는다");
+                Check.Equal(scaled.Width, scaled.Height, "정사각형은 정사각형으로 남는다");
+            }
+
+            // 그림이 보는 방향과 가는 방향을 맞춘다.
+            foreach (PokemonSprite sprite in PokemonTaskbar.Sprites.All)
+            {
+                bool looksRightWhenGoingRight = sprite.FacesRight != !sprite.FacesRight;
+                Check.That(looksRightWhenGoingRight,
+                    sprite.Key + ": 보는 방향이 정해져 있다");
+            }
+        }
+
+        // --- 바닥선과 크기 --------------------------------------------------
+
+        private static void Ground()
+        {
+            Check.Section("바닥선과 크기");
+
+            Rectangle screen = Screen.PrimaryScreen.Bounds;
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                Check.That(pet.BaseY + pet.WindowH <= screen.Bottom,
+                    "창 아래가 화면을 넘지 않는다");
+                Check.That(pet.BaseY >= screen.Top, "창 위가 화면을 넘지 않는다");
+                Check.That(pet.WindowW > pet.SpriteW, "효과가 튀어나갈 가로 여백이 있다");
+                Check.That(pet.WindowH > pet.SpriteH, "효과가 튀어나갈 세로 여백이 있다");
+            }
+
+            // --offset 을 아무리 크게 줘도 창은 화면 안에 있어야 한다.
+            foreach (int offset in new int[] { 0, 500, 5000, -500 })
+            {
+                using (TestWorld world = World("--offset", offset.ToString()))
+                {
+                    PetForm pet = world.Pets[0];
+                    Check.That(pet.BaseY >= screen.Top && pet.BaseY + pet.WindowH <= screen.Bottom,
+                        "--offset " + offset + " 에서도 화면 안에 있다");
+                }
+            }
+
+            using (TestWorld plain = World("-p", "pikachu"))
+            using (TestWorld lifted = World("-p", "pikachu", "--offset", "40"))
+            {
+                Check.Equal(lifted.Pets[0].BaseY, plain.Pets[0].BaseY - 40,
+                    "--offset 만큼 위로 올라간다");
+            }
+        }
+
+        // --- 끌기 -----------------------------------------------------------
+
+        private static void Dragging()
+        {
+            Check.Section("끌기");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                pet.Position = 100;
+                pet.Press(100, pet.BaseY);
+                Check.That(pet.IsDragging, "누르면 끌기가 시작된다");
+                pet.DragTo(300, pet.BaseY - 120);
+                Check.Near(pet.Position, 300, 1.0, "손을 따라 가로로 움직인다");
+                Check.Near(pet.Lift, 120, 1.0, "손을 따라 위로 올라간다");
+
+                double before = pet.Position;
+                for (int i = 0; i < 20; i++)
+                {
+                    pet.Tick();
+                }
+                Check.Equal(pet.Position, before, "들려 있는 동안에는 스스로 걷지 않는다");
+
+                pet.Release(300, pet.BaseY - 120);
+                Check.That(!pet.IsDragging, "놓으면 끌기가 끝난다");
+                bool landed = false;
+                for (int i = 0; i < 120 && !landed; i++)
+                {
+                    pet.Tick();
+                    landed = pet.Lift == 0.0;
+                }
+                Check.That(landed, "놓으면 바닥으로 떨어진다");
+            }
+
+            // 화면 밖으로 끌어도 붙잡아 둔다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                pet.Press(100, pet.BaseY);
+                pet.DragTo(-5000, pet.BaseY + 5000);
+                Check.That(pet.Position >= 0, "왼쪽으로 넘어가지 않는다");
+                Check.That(pet.Lift >= 0.0, "바닥 아래로 내려가지 않는다");
+                pet.DragTo(99999, -99999);
+                Check.That(pet.Lift <= pet.BaseY, "화면 위로 넘어가지 않는다");
+            }
+
+            // 거의 움직이지 않았으면 클릭으로 보고 폴짝 뛴다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                pet.Press(100, pet.BaseY);
+                pet.Release(100, pet.BaseY);
+                pet.Tick();
+                Check.That(pet.Lift > 0.0, "짧게 누르면 폴짝 뛴다");
+            }
+        }
+
+        // --- 효과 -----------------------------------------------------------
+
+        private static void Effects()
+        {
+            Check.Section("효과");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                int before = pet.EffectCount;
+                pet.Press(100, pet.BaseY);
+                pet.Release(100, pet.BaseY);
+                Check.That(pet.EffectCount > before, "쓰다듬으면 하트가 뜬다");
+
+                // 낸 효과는 시간이 지나면 사라진다. (포켓몬이 스스로 내는 것도 있어서
+                //  개수가 0 이 되는지가 아니라 줄어드는지를 본다.)
+                int peak = pet.EffectCount;
+                bool faded = false;
+                for (int i = 0; i < 120 && !faded; i++)
+                {
+                    pet.Tick();
+                    faded = pet.EffectCount < peak;
+                }
+                Check.That(faded, "효과는 시간이 지나면 사라진다");
+            }
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                pet.Press(100, pet.BaseY);
+                pet.DragTo(400, pet.BaseY - 200);
+                int before = pet.EffectCount;
+                pet.Release(400, pet.BaseY - 200);
+                Check.Equal(pet.EffectCount, before, "끌어다 놓은 것은 쓰다듬은 게 아니다");
+            }
+        }
+
+        // --- 자세 -----------------------------------------------------------
+
+        private static void Poses()
+        {
+            Check.Section("자세");
+
+            foreach (PokemonSprite sprite in PokemonTaskbar.Sprites.All)
+            {
+                Dictionary<string, Color?[][]> poses = SpriteFactory.Poses(sprite);
+                Check.That(poses.ContainsKey("blink"), sprite.Key + ": 눈 깜빡임이 있다");
+                if (!sprite.Hops)
+                {
+                    Check.That(poses.ContainsKey("squash") && poses.ContainsKey("stretch"),
+                        sprite.Key + ": 눌림/늘어남 자세가 있다");
+                }
+
+                Color?[][] frame = SpriteFactory.Frames(sprite)[0];
+                foreach (KeyValuePair<string, Color?[][]> pose in poses)
+                {
+                    Check.That(pose.Value.Length == frame.Length
+                            && pose.Value[0].Length == frame[0].Length,
+                        sprite.Key + ": " + pose.Key + " 자세가 프레임과 같은 크기다");
+                }
+            }
+        }
+
+        // --- 돈과 메뉴 -------------------------------------------------------
+
+        private static void Economy()
+        {
+            Check.Section("돈과 메뉴");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                int price = PetWorld.PokemonPrice;
+
+                app.Options.Coins = price - 1;
+                int before = world.Pets.Count;
+                app.BuyRandomPet();
+                Check.Equal(world.Pets.Count, before, "돈이 모자라면 영입하지 못한다");
+
+                app.Options.Coins = price;
+                app.BuyRandomPet();
+                Check.Equal(world.Pets.Count, before + 1, "값을 치르면 한 마리 늘어난다");
+                Check.That(app.Options.Coins < price, "값을 치른다");
+
+                bool evolvedLeaked = false;
+                foreach (PetForm pet in world.Pets)
+                {
+                    if (PokemonTaskbar.Sprites.IsEvolvedOnly(pet.SpriteKey))
+                    {
+                        evolvedLeaked = true;
+                    }
+                }
+                Check.That(!evolvedLeaked, "뽑기로 진화체가 나오지 않는다");
+            }
+
+            using (TestWorld world = World("-p", "pikachu", "-p", "charmander"))
+            {
+                PetWorld app = world.World;
+                app.SetSpeed(95.0);
+                Check.Equal(app.Options.Speed, 95.0, "속도를 바꾸면 설정에 남는다");
+
+                app.TogglePause();
+                Check.That(app.Paused, "잠시 멈춤이 켜진다");
+                PetForm pet = world.Pets[0];
+                double where = pet.Position;
+                for (int i = 0; i < 40; i++)
+                {
+                    pet.Tick();
+                }
+                Check.Equal(pet.Position, where, "멈춰 있는 동안에는 움직이지 않는다");
+                app.TogglePause();
+                Check.That(!app.Paused, "다시 누르면 풀린다");
+            }
+        }
+
+        // --- 뒷정리 -----------------------------------------------------------
+
+        private static void Lifecycle()
+        {
+            Check.Section("뒷정리");
+
+            TestWorld world = World("-p", "pikachu", "-p", "ditto");
+            PetWorld app = world.World;
+            Check.Equal(world.Pets.Count, 2, "두 마리로 시작한다");
+            app.QuitAll();
+            Check.Equal(world.Pets.Count, 0, "끝내면 한 마리도 남지 않는다");
+            app.QuitAll();
+            Check.That(true, "두 번 끝내도 터지지 않는다");
+            world.Dispose();
         }
 
         // --- 진화 ---------------------------------------------------------

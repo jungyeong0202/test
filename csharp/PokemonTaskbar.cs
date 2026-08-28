@@ -1429,10 +1429,10 @@ namespace PokemonTaskbar
                 }
                 this.dragging = true;
                 this.dragMoved = false;
-                this.dragStart = Control.MousePosition;
+                this.dragStart = this.Pointer;
                 this.dragOffset = new Point(
-                    Control.MousePosition.X - (int)this.x,
-                    Control.MousePosition.Y - (this.baseY - (int)this.lift));
+                    this.Pointer.X - (int)this.x,
+                    this.Pointer.Y - (this.baseY - (int)this.lift));
                 this.verticalSpeed = 0.0;
             }
             base.OnMouseDown(e);
@@ -1442,7 +1442,7 @@ namespace PokemonTaskbar
         {
             if (this.dragging && !this.IsDisposed)
             {
-                Point now = Control.MousePosition;
+                Point now = this.Pointer;
                 if (Math.Abs(now.X - this.dragStart.X) > DragSlack
                     || Math.Abs(now.Y - this.dragStart.Y) > DragSlack)
                 {
@@ -1653,6 +1653,67 @@ namespace PokemonTaskbar
         public int EvolutionStageValue { get { return this.EvolutionStage(); } }
         public double IncomeMultiplierValue { get { return this.IncomeMultiplier(); } }
         public Bitmap MenuImage { get { return this.images[0][0]; } }
+
+        /// <summary>마우스가 지금 어디 있는지. 테스트는 이것을 직접 정한다.
+        ///
+        /// 끌기는 화면 좌표로 계산하므로 실제 커서를 읽어야 하는데, 그러면 테스트가
+        /// 커서를 움직일 방법이 없다. 읽는 곳을 여기 한 군데로 모아 두었다.
+        /// </summary>
+        private Point pointerOverride = Point.Empty;
+        private bool pointerIsSet;
+
+        private Point Pointer
+        {
+            get { return this.pointerIsSet ? this.pointerOverride : Control.MousePosition; }
+        }
+
+        /// <summary>테스트가 마우스 자리를 정한다.</summary>
+        internal void SetPointer(int x, int y)
+        {
+            this.pointerOverride = new Point(x, y);
+            this.pointerIsSet = true;
+        }
+
+        /// <summary>누르기 / 끌기 / 놓기. 테스트가 실제 커서 없이 부른다.</summary>
+        internal void Press(int x, int y)
+        {
+            this.SetPointer(x, y);
+            this.OnMouseDown(new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+        }
+
+        internal void DragTo(int x, int y)
+        {
+            this.SetPointer(x, y);
+            this.OnMouseMove(new MouseEventArgs(MouseButtons.Left, 0, 0, 0, 0));
+        }
+
+        internal void Release(int x, int y)
+        {
+            this.SetPointer(x, y);
+            this.OnMouseUp(new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+        }
+
+        internal bool IsDragging
+        {
+            get { return this.dragging; }
+        }
+
+        /// <summary>지금 떠 있는 효과(먼지·하트·Zzz)의 수.</summary>
+        internal int EffectCount
+        {
+            get { return this.effects.Count; }
+        }
+
+        /// <summary>창 위쪽 y. 바닥선 검사에 쓴다.</summary>
+        internal int BaseY
+        {
+            get { return this.baseY; }
+        }
+
+        internal int WindowW { get { return this.windowWidth; } }
+        internal int WindowH { get { return this.windowHeight; } }
+        internal int SpriteW { get { return this.spriteWidth; } }
+        internal int SpriteH { get { return this.spriteHeight; } }
 
         /// <summary>걸은 거리를 바로 채운다. 테스트가 몇 분씩 기다리지 않게 한다.</summary>
         internal void SetWalked(double distance)

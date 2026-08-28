@@ -37,6 +37,9 @@ namespace PokemonTaskbar
         public int[] StockRelistSeconds = { 0, 0, 0, 0, 0, 0 };
         public int[] StockAveragePrices = { 0, 0, 0, 0, 0, 0 };
         public int[] StockHaltSeconds = { 0, 0, 0, 0, 0, 0 };
+        // 종목의 기준가. 평균 회귀가 향하는 값이고, 상장폐지선·위기선도 여기에
+        // 비율을 곱해 정한다. 0 이면 상장 종목의 시작가로 채운다(예전 설정 파일).
+        public int[] StockBasePrices = { 0, 0, 0, 0, 0, 0 };
         public int[] FoodBoostSeconds = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
@@ -507,6 +510,14 @@ namespace PokemonTaskbar
                             options.StockHaltSeconds = halts;
                         }
                         break;
+                    case "stock_base_prices":
+                        int baseCount;
+                        int[] bases = ParseStockValues(value, false, options.StockBasePrices, out baseCount);
+                        if (bases != null)
+                        {
+                            options.StockBasePrices = bases;
+                        }
+                        break;
                     case "food_boost_seconds":
                         int boostCount;
                         int[] boosts = ParseStockValues(value, false, options.FoodBoostSeconds, out boostCount);
@@ -581,6 +592,8 @@ namespace PokemonTaskbar
                     options.StockAveragePrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_halt_seconds = " + string.Join(", ", Array.ConvertAll(
                     options.StockHaltSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("stock_base_prices = " + string.Join(", ", Array.ConvertAll(
+                    options.StockBasePrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("food_boost_seconds = " + string.Join(", ", Array.ConvertAll(
                     options.FoodBoostSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 File.WriteAllLines(path, lines.ToArray());
@@ -5213,15 +5226,21 @@ namespace PokemonTaskbar
         // 예고해 두고 나중에 결판나는 사건(루머·실적 발표).
         public const double PendingEventChance = 0.10;
         public const double SpecialEventChance = 0.04;
-        public const int StockSplitLeastPrice = 2500;
+        public const int StockSplitLeastPrice = 1000;   // 나눈 뒤에도 이 값은 넘어야 한다
         public const double MarketTickScale = 0.70;
         public const double StockFeeRate = 0.02;
         public const int StockHaltSeconds = 20;
         public const int StockSlotCount = 6;
         public const int StockMaxOrderQuantity = int.MaxValue;
         public const int StockRelistSeconds = 30 * 60;
-        public const int StockDelistPrice = 600;
-        public const int StockCrisisPrice = 600;
+        // 상장폐지선과 위기선은 금액이 아니라 기준가에 대한 비율이다.
+        //
+        // 예전에는 둘 다 600원 고정이었다. 그러면 종목마다 뜻이 달라진다 —
+        // 피카츄전기(시작가 1,000원)는 40%만 빠져도 폐지되고, 뮤테크(3,500원)는
+        // 83%가 빠져야 폐지됐다. 정작 위험하라고 만든 고변동성 종목이 구조적으로
+        // 가장 안전했다. 비율로 두면 모든 종목이 같은 낙폭에서 위험해진다.
+        public const double StockCrisisRatio = 0.55;    // 기준가의 55% 밑 = 위기
+        public const double StockDelistRatio = 0.30;    // 기준가의 30% 밑 = 상장폐지
         public static readonly string[] StockNames = {
             "피카츄전기", "꼬부기워터", "이상해씨농장", "파이리화력",
             "메타몽랩", "뮤테크", "이브이패션", "고라파덕물류",
@@ -5976,7 +5995,7 @@ namespace PokemonTaskbar
                     change += eventPercent;
                 }
                 int price = StockPriceAfterChange(this.Options.StockPrices[i], change);
-                if (price <= StockDelistPrice)
+                if (price <= this.StockDelistPrice(i))
                 {
                     this.Options.StockPrices[i] = 0;
                     this.Options.StockShares[i] = 0;
@@ -6013,6 +6032,31 @@ namespace PokemonTaskbar
         public string StockName(int index)
         {
             return StockNames[this.Options.StockListingIds[index] % StockNames.Length];
+        }
+
+        /// <summary>종목의 기준가. 평균 회귀가 향하는 값이다.</summary>
+        internal int StockBasePrice(int index)
+        {
+            int stored = this.Options.StockBasePrices[index];
+            if (stored > 0)
+            {
+                return stored;
+            }
+            // 예전 설정 파일에는 기준가가 없다. 상장 종목의 시작가로 본다.
+            return StockStartingPrices[
+                this.Options.StockListingIds[index] % StockStartingPrices.Length];
+        }
+
+        /// <summary>이 종목의 상장폐지선.</summary>
+        internal int StockDelistPrice(int index)
+        {
+            return (int)Math.Round(this.StockBasePrice(index) * StockDelistRatio);
+        }
+
+        /// <summary>이 종목의 위기선. 이 밑에서는 평균 회귀가 떠받쳐 주지 않는다.</summary>
+        internal int StockCrisisPrice(int index)
+        {
+            return (int)Math.Round(this.StockBasePrice(index) * StockCrisisRatio);
         }
 
         public string MarketRegimeLabel
@@ -6181,11 +6225,12 @@ namespace PokemonTaskbar
             {
                 this.stockTrends[index] = this.Random.Next(-1, 2);
             }
-            int listing = this.Options.StockListingIds[index] % StockStartingPrices.Length;
-            double priceGap = (StockStartingPrices[listing] - this.Options.StockPrices[index])
-                * 100.0 / StockStartingPrices[listing];
+            int basePrice = this.StockBasePrice(index);
+            double priceGap = (basePrice - this.Options.StockPrices[index])
+                * 100.0 / basePrice;
             double pullRate = volatility <= 10 ? 0.20 : volatility <= 18 ? 0.12 : 0.06;
-            double meanReversion = this.Options.StockPrices[index] < StockCrisisPrice ? 0.0
+            double meanReversion =
+                this.Options.StockPrices[index] < this.StockCrisisPrice(index) ? 0.0
                 : Math.Max(-5.0, Math.Min(5.0,
                     priceGap * pullRate * StockPrimaryReversion[primary]));
             double trend = this.stockTrends[index] * Math.Max(1.0, volatility * 0.16)
@@ -6556,8 +6601,13 @@ namespace PokemonTaskbar
             int index = pickable[this.Random.Next(pickable.Count)];
             int price = this.Options.StockPrices[index];
 
-            // 값이 싼 종목이 반이 되면 그대로 상장폐지선에 닿으므로 비싼 것만 나눈다.
-            if (price >= StockSplitLeastPrice && this.Random.Next(2) == 0)
+            // 오른 종목만 나눈다. 기준가의 두 배가 조건이라, 나누고 나면 값과
+            // 기준가가 함께 반이 되어 비율이 1 로 돌아간다 — 다시 두 배가 될
+            // 때까지는 또 나뉘지 않는다. 너무 잘게 쪼개지지 않도록 나눈 값이
+            // 최소 금액은 넘게 한다.
+            if (price >= this.StockBasePrice(index) * 2
+                && price / 2 >= StockSplitLeastPrice
+                && this.Random.Next(2) == 0)
             {
                 return this.SplitStock(index);
             }
@@ -6573,6 +6623,9 @@ namespace PokemonTaskbar
         {
             string name = this.StockName(index);
             int shares = this.Options.StockShares[index];
+            // 기준가도 같이 나눈다. 이걸 빠뜨리면 평균 회귀가 분할 전 값으로 도로
+            // 끌어올려, 재산이 그대로여야 할 분할이 오분 만에 1.78배가 된다.
+            this.Options.StockBasePrices[index] = this.StockBasePrice(index) / 2;
             this.Options.StockPrices[index] = this.Options.StockPrices[index] / 2;
             this.Options.StockAveragePrices[index] =
                 this.Options.StockAveragePrices[index] / 2;
@@ -6877,6 +6930,7 @@ namespace PokemonTaskbar
             this.Options.StockSecondaryTraitIds[index] =
                 this.Random.Next(StockSecondaryTraitNames.Length);
             this.Options.StockPrices[index] = StockStartingPrices[next];
+            this.Options.StockBasePrices[index] = StockStartingPrices[next];
             this.Options.StockShares[index] = 0;
             this.Options.StockAveragePrices[index] = 0;
             this.Options.StockDelisted[index] = 0;

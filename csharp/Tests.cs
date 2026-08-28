@@ -830,6 +830,7 @@ namespace PokemonTaskbar.Tests
             PetWorld app = world.World;
 
             // 액면분할: 값이 반, 주식이 두 배. 재산은 그대로여야 한다.
+            app.Options.StockBasePrices[0] = 4000;
             app.Options.StockPrices[0] = 8000;
             app.Options.StockShares[0] = 7;
             app.Options.StockAveragePrices[0] = 6000;
@@ -842,9 +843,26 @@ namespace PokemonTaskbar.Tests
             Check.Equal((int)after, (int)before, "액면분할로 재산이 늘거나 줄지 않는다");
             Check.That(said.IndexOf("액면분할") >= 0, "액면분할을 알린다");
 
-            // 값이 싼 종목을 나누면 그대로 상장폐지선에 닿는다.
-            Check.That(PetWorld.StockSplitLeastPrice / 2 > PetWorld.StockDelistPrice,
-                "나눌 수 있는 값은 반이 되어도 상장폐지선 위에 있다");
+            // 기준가도 같이 나뉘어야 한다. 이걸 빠뜨리면 평균 회귀가 분할 전 값으로
+            // 도로 끌어올려, 재산이 그대로여야 할 분할이 공짜 돈이 된다.
+            Check.Equal(app.StockBasePrice(0), 2000, "액면분할하면 기준가도 반이 된다");
+            Check.Equal(app.Options.StockPrices[0] * 100 / app.StockBasePrice(0), 200,
+                "값과 기준가의 사이가 분할 앞뒤로 같다");
+
+            // 폐지선·위기선은 금액이 아니라 기준가의 비율이다. 종목마다 뜻이
+            // 같아야 하고, 위기선은 폐지선보다 위에 있어야 한다.
+            Check.That(PetWorld.StockCrisisRatio > PetWorld.StockDelistRatio,
+                "위기선이 상장폐지선보다 위에 있다");
+            bool sameMeaning = true;
+            for (int i = 0; i < PetWorld.StockSlotCount; i++)
+            {
+                if (app.StockDelistPrice(i) * 1000 / app.StockBasePrice(i)
+                    != app.StockDelistPrice(0) * 1000 / app.StockBasePrice(0))
+                {
+                    sameMeaning = false;
+                }
+            }
+            Check.That(sameMeaning, "모든 종목이 같은 낙폭에서 상장폐지된다");
 
             // 투자경고: 값은 그대로, 흔들림만 커진다.
             int plain = app.StockVolatilityForTest(1);

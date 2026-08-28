@@ -791,6 +791,8 @@ def main():
                         help="프로그램이 주는 위아래 흔들림을 끄고 프레임에 담긴 움직임만 쓴다")
     parser.add_argument("--frame", type=int, default=0, metavar="번호",
                         help="여러 장이 든 파일(GIF)에서 쓸 장 번호 (기본 0)")
+    parser.add_argument("--idle-frames", default="", metavar="0,12,24",
+                        help="가만히 있을 때 돌려 보여 줄 장 번호들 (GIF)")
     parser.add_argument("--preview", default="", help="확인용 png 경로")
     parser.add_argument("--dry-run", action="store_true", help="파일을 고치지 않는다")
     args = parser.parse_args()
@@ -814,46 +816,65 @@ def main():
         rows = args.rows
     print("도트 격자: %d x %d 칸 (칸 크기 %.2f)" % (columns, rows, cell))
 
-    grid = sample_grid(image, (start_x, start_y), cell, columns, rows, is_background)
-    outside = clear_background(grid, is_background)
+    def read_cells(rgba, label):
+        """한 장을 같은 격자로 읽어 (대표색, 비었는지) 를 돌려준다."""
+        flat = flatten(rgba)
+        one = sample_grid(flat, (start_x, start_y), cell, columns, rows, is_background)
+        empty = clear_background(one, is_background)
+        # 원본이 투명하다고 한 자리는 그림 안쪽이라도 비운다. 안 그러면 꼬리와
+        # 몸 사이처럼 갇힌 구멍이 흰 도트로 남는다.
+        transparent = sample_alpha(rgba, (start_x, start_y), cell, columns, rows)
+        holes = 0
+        for gy in range(rows):
+            for gx in range(columns):
+                if transparent[gy][gx] < 128 and not empty[gy][gx]:
+                    empty[gy][gx] = True
+                    holes += 1
+        if holes:
+            print("%s: 그림 안쪽의 투명한 칸 %d 개를 비웠다." % (label, holes))
+        return one, empty
 
-    # 원본이 투명하다고 한 자리는 그림 안쪽이라도 비운다. 안 그러면 꼬리와 몸
-    # 사이처럼 갇힌 구멍이 흰 도트로 남는다.
-    alpha = sample_alpha(source, (start_x, start_y), cell, columns, rows)
-    holes = 0
-    for y in range(rows):
-        for x in range(columns):
-            if alpha[y][x] < 128 and not outside[y][x]:
-                outside[y][x] = True
-                holes += 1
-    if holes:
-        print("그림 안쪽의 투명한 칸 %d 개를 비웠다." % holes)
+    grid, outside = read_cells(source, "기본")
 
-    inside_colors = [
-        grid[y][x] for y in range(rows) for x in range(columns) if not outside[y][x]
-    ]
+    # 가만히 있을 때 돌릴 장들도 같은 격자로 읽는다. 격자와 자르는 상자를 함께
+    # 써야 장끼리 어긋나지 않는다.
+    idle_numbers = [int(n) for n in args.idle_frames.split(",") if n.strip() != ""] \
+        if args.idle_frames else []
+    idle_reads = [read_cells(read_rgba(args.image, n, quiet=True), "%d번" % n)
+                  for n in idle_numbers]
+
+    inside_colors = []
+    for one, empty in [(grid, outside)] + idle_reads:
+        inside_colors.extend(one[y][x] for y in range(rows) for x in range(columns)
+                             if not empty[y][x])
     palette_colors = quantize(inside_colors, args.colors)
 
-    cells = []
-    for y in range(rows):
-        line = []
-        for x in range(columns):
-            if outside[y][x]:
-                line.append(None)
-            else:
-                line.append(palette_colors[nearest(grid[y][x], palette_colors)])
-        cells.append(line)
+    def to_cells(one, empty):
+        return [[None if empty[y][x]
+                 else palette_colors[nearest(one[y][x], palette_colors)]
+                 for x in range(columns)] for y in range(rows)]
 
-    # 남은 여백 잘라내기
-    used_rows = [y for y in range(rows) if any(cell is not None for cell in cells[y])]
-    used_columns = [
-        x for x in range(columns) if any(cells[y][x] is not None for y in range(rows))
-    ]
-    cells = [
-        [cells[y][x] for x in range(used_columns[0], used_columns[-1] + 1)]
-        for y in range(used_rows[0], used_rows[-1] + 1)
-    ]
+    cells = to_cells(grid, outside)
+    idle_cells = [to_cells(one, empty) for one, empty in idle_reads]
+
+    # 남은 여백 잘라내기. 모든 장을 합쳐서 상자를 하나만 잡아야 장끼리 어긋나지
+    # 않는다.
+    every = [cells] + idle_cells
+    used_rows = [y for y in range(rows)
+                 if any(block[y][x] is not None for block in every for x in range(columns))]
+    used_columns = [x for x in range(columns)
+                    if any(block[y][x] is not None for block in every for y in range(rows))]
+
+    def crop(block):
+        return [[block[y][x] for x in range(used_columns[0], used_columns[-1] + 1)]
+                for y in range(used_rows[0], used_rows[-1] + 1)]
+
+    cells = crop(cells)
+    idle_cells = [crop(block) for block in idle_cells]
     print("잘라낸 크기: %d x %d" % (len(cells[0]), len(cells)))
+    if idle_cells:
+        print("가만히 있을 때 돌릴 장: %d 개 (%s)"
+              % (len(idle_cells), ", ".join(str(n) for n in idle_numbers)))
 
     # 자주 쓰인 색부터 팔레트 문자 배정
     counts = {}
@@ -878,7 +899,13 @@ def main():
         print("걷기 프레임: %d 장" % len(frames))
 
     poses = {}
-    if args.pose_squash or args.eyes:
+    # 가만히 있을 때 돌릴 장들은 idle0, idle1 … 이라는 이름의 자세로 넣는다.
+    # 자세는 이미 '프레임과 같은 크기의 대체 그림' 이고, 크기가 어긋나면
+    # sprites.py 의 검증이 잡아 준다. 새 칸을 만들 이유가 없다.
+    for number, block in enumerate(idle_cells):
+        poses["idle%d" % number] = block
+
+    if args.pose_squash or args.eyes or idle_cells:
         amount = args.pose_squash
         base_height = len(cells)
         base_width = len(cells[0])

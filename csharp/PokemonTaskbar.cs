@@ -912,6 +912,13 @@ namespace PokemonTaskbar
         private const double FloatBobSeconds = 2.2;   // 위아래로 살랑거리는 한 주기
         private const double FloatBobDots = 1.5;      // 살랑거리는 폭(도트 단위)
         private const double FloatSpeed = 0.7;        // 걷는 포켓몬보다 느긋하게
+        // 가만히 있을 때 원본 장을 한 바퀴 도는 데 걸리는 시간.
+        //
+        // 장 수로 나눠 간격을 정한다. 고정 간격으로 두면 몇 장을 떠 왔느냐에 따라
+        // 애니메이션이 빨라지거나 느려진다 — 여덟 장이면 1.4초, 쉰여섯 장이면
+        // 10초가 걸려 숨쉬기가 늘어져 보였다. 장 수는 매끄러움만 정하고
+        // 움직임의 속도는 그대로여야 한다.
+        private const double IdleLoopSeconds = 2.8;
         private const double FloatStepSeconds = 0.30; // 프레임 넘기는 간격
         private const double FloatTurnChance = 0.003;
         private const double FloatStopChance = 0.004;
@@ -989,6 +996,8 @@ namespace PokemonTaskbar
 
         private readonly Dictionary<string, Bitmap>[] poseImages =
             new Dictionary<string, Bitmap>[2];
+        // 가만히 있을 때 돌릴 장의 수. 0 이면 서 있는 그림 한 장만 쓴다.
+        private int idleFrameCount;
         private double landSquash;
         private double breath;
         private double wiggle;
@@ -1105,6 +1114,13 @@ namespace PokemonTaskbar
                     SpriteFactory.Render(pair.Value, scale, !sprite.FacesRight);
                 this.poseImages[1][pair.Key] =
                     SpriteFactory.Render(pair.Value, scale, sprite.FacesRight);
+            }
+            // idle0, idle1 … 은 가만히 서 있을 때 돌려 보여 줄 장이다.
+            // 번호가 끊기면 거기까지만 쓴다.
+            while (this.poseImages[0].ContainsKey(
+                "idle" + this.idleFrameCount.ToString(CultureInfo.InvariantCulture)))
+            {
+                this.idleFrameCount++;
             }
 
             this.ownWidth = this.images[0][0].Width;
@@ -1492,6 +1508,9 @@ namespace PokemonTaskbar
         {
             double dt = TickMs / 1000.0;
             this.ticks++;
+            // 그림 넘김에 쓰는 시계. 예전에는 떠다니는 포켓몬(FloatStep)에서만
+            // 흘러서, 서 있을 때 돌리는 대기 장이 첫 장에 멈춰 있었다.
+            this.animTime += dt;
 
             if (this.foodBoostLeft > 0 && !this.world.Paused)
             {
@@ -1693,6 +1712,26 @@ namespace PokemonTaskbar
         }
 
         /// <summary>진화에 필요한 걷기 거리.</summary>
+        /// <summary>테스트용. 지금 고른 자세 이름(없으면 null).</summary>
+        internal string PoseForTest
+        {
+            get { return this.ChoosePose(); }
+        }
+
+        /// <summary>테스트용. 걸음을 멈추고 제자리에 세운다.</summary>
+        internal void StandStillForTest()
+        {
+            this.walking = false;
+            this.stopKind = null;
+            this.napping = false;
+        }
+
+        /// <summary>테스트용. 가만히 있을 때 돌릴 장의 수.</summary>
+        internal int IdleFrameCount
+        {
+            get { return this.idleFrameCount; }
+        }
+
         internal double WalkNeedForTest
         {
             get { return this.EvolveWalkNeed; }
@@ -1848,6 +1887,15 @@ namespace PokemonTaskbar
             if (this.greetingLeft > 0)
             {
                 return this.GreetingSpeaking() ? "stretch" : "squash";
+            }
+            // 서 있을 때는 원본 GIF 에서 가져온 장들을 돌린다. 걷는 중이거나
+            // 뛰거나 떠다니는 중에는 그쪽 프레임이 이미 움직임을 담고 있다.
+            if (this.idleFrameCount > 0 && !this.walking && this.stopKind == null
+                && !this.hops && !this.floats && this.lift <= 0 && !this.napping)
+            {
+                int step = (int)(this.animTime * this.idleFrameCount / IdleLoopSeconds)
+                    % this.idleFrameCount;
+                return "idle" + step.ToString(CultureInfo.InvariantCulture);
             }
             return null;
         }
@@ -2219,8 +2267,6 @@ namespace PokemonTaskbar
         /// </summary>
         private void FloatStep(double dt)
         {
-            this.animTime += dt;
-
             if (this.walking)
             {
                 this.x += this.direction * this.speedValue * FloatSpeed * dt;

@@ -153,6 +153,7 @@ namespace PokemonTaskbar.Tests
                 Movement();
                 Dragging();
                 Poses();
+                IdleAnimation();
                 Economy();
                 StockText();
                 StockNews();
@@ -532,6 +533,45 @@ namespace PokemonTaskbar.Tests
                 pet.Release(100, pet.BaseY);
                 pet.Tick();
                 Check.That(pet.Lift > 0.0, "짧게 누르면 폴짝 뛴다");
+            }
+        }
+
+        // --- 가만히 있을 때 --------------------------------------------------
+
+        private static void IdleAnimation()
+        {
+            Check.Section("가만히 있을 때");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetForm pet = world.Pets[0];
+                Check.That(pet.IdleFrameCount > 1,
+                    "원본에서 가져온 대기 장이 여럿 있다");
+
+                pet.StandStillForTest();
+                string first = pet.PoseForTest;
+                Check.That(first != null && first.StartsWith("idle"),
+                    "서 있으면 대기 장을 쓴다");
+
+                // 시간이 지나면 다음 장으로 넘어간다.
+                bool moved = false;
+                for (int i = 0; i < 200 && !moved; i++)
+                {
+                    pet.Tick();
+                    pet.StandStillForTest();
+                    string now = pet.PoseForTest;
+                    moved = now != null && now != first;
+                }
+                Check.That(moved, "가만히 두면 장이 넘어간다");
+            }
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                // 걷는 중에는 걷기 프레임이 움직임을 담고 있으므로 쓰지 않는다.
+                PetForm pet = world.Pets[0];
+                string pose = pet.PoseForTest;
+                Check.That(pose == null || !pose.StartsWith("idle"),
+                    "걷는 중에는 대기 장을 쓰지 않는다");
             }
         }
 

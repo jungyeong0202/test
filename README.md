@@ -12,6 +12,8 @@
 - 우클릭 메뉴에서 포켓몬·크기·속도를 바꿀 수 있고, **바꾼 내용은 자동으로 저장**됩니다.
 - 몸에서 떠오르는 효과(먼지·하트·Zzz·불꽃·반짝임)는 넣지 않습니다. 움직임은
   포켓몬 자신의 그림으로만 보여 줍니다.
+- **가만히 서 있을 때는 원본 GIF 의 애니메이션을 그대로 돌립니다.** 걸을 때는
+  걷기 프레임을, 서 있을 때는 원본의 숨쉬기·꼬리 흔들기를 보여 줍니다.
 - **상점과 진화가 있습니다.** 산책으로 돈을 모아 먹이·성장의 물방울을 사고, 먹이로 친밀도를 올려 꼬부기를 어니부기로 진화시킬 수 있습니다.
 - **모의 주식시장**에서 게임 안의 돈으로 여섯 종목을 사고팔 수 있습니다. 실제 돈·실제 주가와는 연결되지 않습니다.
 - 윈도우 시작할 때 자동으로 켜지게 할 수 있습니다.
@@ -322,6 +324,27 @@ python3 tools/import_sprite.py assets/images/bulbasaur.gif \
     --motion "bfoot:0,0;0,-1;0,0;0,0" \
     --eyes 10,14,13,17 --eyes 17,13,21,17 \
     --pose-squash 1 --preview 확인용.png
+```
+
+**`--idle-frames` 로 서 있을 때의 애니메이션을 넣습니다.** GIF 의 장 번호를
+쉼표로 나열하면 그 장들을 `idle0`, `idle1` … 이라는 자세로 넣고, 프로그램이
+서 있는 동안 돌립니다. 걷는 프레임과 같은 격자·같은 자르는 상자로 읽으므로
+장끼리 어긋나지 않습니다. 한 바퀴 도는 시간은 장 수와 상관없이 2.8초로
+고정이므로, 장 수는 매끄러움만 정합니다.
+
+서로 다른 장만 골라 넘기려면 이렇게 뽑으면 됩니다.
+
+```bash
+python3 -c "
+from PIL import Image; import sys; sys.path.insert(0,'tools')
+import import_sprite as imp
+path='assets/images/pikachu-f.gif'
+with Image.open(path) as im: n=im.n_frames
+seen=[]; last=None
+for k in range(n):
+    b=imp.read_rgba(path,k,quiet=True).tobytes()
+    if b!=last: seen.append(k); last=b
+print(','.join(map(str,seen)))"
 ```
 
 **0번과 2번 프레임은 같아야 합니다**(양발을 다 딛은 자세). `--motion` 의 첫째와

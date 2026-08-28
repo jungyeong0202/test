@@ -582,7 +582,8 @@ namespace PokemonTaskbar.Tests
             foreach (PokemonSprite sprite in PokemonTaskbar.Sprites.All)
             {
                 Dictionary<string, Color?[][]> poses = SpriteFactory.Poses(sprite);
-                Check.That(poses.ContainsKey("blink"), sprite.Key + ": 눈 깜빡임이 있다");
+                // 눈 깜빡임은 없앴다. 도트 자료에는 blink 자세가 남아 있지만
+                // 프로그램이 고르지 않으므로, 있는지 없는지 따지지 않는다.
                 if (!sprite.Hops)
                 {
                     Check.That(poses.ContainsKey("squash") && poses.ContainsKey("stretch"),

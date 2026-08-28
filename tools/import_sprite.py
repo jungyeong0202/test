@@ -707,6 +707,11 @@ def load_frame(path, index):
 
     GIF 처럼 여러 장이 든 파일은 index 번째 장을 쓴다.
     """
+    return flatten(read_rgba(path, index))
+
+
+def read_rgba(path, index, quiet=False):
+    """그림 한 장을 알파째로 읽는다."""
     with Image.open(path) as source:
         total = getattr(source, "n_frames", 1)
         if index:
@@ -714,11 +719,46 @@ def load_frame(path, index):
                 raise SystemExit("프레임 %d 번은 없다. 이 파일에는 %d 장이 들어 있다."
                                  % (index, total))
             source.seek(index)
-        if total > 1:
+        if total > 1 and not quiet:
             print("여러 장이 든 파일이다: %d 장 중 %d 번째를 쓴다." % (total, index))
-        image = source.convert("RGBA")
-    paper = Image.new("RGBA", image.size, (255, 255, 255, 255))
-    return Image.alpha_composite(paper, image).convert("RGB")
+        return source.convert("RGBA")
+
+
+def flatten(rgba):
+    """흰 종이 위에 올려 RGB 로 만든다."""
+    paper = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    return Image.alpha_composite(paper, rgba).convert("RGB")
+
+
+def sample_alpha(rgba, start, cell, columns, rows):
+    """칸마다 얼마나 불투명한지 평균한다.
+
+    투명한 자리를 흰색으로 바꿔 읽으면, 그림 안쪽에 갇힌 구멍(피카츄의 꼬리와
+    몸 사이 같은 곳)이 흰 도트로 굳는다. clear_background 는 가장자리에서
+    이어진 배경만 지우기 때문이다 — 눈동자 흰자를 지키려고 그렇게 되어 있다.
+    원본이 '여기는 비었다' 고 말해 주는 알파값을 따로 봐야 둘을 구별할 수 있다.
+    """
+    pixels = rgba.load()
+    width, height = rgba.size
+    x0, y0 = start
+    grid = []
+    for gy in range(rows):
+        top = y0 + gy * cell
+        line = []
+        for gx in range(columns):
+            left = x0 + gx * cell
+            total = count = 0
+            for y in range(int(round(top)), int(round(top + cell))):
+                if not 0 <= y < height:
+                    continue
+                for x in range(int(round(left)), int(round(left + cell))):
+                    if not 0 <= x < width:
+                        continue
+                    total += pixels[x, y][3]
+                    count += 1
+            line.append(0 if count == 0 else total // count)
+        grid.append(line)
+    return grid
 
 
 def main():
@@ -755,7 +795,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="파일을 고치지 않는다")
     args = parser.parse_args()
 
-    image = load_frame(args.image, args.frame)
+    source = read_rgba(args.image, args.frame)
+    image = flatten(source)
 
     def is_background(color):
         return color[0] > 235 and color[1] > 235 and color[2] > 235
@@ -775,6 +816,18 @@ def main():
 
     grid = sample_grid(image, (start_x, start_y), cell, columns, rows, is_background)
     outside = clear_background(grid, is_background)
+
+    # 원본이 투명하다고 한 자리는 그림 안쪽이라도 비운다. 안 그러면 꼬리와 몸
+    # 사이처럼 갇힌 구멍이 흰 도트로 남는다.
+    alpha = sample_alpha(source, (start_x, start_y), cell, columns, rows)
+    holes = 0
+    for y in range(rows):
+        for x in range(columns):
+            if alpha[y][x] < 128 and not outside[y][x]:
+                outside[y][x] = True
+                holes += 1
+    if holes:
+        print("그림 안쪽의 투명한 칸 %d 개를 비웠다." % holes)
 
     inside_colors = [
         grid[y][x] for y in range(rows) for x in range(columns) if not outside[y][x]

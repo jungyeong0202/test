@@ -935,9 +935,6 @@ namespace PokemonTaskbar
         private const double LandDustSpeed = 60.0;    // 이보다 세게 떨어져야 먼지가 인다
         private const double NapChance = 0.18;        // 멈춰 설 때 이 확률로 낮잠
         private const double ZzzEvery = 1.1;
-        private const double BlinkEveryMin = 3.0;
-        private const double BlinkEveryMax = 7.0;
-        private const double BlinkTime = 0.14;
         private const double LandSquashTime = 0.12;
         private const double BreathSeconds = 0.9;
         private const double WiggleSeconds = 0.10;
@@ -1010,8 +1007,6 @@ namespace PokemonTaskbar
         private readonly List<Effect> effects = new List<Effect>();
         private readonly Dictionary<string, Bitmap>[] poseImages =
             new Dictionary<string, Bitmap>[2];
-        private double blinkTimer;
-        private double blinking;
         private double landSquash;
         private double breath;
         private double wiggle;
@@ -1200,7 +1195,6 @@ namespace PokemonTaskbar
             this.floatPhase = this.random.NextDouble() * FloatBobSeconds;
             // 떠다니는 포켓몬은 처음부터 공중에 있다.
             this.lift = this.floats ? this.floatBase : 0.0;
-            this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
 
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Font = UiFonts.Create(9.0f);
@@ -1984,20 +1978,6 @@ namespace PokemonTaskbar
             this.wiggle = this.dragging ? this.wiggle + dt : 0.0;
             this.breath = this.napping ? this.breath + dt : 0.0;
 
-            if (this.blinking > 0)
-            {
-                this.blinking -= dt;
-            }
-            else if (this.lift <= 0 && !this.dragging)
-            {
-                this.blinkTimer -= dt;
-                if (this.blinkTimer <= 0)
-                {
-                    this.blinking = BlinkTime;
-                    this.blinkTimer = BlinkEveryMin
-                        + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
-                }
-            }
         }
 
         /// <summary>지금 상황에 맞는 자세 이름. 없으면 null(평소 프레임).</summary>
@@ -2028,10 +2008,6 @@ namespace PokemonTaskbar
             {
                 return this.idleAction == "spark" || this.idleAction == "flame"
                     || this.idleAction == "twinkle" ? "stretch" : "squash";
-            }
-            if (this.blinking > 0)
-            {
-                return "blink";
             }
             return null;
         }
@@ -2609,7 +2585,6 @@ namespace PokemonTaskbar
                 this.hopState = "rest";
                 this.hopTimer = HopRestMin + this.random.NextDouble() * (HopRestMax - HopRestMin);
                 this.StartIdleAction();
-            this.blinkTimer = BlinkEveryMin + this.random.NextDouble() * (BlinkEveryMax - BlinkEveryMin);
                 if (this.random.NextDouble() < HopTurnChance)
                 {
                     this.direction = -this.direction;

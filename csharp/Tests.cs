@@ -575,6 +575,13 @@ namespace PokemonTaskbar.Tests
                 Check.Equal(app.Options.Coins, before, "멈춰 두면 벌지 않는다");
             }
 
+            // 등급과 진화 단계에 따른 배수가 시간 벌이에도 그대로 곱해져야 한다.
+            // 걸은 거리로 주던 시절의 배수가 그대로 살아 있는지 확인한다.
+            CheckEarnsPerSecond("pikachu", 1.0, "일반은 그대로");
+            CheckEarnsPerSecond("ditto", 1.6, "준전설은 1.6배");
+            CheckEarnsPerSecond("mew", 2.5, "초전설은 2.5배");
+            CheckEarnsPerSecond("wartortle", 1.5, "2단계는 1.5배");
+
             using (TestWorld world = World("-p", "pikachu"))
             {
                 // 서 있는 시간이 걷는 시간보다 길어야 원본 애니메이션을 볼 수 있다.
@@ -589,6 +596,22 @@ namespace PokemonTaskbar.Tests
                 Check.That(walking * 2 < total,
                     "서 있는 시간이 걷는 시간보다 길다 (걷기 "
                         + (walking * 100 / total) + "%)");
+            }
+        }
+
+        /// <summary>10초 동안 번 돈이 배수만큼인지 본다.</summary>
+        private static void CheckEarnsPerSecond(string key, double multiplier, string what)
+        {
+            using (TestWorld world = World("-p", key))
+            {
+                PetForm pet = world.Pets[0];
+                PetWorld app = world.World;
+                Check.Near(pet.IncomeMultiplierValue, multiplier, 0.001, what + " (배수)");
+                int before = app.Options.Coins;
+                for (int i = 0; i < 250; i++) { pet.Tick(); }
+                double want = PetWorld.CoinsPerSecond * 10 * multiplier;
+                Check.Near(app.Options.Coins - before, want, PetWorld.CoinsPerSecond,
+                    what + " (10초치)");
             }
         }
 

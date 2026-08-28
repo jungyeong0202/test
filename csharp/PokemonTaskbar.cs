@@ -1233,10 +1233,10 @@ namespace PokemonTaskbar
 
             ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
             ToolStripMenuItem randomPet = new ToolStripMenuItem(
-                "랜덤 영입 — " + PetWorld.FormatWon(PetWorld.PokemonPrice)
+                "랜덤 영입 — " + PetWorld.FormatWon(world.NextPetPrice())
                     + "  (일반 88% · 준전설 10% · 초전설 2%)", null,
                 delegate { world.BuyRandomPet(); });
-            randomPet.Enabled = world.Options.Coins >= PetWorld.PokemonPrice;
+            randomPet.Enabled = world.Options.Coins >= world.NextPetPrice();
             add.DropDownItems.Add(randomPet);
             menu.Items.Add(add);
 
@@ -4500,7 +4500,7 @@ namespace PokemonTaskbar
                 "진화 조건을 모두 채운 포켓몬이 진화할 때 사용합니다.", PetWorld.GrowthDropCost,
                 delegate { this.BuyDropFromShop(); }, out this.shopDropOwned);
             this.shopDraw = this.AddShopTile(grid, 0, 1, "◉", "랜덤 포켓볼",
-                "새로운 포켓몬 한 마리를 무작위로 영입합니다.", PetWorld.PokemonPrice,
+                "새로운 포켓몬 한 마리를 무작위로 영입합니다.", this.world.NextPetPrice(),
                 delegate { this.BuyRandom(); }, out this.shopDrawOwned);
             layout.Controls.Add(grid, 0, 2);
         }
@@ -4875,7 +4875,8 @@ namespace PokemonTaskbar
             this.shopDrawOwned.Text = "보유 " + pets.Length + "마리";
             this.SetPurchaseButton(this.shopFood, this.world.Options.Coins >= PetWorld.FoodCost, "구매");
             this.SetPurchaseButton(this.shopDrop, this.world.Options.Coins >= PetWorld.GrowthDropCost, "구매");
-            this.SetPurchaseButton(this.shopDraw, this.world.Options.Coins >= PetWorld.PokemonPrice, "영입하기");
+            this.SetPurchaseButton(this.shopDraw,
+                this.world.Options.Coins >= this.world.NextPetPrice(), "영입하기");
             PetForm pet = this.SelectedPet();
             this.EnsureRosterButtons(pets.Length);
             for (int i = 0; i < this.rosterButtons.Count; i++) {
@@ -4890,13 +4891,13 @@ namespace PokemonTaskbar
                 if (rosterGame != null) rosterGame.EdgeColor = i == this.selectedIndex ? Red : Line;
                 roster.Invalidate();
             }
-            this.petRecruit.Enabled = this.world.Options.Coins >= PetWorld.PokemonPrice;
-            this.petRecruit.Text = "＋  새 포켓몬 영입\r\n     " + PetWorld.FormatWon(PetWorld.PokemonPrice)
+            this.petRecruit.Enabled = this.world.Options.Coins >= this.world.NextPetPrice();
+            this.petRecruit.Text = "＋  새 포켓몬 영입\r\n     " + PetWorld.FormatWon(this.world.NextPetPrice())
                 + " · 일반 88% · 준전설 10% · 초전설 2%"
                 + (this.petRecruit.Enabled ? "" : " · 잔액 부족");
             this.buttonHints.SetToolTip(this.petRecruit, this.petRecruit.Enabled
                 ? "랜덤 확률로 새로운 포켓몬을 영입합니다."
-                : "영입하려면 " + PetWorld.FormatWon(PetWorld.PokemonPrice - this.world.Options.Coins) + "이 더 필요합니다.");
+                : "영입하려면 " + PetWorld.FormatWon(this.world.NextPetPrice() - this.world.Options.Coins) + "이 더 필요합니다.");
             if (pet != null) {
                 PokemonSprite sprite = Sprites.Find(pet.SpriteKey);
                 string name = sprite == null ? pet.SpriteKey : sprite.NameKo;
@@ -5094,7 +5095,7 @@ namespace PokemonTaskbar
 
         private void BuyRandom()
         {
-            if (MessageBox.Show(PetWorld.FormatWon(PetWorld.PokemonPrice)
+            if (MessageBox.Show(PetWorld.FormatWon(this.world.NextPetPrice())
                 + "을 사용해 새 포켓몬을 영입할까요?", "랜덤 영입",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             int before = this.world.PetsSnapshot().Length;
@@ -5157,7 +5158,17 @@ namespace PokemonTaskbar
         // 55원/초는 예전 기본 속도(55px/초)로 쉬지 않고 걸었을 때와 같은 벌이다.
         public const int CoinsPerSecond = 55;
         // 기본 속도 55px/초로 두 시간 산책: 55 × 2 × 60 × 60 ÷ 100 × 100 = 396,000원.
-        public const int PokemonPrice = 396000;
+        public const int PokemonPrice = 396000;      // 첫 영입 값
+        // 한 마리 늘 때마다 값이 이만큼 비싸진다.
+        //
+        // 벌이는 마리 수에 비례하는데 값이 고정이면, 살수록 다음 한 마리가
+        // 빨라져 끝이 없다(다섯 시간이면 아홉 마리, 그 뒤로는 가속됐다).
+        // 값이 1.5배씩 오르면 벌이(마리 수에 비례)보다 빨리 올라, 세 마리쯤에서
+        // 가장 빠르고 그 뒤로는 점점 느려진다. 벽에 부딪히지 않으면서 저절로
+        // 느려진다.
+        public const double PokemonPriceGrowth = 1.5;
+        // 값이 int 를 넘지 않게 끊는다. 여기 닿으면 사실상 더 못 산다.
+        public const int PokemonPriceCap = 1000000000;
         public const int FoodCost = 8000;          // 5분 2배 산책으로 얻는 추가 수입보다 조금 낮춘 가격(원)
         public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
         public const double FoodSpeedMultiplier = 2.0;
@@ -5635,9 +5646,9 @@ namespace PokemonTaskbar
             menu.Items.Add("▶ 포켓몬 센터 열기", null, delegate { this.OpenGameMenu(); });
             ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
             ToolStripMenuItem randomPet = new ToolStripMenuItem(
-                "랜덤 영입 — " + FormatWon(PokemonPrice) + "  (일반 88% · 준전설 10% · 초전설 2%)", null,
+                "랜덤 영입 — " + FormatWon(this.NextPetPrice()) + "  (일반 88% · 준전설 10% · 초전설 2%)", null,
                 delegate { this.BuyRandomPet(); });
-            randomPet.Enabled = this.Options.Coins >= PokemonPrice;
+            randomPet.Enabled = this.Options.Coins >= this.NextPetPrice();
             add.DropDownItems.Add(randomPet);
             menu.Items.Add(add);
             menu.Items.Add(string.Format("▶ 주식시장 열기 · 평가액 {0}",
@@ -5727,22 +5738,38 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
-        /// <summary>두 시간 산책값으로 포켓몬 한 마리를 산다.</summary>
+        /// <summary>다음 한 마리의 값. 데리고 있는 수가 늘수록 비싸진다.</summary>
+        public int NextPetPrice()
+        {
+            double price = PokemonPrice;
+            for (int owned = 1; owned < this.pets.Count; owned++)
+            {
+                price *= PokemonPriceGrowth;
+                if (price >= PokemonPriceCap)
+                {
+                    return PokemonPriceCap;
+                }
+            }
+            return (int)Math.Round(price);
+        }
+
+        /// <summary>포켓몬 한 마리를 산다.</summary>
         public void BuyPet(string key)
         {
-            if (this.Options.Coins < PokemonPrice)
+            int price = this.NextPetPrice();
+            if (this.Options.Coins < price)
             {
                 return;
             }
-            this.Options.Coins -= PokemonPrice;
+            this.Options.Coins -= price;
             this.Add(key);
             this.SaveSettings();
         }
 
-        /// <summary>두 시간 산책값으로 무작위 포켓몬 한 마리를 산다.</summary>
+        /// <summary>무작위 포켓몬 한 마리를 산다.</summary>
         public void BuyRandomPet()
         {
-            if (this.Options.Coins < PokemonPrice)
+            if (this.Options.Coins < this.NextPetPrice())
             {
                 return;
             }

@@ -755,7 +755,9 @@ namespace PokemonTaskbar.Tests
             using (TestWorld world = World("-p", "pikachu"))
             {
                 PetWorld app = world.World;
-                int price = PetWorld.PokemonPrice;
+                int price = app.NextPetPrice();
+                Check.Equal(price, PetWorld.PokemonPrice,
+                    "한 마리만 있을 때는 첫 영입 값이다");
 
                 app.Options.Coins = price - 1;
                 int before = world.Pets.Count;
@@ -766,6 +768,23 @@ namespace PokemonTaskbar.Tests
                 app.BuyRandomPet();
                 Check.Equal(world.Pets.Count, before + 1, "값을 치르면 한 마리 늘어난다");
                 Check.That(app.Options.Coins < price, "값을 치른다");
+
+                // 마리 수가 늘면 다음 한 마리가 비싸진다. 값이 고정이면 벌이는
+                // 마리 수에 비례해 느는데 값은 그대로라, 살수록 빨라져 끝이 없다.
+                int second = app.NextPetPrice();
+                Check.Equal(second,
+                    (int)System.Math.Round(PetWorld.PokemonPrice * PetWorld.PokemonPriceGrowth),
+                    "두 마리째부터는 1.5배가 된다");
+                Check.That(second > price, "살수록 비싸진다");
+
+                app.Options.Coins = second - 1;
+                int had = world.Pets.Count;
+                app.BuyRandomPet();
+                Check.Equal(world.Pets.Count, had, "오른 값에 모자라면 못 산다");
+                app.Options.Coins = second;
+                app.BuyRandomPet();
+                Check.Equal(world.Pets.Count, had + 1, "오른 값을 치르면 늘어난다");
+                Check.That(app.NextPetPrice() > second, "그 다음은 더 비싸다");
 
                 bool evolvedLeaked = false;
                 foreach (PetForm pet in world.Pets)

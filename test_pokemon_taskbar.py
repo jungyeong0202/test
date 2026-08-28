@@ -1041,6 +1041,29 @@ class EvolutionTest(unittest.TestCase):
         self.assertIn("평가액 2,940원", text)
         self.assertIn("손익 +240원", text)
 
+    def test_stock_valuation_is_the_headline_number(self):
+        """주식창에서 제일 궁금한 값은 '지금 얼마인가'다.
+
+        평가액이 투자 원금보다 앞에, 그리고 더 크게 나와야 한다.
+        """
+        self.app.open_stock_overlay()
+        overlay = self.app.stock_overlay
+        overlay.refresh_toss()
+        self.app.root.update_idletasks()
+
+        def size(label):
+            return int(str(label.cget("font")).rsplit(" ", 2)[-2])
+
+        self.assertGreater(
+            size(overlay.portfolio_value), size(overlay.balance),
+            "평가액이 투자 원금보다 크게 나와야 한다")
+        value_block = overlay.portfolio_value.master.master
+        cost_block = overlay.balance.master
+        self.assertEqual(value_block.master, cost_block.master, "같은 줄에 있어야 한다")
+        self.assertLess(
+            value_block.winfo_x(), cost_block.winfo_x(),
+            "평가액이 투자 원금보다 앞(왼쪽)에 있어야 한다")
+
     def test_stock_percentage_colours_distinguish_gain_loss_and_flat(self):
         self.assertEqual(pt.StockOverlay.percent_colour(1.0), pt.StockOverlay.RISE)
         self.assertEqual(pt.StockOverlay.percent_colour(-1.0), pt.GameMenuOverlay.BLUE)
@@ -1142,6 +1165,7 @@ class EvolutionTest(unittest.TestCase):
         overlay.refresh_toss()
         self.assertEqual(overlay.investment_caption.cget("text"), "투자 원금")
         self.assertEqual(overlay.balance.cget("text"), pt.format_won(1800))
+        self.assertEqual(overlay.portfolio_value.cget("text"), pt.format_won(1960))
         self.assertEqual(overlay.portfolio_profit.cget("text"), "+160원")
         self.assertEqual(overlay.portfolio_profit.cget("fg"), overlay.RISE)
         self.assertEqual(overlay.portfolio_percent.cget("fg"), overlay.RISE)

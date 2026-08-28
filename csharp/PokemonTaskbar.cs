@@ -2869,36 +2869,38 @@ namespace PokemonTaskbar
             portfolio.Location = new Point(12, 56);
             portfolio.Size = new Size(784, 100);
             body.Controls.Add(portfolio);
-            Label portfolioTitle = TossLabel(portfolio, new Point(16, 7), new Size(250, 20),
+            // 주식창에서 가장 궁금한 값은 "지금 얼마인가"(평가액)이므로 맨 앞의 큰
+            // 자리에 둔다. 투자 원금은 그것과 비교해 보는 값이라 뒤로 보낸다.
+            Label stockCaption = TossLabel(portfolio, new Point(16, 7), new Size(250, 20),
                 ContentAlignment.MiddleLeft, 10.0f, FontStyle.Bold);
-            portfolioTitle.Text = "투자 원금";
-            portfolioTitle.ForeColor = MenuMuted;
-            this.balance = new Label();
-            this.balance.BackColor = portfolio.BackColor;
-            this.balance.ForeColor = MenuInk;
-            this.balance.Font = UiFonts.Create(17.0f, FontStyle.Bold);
-            this.balance.Location = new Point(16, 27);
-            this.balance.Size = new Size(330, 34);
-            this.balance.AccessibleName = "투자 원금";
-            portfolio.Controls.Add(this.balance);
-            Label cashCaption = TossLabel(portfolio, new Point(370, 8), new Size(130, 20),
+            stockCaption.Text = "주식 평가액"; stockCaption.ForeColor = MenuMuted;
+            this.tossPortfolioValue = new Label();
+            this.tossPortfolioValue.BackColor = portfolio.BackColor;
+            this.tossPortfolioValue.ForeColor = MenuInk;
+            this.tossPortfolioValue.Font = UiFonts.Create(17.0f, FontStyle.Bold);
+            this.tossPortfolioValue.Location = new Point(16, 27);
+            this.tossPortfolioValue.Size = new Size(190, 34);
+            this.tossPortfolioValue.AccessibleName = "주식 평가액";
+            portfolio.Controls.Add(this.tossPortfolioValue);
+            this.tossPortfolioProfit = TossLabel(portfolio, new Point(206, 33), new Size(92, 25),
+                ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
+            this.tossPortfolioProfit.AccessibleName = "주식 평가 손익 금액";
+            this.tossPortfolioPercent = TossLabel(portfolio, new Point(298, 33), new Size(72, 25),
+                ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
+            this.tossPortfolioPercent.AccessibleName = "주식 평가 수익률";
+            Label cashCaption = TossLabel(portfolio, new Point(400, 8), new Size(140, 20),
                 ContentAlignment.MiddleLeft, 9.5f, FontStyle.Regular);
             cashCaption.Text = "보유 현금"; cashCaption.ForeColor = MenuMuted;
-            this.tossCashValue = TossLabel(portfolio, new Point(370, 29), new Size(130, 29),
+            this.tossCashValue = TossLabel(portfolio, new Point(400, 29), new Size(140, 29),
                 ContentAlignment.MiddleLeft, 12.0f, FontStyle.Bold);
             this.tossCashValue.AccessibleName = "보유 현금";
-            Label stockCaption = TossLabel(portfolio, new Point(510, 8), new Size(258, 20),
+            Label portfolioTitle = TossLabel(portfolio, new Point(560, 8), new Size(208, 20),
                 ContentAlignment.MiddleLeft, 9.5f, FontStyle.Regular);
-            stockCaption.Text = "주식 평가액"; stockCaption.ForeColor = MenuMuted;
-            this.tossPortfolioValue = TossLabel(portfolio, new Point(510, 29), new Size(100, 29),
+            portfolioTitle.Text = "투자 원금";
+            portfolioTitle.ForeColor = MenuMuted;
+            this.balance = TossLabel(portfolio, new Point(560, 29), new Size(208, 29),
                 ContentAlignment.MiddleLeft, 12.0f, FontStyle.Bold);
-            this.tossPortfolioValue.AccessibleName = "주식 평가액";
-            this.tossPortfolioProfit = TossLabel(portfolio, new Point(610, 29), new Size(92, 29),
-                ContentAlignment.MiddleRight, 10.0f, FontStyle.Bold);
-            this.tossPortfolioProfit.AccessibleName = "주식 평가 손익 금액";
-            this.tossPortfolioPercent = TossLabel(portfolio, new Point(702, 29), new Size(66, 29),
-                ContentAlignment.MiddleRight, 10.0f, FontStyle.Bold);
-            this.tossPortfolioPercent.AccessibleName = "주식 평가 수익률";
+            this.balance.AccessibleName = "투자 원금";
             this.notice = new Label();
             this.notice.BackColor = portfolio.BackColor;
             this.notice.ForeColor = MenuMuted;

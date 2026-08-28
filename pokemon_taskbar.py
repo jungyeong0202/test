@@ -2470,15 +2470,27 @@ class StockOverlay:
         portfolio.pack(fill="x", padx=12, pady=10)
         metrics = tk.Frame(portfolio, bg=GameMenuOverlay.PANEL)
         metrics.pack(fill="x", padx=14, pady=(7, 2))
-        total_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL)
-        total_metric.pack(side="left", fill="x", expand=True)
-        self.investment_caption = tk.Label(total_metric, text="투자 원금", bg=GameMenuOverlay.PANEL,
+        # 주식창에서 가장 궁금한 값은 "지금 얼마인가"(평가액)이므로 맨 앞의 큰
+        # 자리에 둔다. 투자 원금은 그것과 비교해 보는 값이라 뒤로 보낸다.
+        stock_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL)
+        stock_metric.pack(side="left", fill="x", expand=True)
+        tk.Label(stock_metric, text="주식 평가액", bg=GameMenuOverlay.PANEL,
                  fg=GameMenuOverlay.MUTED, anchor="w",
-                 font=(UI_FONT_FAMILY, 10, "bold"))
-        self.investment_caption.pack(fill="x")
-        self.balance = tk.Label(total_metric, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
-                                anchor="w", font=(UI_FONT_FAMILY, 17, "bold"))
-        self.balance.pack(fill="x")
+                 font=(UI_FONT_FAMILY, 10, "bold")).pack(fill="x")
+        portfolio_value_row = tk.Frame(stock_metric, bg=GameMenuOverlay.PANEL)
+        portfolio_value_row.pack(fill="x")
+        self.portfolio_value = tk.Label(
+            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
+            anchor="w", font=(UI_FONT_FAMILY, 17, "bold"))
+        self.portfolio_value.pack(side="left")
+        self.portfolio_profit = tk.Label(
+            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED,
+            anchor="w", font=(UI_FONT_FAMILY, 11, "bold"))
+        self.portfolio_profit.pack(side="left", padx=(8, 0), pady=(5, 0))
+        self.portfolio_percent = tk.Label(
+            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED,
+            anchor="w", font=(UI_FONT_FAMILY, 11, "bold"))
+        self.portfolio_percent.pack(side="left", padx=(6, 0), pady=(5, 0))
         cash_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=135)
         cash_metric.pack(side="left", padx=(12, 0))
         tk.Label(cash_metric, text="보유 현금", bg=GameMenuOverlay.PANEL,
@@ -2487,25 +2499,15 @@ class StockOverlay:
         self.cash_value = tk.Label(cash_metric, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
                                    anchor="w", font=(UI_FONT_FAMILY, 12, "bold"))
         self.cash_value.pack(fill="x")
-        stock_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=250)
-        stock_metric.pack(side="left", padx=(10, 0))
-        tk.Label(stock_metric, text="주식 평가액", bg=GameMenuOverlay.PANEL,
+        total_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=135)
+        total_metric.pack(side="left", padx=(10, 0))
+        self.investment_caption = tk.Label(total_metric, text="투자 원금", bg=GameMenuOverlay.PANEL,
                  fg=GameMenuOverlay.MUTED, anchor="w",
-                 font=(UI_FONT_FAMILY, 10)).pack(fill="x")
-        portfolio_value_row = tk.Frame(stock_metric, bg=GameMenuOverlay.PANEL)
-        portfolio_value_row.pack(fill="x")
-        self.portfolio_value = tk.Label(
-            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
-            anchor="w", font=(UI_FONT_FAMILY, 12, "bold"))
-        self.portfolio_value.pack(side="left")
-        self.portfolio_profit = tk.Label(
-            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED,
-            anchor="w", font=(UI_FONT_FAMILY, 10, "bold"))
-        self.portfolio_profit.pack(side="left", padx=(7, 0))
-        self.portfolio_percent = tk.Label(
-            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED,
-            anchor="w", font=(UI_FONT_FAMILY, 10, "bold"))
-        self.portfolio_percent.pack(side="left", padx=(6, 0))
+                 font=(UI_FONT_FAMILY, 10))
+        self.investment_caption.pack(fill="x")
+        self.balance = tk.Label(total_metric, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
+                                anchor="w", font=(UI_FONT_FAMILY, 12, "bold"))
+        self.balance.pack(fill="x")
         self.market_summary = tk.Label(portfolio, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED, anchor="w",
                                        font=(UI_FONT_FAMILY, 10, "bold"), padx=14, pady=2)
         self.market_summary.pack(fill="x")

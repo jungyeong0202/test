@@ -644,6 +644,22 @@ namespace PokemonTaskbar.Tests
                 Check.That(moved, "가만히 두면 장이 넘어간다");
             }
 
+            // 같은 그림이 이어지는 장은 하나로 합쳐 담으므로, 원본에서 한 바퀴
+            // 돌던 시간을 함께 들여와야 원래 속도로 돈다. 없으면 장 수만 보고
+            // 돌려 원본보다 두 배까지 빨라진다.
+            foreach (PokemonSprite sprite in PokemonTaskbar.Sprites.All)
+            {
+                Dictionary<string, Color?[][]> poses = SpriteFactory.Poses(sprite);
+                if (!poses.ContainsKey("idle0"))
+                {
+                    continue;
+                }
+                Check.That(sprite.IdleMs > 0,
+                    sprite.Key + ": 대기 장이 있으면 원본 길이도 있다");
+                Check.That(sprite.IdleMs >= 1000 && sprite.IdleMs <= 20000,
+                    sprite.Key + ": 원본 길이가 그럴듯하다 (" + sprite.IdleMs + "ms)");
+            }
+
             using (TestWorld world = World("-p", "pikachu"))
             {
                 // 걷는 중에는 걷기 프레임이 움직임을 담고 있으므로 쓰지 않는다.

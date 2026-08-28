@@ -23,7 +23,7 @@ class Pokemon:
 
     def __init__(self, key, name_ko, palette, rows=None, step_rows=None,
                  frame_rows=None, scale_factor=1.0, bounce=True, facing="right",
-                 move="walk", pose_rows=None, evolves_to=None):
+                 move="walk", pose_rows=None, evolves_to=None, idle_ms=0):
         self.key = key
         self.name_ko = name_ko
         self.palette = palette
@@ -31,6 +31,10 @@ class Pokemon:
         self.scale_factor = scale_factor
         # 진화하면 무엇이 되는지(키). 진화하지 않으면 None.
         self.evolves_to = evolves_to
+        # 가만히 있을 때 도는 장들이 원본에서 한 바퀴 도는 데 걸리던 시간(ms).
+        # 0 이면 프로그램의 기본값을 쓴다. 같은 그림이 이어지는 장은 하나로
+        # 합쳐 담으므로, 이 값이 있어야 원래 속도로 돌릴 수 있다.
+        self.idle_ms = idle_ms
         # 프로그램이 홀수 프레임마다 살짝 띄워 주는 흔들림을 쓸지 여부.
         # 프레임 안에 이미 몸통 움직임이 그려져 있으면 끈다.
         self.bounce = bounce
@@ -116,6 +120,7 @@ PIKACHU = Pokemon(
     name_ko="피카츄",
     scale_factor=1 / 3,
     facing="left",
+    idle_ms=5800,
     palette={
         "K": "#f7e652",
         "Y": "#f7bd21",
@@ -3378,6 +3383,7 @@ CHARMANDER = Pokemon(
     name_ko="파이리",
     scale_factor=1 / 3,
     facing="left",
+    idle_ms=5400,
     palette={
         "K": "#ff9442",
         "Y": "#de523a",
@@ -6108,6 +6114,7 @@ BULBASAUR = Pokemon(
     name_ko="이상해씨",
     scale_factor=1 / 3,
     facing="left",
+    idle_ms=5100,
     palette={
         "K": "#3a9494",
         "Y": "#63d6b5",
@@ -8435,6 +8442,7 @@ SQUIRTLE = Pokemon(
     name_ko="꼬부기",
     scale_factor=1 / 3,
     facing="left",
+    idle_ms=3850,
     palette={
         "K": "#5a9ca5",
         "Y": "#8cc5ce",
@@ -10262,6 +10270,7 @@ DITTO = Pokemon(
     bounce=False,
     facing="left",
     move="hop",
+    idle_ms=4000,
     palette={
         "K": "#c57be6",
         "Y": "#9c5ab5",
@@ -12173,6 +12182,7 @@ MEW = Pokemon(
     bounce=False,
     facing="left",
     move="float",
+    idle_ms=6000,
     palette={
         "K": "#ffb5d6",
         "Y": "#5a2952",
@@ -16027,6 +16037,7 @@ WARTORTLE = Pokemon(
     name_ko="어니부기",
     scale_factor=1 / 3,
     facing="left",
+    idle_ms=4400,
     palette={
         "K": "#8cadf7",
         "Y": "#637bc5",

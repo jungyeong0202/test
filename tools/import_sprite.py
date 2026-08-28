@@ -622,7 +622,7 @@ def to_rows(cells, palette_map):
 
 
 def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="right",
-                move="walk", poses=None):
+                move="walk", poses=None, idle_ms=0):
     constant = key.upper()
     out = ["%s = Pokemon(" % constant]
     out.append('    key="%s",' % key)
@@ -634,6 +634,8 @@ def build_block(key, name, palette, frames, scale_factor, bounce=True, facing="r
         out.append('    facing="%s",' % facing)
     if move != "walk":
         out.append('    move="%s",' % move)
+    if idle_ms:
+        out.append("    idle_ms=%d," % idle_ms)
     out.append("    palette={")
     for char, color in palette:
         out.append('        "%s": "#%02x%02x%02x",' % (char, color[0], color[1], color[2]))
@@ -897,9 +899,17 @@ def main():
     cells = crop(cells)
     idle_cells = [crop(block) for block in idle_cells]
     print("잘라낸 크기: %d x %d" % (len(cells[0]), len(cells)))
+    # 같은 그림이 이어지는 장은 하나로 합쳐 담으므로, 원본에서 한 바퀴 도는 데
+    # 걸리던 시간을 따로 적어 둔다. 이게 없으면 프로그램이 제 속도를 알 수 없어
+    # 애니메이션이 원본보다 빠르거나 느리게 돈다(2배까지 빨랐다).
+    idle_loop_ms = 0
     if idle_cells:
-        print("가만히 있을 때 돌릴 장: %d 개 (%s)"
-              % (len(idle_cells), ", ".join(str(n) for n in idle_numbers)))
+        with Image.open(args.image) as clip:
+            for number in range(getattr(clip, "n_frames", 1)):
+                clip.seek(number)
+                idle_loop_ms += clip.info.get("duration") or 50
+        print("가만히 있을 때 돌릴 장: %d 개, 한 바퀴 %.2f 초"
+              % (len(idle_cells), idle_loop_ms / 1000.0))
 
     # 자주 쓰인 색부터 팔레트 문자 배정
     counts = {}
@@ -971,6 +981,7 @@ def main():
         facing=args.facing,
         move="hop" if args.hop else ("float" if args.floats else "walk"),
         poses={name: to_rows(grid, palette_map) for name, grid in poses.items()},
+        idle_ms=idle_loop_ms,
     )
     if args.dry_run:
         print(block)

@@ -15,6 +15,7 @@ namespace PokemonTaskbar
         public bool Floats;       // 바닥을 딛지 않고 공중에 떠다니는지
         public string EvolvesTo;  // 진화하면 무엇이 되는지(키). 진화 안 하면 null
         public bool Bounce;       // 걸을 때 프로그램이 살짝 띄워 줄지
+        public int IdleMs;        // 대기 애니메이션이 원본에서 한 바퀴 돌던 시간(ms)
         public Dictionary<char, string> Palette;
         public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
         public Dictionary<string, string[]> Poses;  // 상황별 자세 (squash/stretch/blink)
@@ -34,6 +35,7 @@ namespace PokemonTaskbar
                 Floats = false,
                 EvolvesTo = null,
                 Bounce = true,
+                IdleMs = 5800,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#f7e652" },
@@ -3429,6 +3431,7 @@ namespace PokemonTaskbar
                 Floats = false,
                 EvolvesTo = null,
                 Bounce = true,
+                IdleMs = 5400,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#ff9442" },
@@ -6279,6 +6282,7 @@ namespace PokemonTaskbar
                 Floats = false,
                 EvolvesTo = null,
                 Bounce = true,
+                IdleMs = 5100,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#3a9494" },
@@ -8718,6 +8722,7 @@ namespace PokemonTaskbar
                 Floats = false,
                 EvolvesTo = "wartortle",
                 Bounce = true,
+                IdleMs = 3850,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#5a9ca5" },
@@ -10621,6 +10626,7 @@ namespace PokemonTaskbar
                 Floats = false,
                 EvolvesTo = null,
                 Bounce = false,
+                IdleMs = 4000,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#c57be6" },
@@ -12634,6 +12640,7 @@ namespace PokemonTaskbar
                 Floats = true,
                 EvolvesTo = null,
                 Bounce = false,
+                IdleMs = 6000,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#ffb5d6" },
@@ -16621,6 +16628,7 @@ namespace PokemonTaskbar
                 Floats = false,
                 EvolvesTo = null,
                 Bounce = true,
+                IdleMs = 4400,
                 Palette = new Dictionary<char, string>
                 {
                     { 'K', "#8cadf7" },

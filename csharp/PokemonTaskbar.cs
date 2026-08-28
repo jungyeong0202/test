@@ -914,11 +914,12 @@ namespace PokemonTaskbar
         private const double FloatSpeed = 0.7;        // 걷는 포켓몬보다 느긋하게
         // 가만히 있을 때 원본 장을 한 바퀴 도는 데 걸리는 시간.
         //
-        // 장 수로 나눠 간격을 정한다. 고정 간격으로 두면 몇 장을 떠 왔느냐에 따라
-        // 애니메이션이 빨라지거나 느려진다 — 여덟 장이면 1.4초, 쉰여섯 장이면
-        // 10초가 걸려 숨쉬기가 늘어져 보였다. 장 수는 매끄러움만 정하고
-        // 움직임의 속도는 그대로여야 한다.
-        private const double IdleLoopSeconds = 2.8;
+        // 원본 GIF 가 알려 준 길이(PokemonSprite.IdleMs)를 쓰고, 없으면 이 값을
+        // 쓴다. 예전에는 이 값으로 고정해 두어서 원본보다 1.4~2.1배 빠르게
+        // 돌았다 — 같은 그림이 이어지는 장을 하나로 합쳐 담으므로, 장 수만으로는
+        // 원래 속도를 알 수 없다.
+        private const double IdleLoopFallbackSeconds = 2.8;
+        private readonly double idleLoopSeconds = IdleLoopFallbackSeconds;
         private const double FloatStepSeconds = 0.30; // 프레임 넘기는 간격
         private const double FloatTurnChance = 0.003;
         private const double FloatStopChance = 0.004;
@@ -1134,6 +1135,10 @@ namespace PokemonTaskbar
                 "idle" + this.idleFrameCount.ToString(CultureInfo.InvariantCulture)))
             {
                 this.idleFrameCount++;
+            }
+            if (sprite.IdleMs > 0)
+            {
+                this.idleLoopSeconds = sprite.IdleMs / 1000.0;
             }
 
             this.ownWidth = this.images[0][0].Width;
@@ -1936,7 +1941,7 @@ namespace PokemonTaskbar
             }
             if (this.idleFrameCount > 0 && restingNow)
             {
-                int step = (int)(this.animTime * this.idleFrameCount / IdleLoopSeconds)
+                int step = (int)(this.animTime * this.idleFrameCount / this.idleLoopSeconds)
                     % this.idleFrameCount;
                 return "idle" + step.ToString(CultureInfo.InvariantCulture);
             }

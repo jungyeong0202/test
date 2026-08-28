@@ -31,6 +31,7 @@ namespace PokemonTaskbar
         public bool Floats;       // 바닥을 딛지 않고 공중에 떠다니는지
         public string EvolvesTo;  // 진화하면 무엇이 되는지(키). 진화 안 하면 null
         public bool Bounce;       // 걸을 때 프로그램이 살짝 띄워 줄지
+        public int IdleMs;        // 대기 애니메이션이 원본에서 한 바퀴 돌던 시간(ms)
         public Dictionary<char, string> Palette;
         public string[][] Frames;   // 걷기 프레임마다 도트 줄 묶음
         public Dictionary<string, string[]> Poses;  // 상황별 자세 (squash/stretch/blink)
@@ -105,6 +106,7 @@ def build():
         out.append("                EvolvesTo = %s,\n" % (
             ('"%s"' % pokemon.evolves_to) if pokemon.evolves_to else "null"))
         out.append("                Bounce = %s,\n" % ("true" if pokemon.bounce else "false"))
+        out.append("                IdleMs = %d,\n" % int(getattr(pokemon, "idle_ms", 0)))
         out.append("                Palette = new Dictionary<char, string>\n                {\n")
         for char, color in pokemon.palette.items():
             out.append("                    { '%s', %s },\n" % (char, cs_string(color)))

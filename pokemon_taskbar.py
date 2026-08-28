@@ -137,6 +137,7 @@ STOCK_LISTINGS = (
     ("잠만보식품", 1900, 11), ("팬텀게임즈", 2800, 28),
 )
 STOCK_COUNT = 6
+STOCK_MAX_ORDER_QUANTITY = 2_147_483_647
 # 주 성향은 가격이 움직이는 방식을, 보조 성향은 같은 주 성향 안의 미세한 차이를 만든다.
 # 12 × 8 조합을 저장해 신규 상장 뒤에도 같은 성격이 유지된다.
 STOCK_PRIMARY_TRAITS = (
@@ -2606,7 +2607,8 @@ class StockOverlay:
         quantity_row.pack(fill="x")
         tk.Label(quantity_row, text="주문 수량", bg=GameMenuOverlay.SOFT, fg=GameMenuOverlay.INK,
                  font=(UI_FONT_FAMILY, 10, "bold")).pack(side="left")
-        self.quantity = tk.Spinbox(quantity_row, from_=1, to=99, width=5, justify="center",
+        self.quantity = tk.Spinbox(
+            quantity_row, from_=1, to=STOCK_MAX_ORDER_QUANTITY, width=9, justify="center",
                                    font=(UI_FONT_FAMILY, 11, "bold"), command=self.refresh)
         self.quantity.pack(side="left", padx=(8, 10), ipady=2)
         self.quantity.bind("<KeyRelease>", lambda _event: self.refresh())
@@ -2652,7 +2654,7 @@ class StockOverlay:
 
     def set_selected_quantity(self, quantity):
         self.quantity.delete(0, "end")
-        self.quantity.insert(0, str(min(99, max(1, quantity))))
+        self.quantity.insert(0, str(min(STOCK_MAX_ORDER_QUANTITY, max(1, quantity))))
         self.refresh_toss()
 
     def set_trade_mode(self, buying):
@@ -2723,12 +2725,13 @@ class StockOverlay:
         self.trade_toast_after = self.window.after(2800, self.trade_toast.place_forget)
 
     def set_maximum_quantity(self):
-        affordable = self.app.coins // max(1, self.app.stock_buy_cost(self.selected_index))
-        self.set_selected_quantity(max(1, min(99, max(affordable, self.app.stock_shares[self.selected_index]))))
+        maximum = (self.app.stock_maximum_buy_quantity(self.selected_index) if self.buying
+                   else self.app.stock_maximum_sell_quantity(self.selected_index))
+        self.set_selected_quantity(max(1, maximum))
 
     def selected_quantity_toss(self):
         try:
-            return min(99, max(1, int(self.quantity.get())))
+            return min(STOCK_MAX_ORDER_QUANTITY, max(1, int(self.quantity.get())))
         except (ValueError, tk.TclError):
             return 1
 
@@ -2886,7 +2889,7 @@ class StockOverlay:
                           else self.app.stock_sell_proceeds(index)) * quantity
                 fee = abs(amount - gross)
                 if self.buying:
-                    maximum = min(99, self.app.coins // max(1, self.app.stock_buy_cost(index)))
+                    maximum = self.app.stock_maximum_buy_quantity(index)
                     self.order_summary.configure(text=(
                         "주문금액 %s  ·  수수료 %s\n주문 후 현금 %s  ·  이번 주문 최대 %d주" % (
                             format_won(amount), format_won(fee),
@@ -2899,8 +2902,9 @@ class StockOverlay:
                 else:
                     shares = self.app.stock_shares[index]
                     self.order_summary.configure(text=(
-                        "예상 수령액 %s  ·  수수료 %s\n현재 보유 %d주  ·  매도 후 %d주" % (
-                            format_won(amount), format_won(fee), shares, max(0, shares - quantity))))
+                        "예상 수령액 %s  ·  수수료 %s\n현재 보유 %d주  ·  매도 후 %d주  ·  최대 %d주" % (
+                            format_won(amount), format_won(fee), shares,
+                            max(0, shares - quantity), self.app.stock_maximum_sell_quantity(index))))
                     enough = shares >= quantity
                     self.action.configure(
                         text=("%d주 매도하기\n%s" % (quantity, format_won(amount)))
@@ -3206,6 +3210,14 @@ class App:
 
     def stock_buy_cost(self, index):
         return self.stock_prices[index] + self.stock_fee(self.stock_prices[index])
+
+    def stock_maximum_buy_quantity(self, index):
+        affordable = self.coins // max(1, self.stock_buy_cost(index))
+        remaining_capacity = max(0, STOCK_MAX_ORDER_QUANTITY - self.stock_shares[index])
+        return max(0, min(affordable, remaining_capacity))
+
+    def stock_maximum_sell_quantity(self, index):
+        return max(0, self.stock_shares[index])
 
     def stock_sell_proceeds(self, index):
         return max(0, self.stock_prices[index] - self.stock_fee(self.stock_prices[index]))

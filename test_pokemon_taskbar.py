@@ -935,6 +935,16 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.stock_portfolio_value(), 1960)
         self.assertAlmostEqual(self.app.stock_portfolio_change_percent(), 1960 * 100.0 / 1800 - 100.0)
 
+    def test_stock_maximum_order_quantities_are_not_limited_to_ninety_nine(self):
+        unit_cost = self.app.stock_buy_cost(0)
+        self.app.coins = unit_cost * 250
+        self.assertEqual(self.app.stock_maximum_buy_quantity(0), 250)
+        self.app.buy_stock(0, 250)
+        self.assertEqual(self.app.stock_shares[0], 250)
+        self.assertEqual(self.app.stock_maximum_sell_quantity(0), 250)
+        self.app.sell_stock(0, 250)
+        self.assertEqual(self.app.stock_shares[0], 0)
+
     def test_stock_position_text_shows_shares_value_and_profit(self):
         self.app.stock_prices[0] = 1000
         self.app.stock_shares[0] = 3
@@ -1039,6 +1049,14 @@ class EvolutionTest(unittest.TestCase):
         self.assertIsNotNone(overlay)
         self.assertTrue(overlay.window.winfo_exists())
         self.assertTrue(overlay.detail_graph.find_all(), "선택 종목 그래프가 그려지지 않습니다")
+        self.app.coins = self.app.stock_buy_cost(0) * 175
+        overlay.set_trade_mode(True)
+        overlay.set_maximum_quantity()
+        self.assertEqual(overlay.selected_quantity_toss(), 175)
+        self.app.stock_shares[0] = 230
+        overlay.set_trade_mode(False)
+        overlay.set_maximum_quantity()
+        self.assertEqual(overlay.selected_quantity_toss(), 230)
         overlay.list_rows[0][0].focus_set()
         overlay.select_stock(1, focus=False)
         self.app.root.update_idletasks()

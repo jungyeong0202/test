@@ -2774,9 +2774,9 @@ namespace PokemonTaskbar
             bool compact = workArea.Width < 840 || workArea.Height < 920;
             this.ClientSize = compact
                 ? new Size(Math.Max(420, workArea.Width - 20), Math.Max(420, workArea.Height - 20))
-                : new Size(820, 900);
+                : new Size(814, 894);
             this.AutoScroll = compact;
-            this.AutoScrollMinSize = new Size(814, 894);
+            this.AutoScrollMinSize = compact ? new Size(814, 894) : Size.Empty;
             this.StartPosition = FormStartPosition.CenterScreen;
             this.KeyPreview = true;
             this.KeyDown += delegate(object sender, KeyEventArgs e) {
@@ -3018,31 +3018,31 @@ namespace PokemonTaskbar
             quantityLabel.BackColor = MenuSoft;
             this.tossQuantity = new NumericUpDown();
             this.tossQuantity.Minimum = 1;
-            this.tossQuantity.Maximum = 99;
+            this.tossQuantity.Maximum = PetWorld.StockMaxOrderQuantity;
             this.tossQuantity.Value = 1;
             this.tossQuantity.Font = UiFonts.Create(11.0f, FontStyle.Bold);
             this.tossQuantity.TextAlign = HorizontalAlignment.Center;
             this.tossQuantity.BackColor = MenuPanel;
             this.tossQuantity.ForeColor = MenuInk;
             this.tossQuantity.Location = new Point(92, 57);
-            this.tossQuantity.Size = new Size(72, 27);
+            this.tossQuantity.Size = new Size(100, 27);
             this.tossQuantity.ValueChanged += delegate { this.RefreshTossMarket(); };
             this.tossQuantity.AccessibleName = "주문 수량";
-            this.tossQuantity.AccessibleDescription = "1주에서 99주까지 입력할 수 있습니다.";
+            this.tossQuantity.AccessibleDescription = "주문 가능한 수량을 직접 입력할 수 있습니다.";
             orderCard.Controls.Add(this.tossQuantity);
             int[] quickAmounts = { 1, 5, 10 };
             for (int i = 0; i < quickAmounts.Length; i++)
             {
                 int amount = quickAmounts[i];
                 Button quick = CreateQuickButton(amount.ToString());
-                quick.Location = new Point(176 + i * 46, 56);
+                quick.Location = new Point(204 + i * 46, 56);
                 quick.Size = new Size(42, 29);
                 quick.Click += delegate { this.SetTossQuantity(amount); };
                 orderCard.Controls.Add(quick);
             }
             Button maximum = CreateQuickButton("최대");
-            maximum.Location = new Point(320, 56);
-            maximum.Size = new Size(54, 29);
+            maximum.Location = new Point(346, 56);
+            maximum.Size = new Size(58, 29);
             maximum.Click += delegate { this.SetTossQuantity(this.MaximumTossQuantity()); };
             orderCard.Controls.Add(maximum);
             this.tossOrderSummary = TossLabel(orderCard, new Point(14, 91), new Size(462, 48),
@@ -3126,7 +3126,7 @@ namespace PokemonTaskbar
 
         private void SetTossQuantity(int quantity)
         {
-            this.tossQuantity.Value = Math.Min(99, Math.Max(1, quantity));
+            this.tossQuantity.Value = Math.Min(PetWorld.StockMaxOrderQuantity, Math.Max(1, quantity));
             this.RefreshTossMarket();
         }
 
@@ -3242,15 +3242,18 @@ namespace PokemonTaskbar
 
         private int MaximumTossQuantity()
         {
-            int affordable = this.world.Options.Coins / Math.Max(1, this.world.StockBuyCost(this.selectedStock));
-            return Math.Min(99, Math.Max(1, Math.Max(affordable, this.world.Options.StockShares[this.selectedStock])));
+            int maximum = this.tossBuying
+                ? this.world.StockMaximumBuyQuantity(this.selectedStock)
+                : this.world.StockMaximumSellQuantity(this.selectedStock);
+            return Math.Max(1, maximum);
         }
 
         private void TradeToss(bool buying)
         {
             int quantity = (int)this.tossQuantity.Value;
             int index = this.selectedStock;
-            int amount = (buying ? this.world.StockBuyCost(index) : this.world.StockSellProceeds(index)) * quantity;
+            long amount = (long)(buying ? this.world.StockBuyCost(index)
+                : this.world.StockSellProceeds(index)) * quantity;
             if (this.world.IsStockDelisted(index))
             {
                 this.ShowTossFeedback(false, "주문할 수 없습니다", "상장폐지된 종목입니다."); return;
@@ -3453,14 +3456,13 @@ namespace PokemonTaskbar
             }
             int quantity = (int)this.tossQuantity.Value;
             this.tossQuantity.Enabled = true;
-            int gross = price * quantity;
-            int amount = (this.tossBuying ? this.world.StockBuyCost(index)
+            long gross = (long)price * quantity;
+            long amount = (long)(this.tossBuying ? this.world.StockBuyCost(index)
                 : this.world.StockSellProceeds(index)) * quantity;
-            int fee = Math.Abs(amount - gross);
+            long fee = Math.Abs(amount - gross);
             if (this.tossBuying)
             {
-                int maximum = Math.Min(99,
-                    this.world.Options.Coins / Math.Max(1, this.world.StockBuyCost(index)));
+                int maximum = this.world.StockMaximumBuyQuantity(index);
                 this.tossOrderSummary.Text = "주문금액 " + PetWorld.FormatWon(amount)
                     + "  ·  수수료 " + PetWorld.FormatWon(fee)
                     + "\r\n주문 후 현금 " + PetWorld.FormatWon(Math.Max(0, this.world.Options.Coins - amount))
@@ -3476,7 +3478,8 @@ namespace PokemonTaskbar
                 int shares = this.world.Options.StockShares[index];
                 this.tossOrderSummary.Text = "예상 수령액 " + PetWorld.FormatWon(amount)
                     + "  ·  수수료 " + PetWorld.FormatWon(fee)
-                    + "\r\n현재 보유 " + shares + "주  ·  매도 후 " + Math.Max(0, shares - quantity) + "주";
+                    + "\r\n현재 보유 " + shares + "주  ·  매도 후 " + Math.Max(0, shares - quantity)
+                    + "주  ·  최대 " + this.world.StockMaximumSellQuantity(index) + "주";
                 bool enough = shares >= quantity;
                 this.tossAction.Text = enough
                     ? quantity + "주 매도하기\r\n" + PetWorld.FormatWon(amount)
@@ -5086,6 +5089,7 @@ namespace PokemonTaskbar
         public const double StockFeeRate = 0.02;
         public const int StockHaltSeconds = 20;
         public const int StockSlotCount = 6;
+        public const int StockMaxOrderQuantity = int.MaxValue;
         public const int StockRelistSeconds = 30 * 60;
         public const int StockDelistPrice = 600;
         public const int StockCrisisPrice = 600;
@@ -5201,6 +5205,11 @@ namespace PokemonTaskbar
 
         /// <summary>게임 안의 돈을 천 단위 쉼표가 있는 원 단위로 표시한다.</summary>
         public static string FormatWon(int amount)
+        {
+            return FormatWon((long)amount);
+        }
+
+        public static string FormatWon(long amount)
         {
             return amount.ToString("N0", CultureInfo.InvariantCulture) + "원";
         }
@@ -5905,6 +5914,18 @@ namespace PokemonTaskbar
         {
             int price = this.Options.StockPrices[index];
             return price + (int)Math.Ceiling(price * StockFeeRate);
+        }
+
+        public int StockMaximumBuyQuantity(int index)
+        {
+            int affordable = this.Options.Coins / Math.Max(1, this.StockBuyCost(index));
+            int remainingCapacity = Math.Max(0, StockMaxOrderQuantity - this.Options.StockShares[index]);
+            return Math.Max(0, Math.Min(affordable, remainingCapacity));
+        }
+
+        public int StockMaximumSellQuantity(int index)
+        {
+            return Math.Max(0, this.Options.StockShares[index]);
         }
 
         public int StockSellProceeds(int index)

@@ -141,6 +141,84 @@ class SpriteQualityTest(unittest.TestCase):
                         "남았습니다 (상자가 다리를 가로지릅니다)"
                         % (pokemon.key, index, moved, stuck))
 
+    @staticmethod
+    def _feet(grid, reach=3):
+        """바닥에 닿아 있는 세로줄을 이어 붙여 발을 가려낸다.
+
+        아래 몇 줄을 통째로 보면 두 발이 하나로 뭉친다(다리가 위에서 이어지기
+        때문이다). 세로줄마다 '맨 아래 칠해진 줄' 을 재서, 그것이 그림의 바닥
+        가까이 있는 줄만 발로 본다. 발 사이의 빈틈은 바닥이 훨씬 위에 있거나
+        아예 없으므로 저절로 갈린다. 재는 폭을 넉넉히 잡으면 안 된다 —
+        피카츄는 두 발 사이 배가 바닥에서 서너 줄밖에 안 떨어져 있어서
+        두 발이 하나로 뭉친다.
+        """
+        height = len(grid)
+        width = len(grid[0])
+        floors = []
+        for x in range(width):
+            floor = -1
+            for y in range(height - 1, -1, -1):
+                if grid[y][x] is not None:
+                    floor = y
+                    break
+            floors.append(floor)
+        bottom = max(floors)
+        if bottom < 0:
+            return []
+        feet = []
+        start = None
+        for x in range(width + 1):
+            grounded = x < width and floors[x] >= bottom - reach
+            if grounded and start is None:
+                start = x
+            elif not grounded and start is not None:
+                feet.append((start, x - 1))
+                start = None
+        return feet
+
+    def test_every_foot_takes_a_step(self):
+        """발이 둘인데 하나만 움직이거나, 발 하나를 세로로 갈라 반쪽만
+        들어 올리면 걸음이 어색해진다. 라이츄에서 실제로 그랬다 — 상자 둘이
+        왼발 하나를 반으로 가르고 오른발은 건드리지도 않았다."""
+        for pokemon in sprites.POKEMON.values():
+            if pokemon.move != "walk":
+                continue
+            frames = pokemon.frames()
+            base = frames[0]
+            height = len(base)
+            grounded = [(left, right) for left, right in self._feet(base)
+                        if right - left + 1 >= 3]
+            stepped = 0
+            for left, right in grounded:
+                span = right - left + 1
+                best = 0
+                for index in range(1, len(frames)):
+                    moved = sum(
+                        1 for x in range(left, right + 1)
+                        if any(base[y][x] != frames[index][y][x] for y in range(height)))
+                    best = max(best, moved)
+                if best == 0:
+                    continue          # 바닥에 닿은 꼬리도 있다(리자몽). 안 움직여도 된다
+                stepped += 1
+                self.assertGreaterEqual(
+                    best, span * 7 // 10,
+                    "%s: x %d..%d 의 발이 %d칸 중 %d칸만 움직입니다 "
+                    "(상자가 발을 세로로 가릅니다)"
+                    % (pokemon.key, left, right, span, best))
+            # 번갈아 디디려면 바닥에 닿은 덩어리가 둘 이상 움직여야 한다.
+            # 라이츄는 상자 둘이 왼발 하나만 나눠 가져서 오른발이 내내
+            # 붙어 있었다.
+            #
+            # 발이 하나로만 잡히는 경우(이상해꽃처럼 앞발이 뒷발보다 높이
+            # 있는 그림)에는 판단할 수 없으므로 넘어간다. 잘못 잡느니
+            # 안 잡는 편이 낫다.
+            if len(grounded) >= 2:
+                self.assertGreaterEqual(
+                    stepped, 2,
+                    "%s: 바닥에 닿은 덩어리 %d개 중 %d개만 움직입니다. 발 하나로는 "
+                    "걷는 것으로 보이지 않습니다"
+                    % (pokemon.key, len(grounded), stepped))
+
     def test_walking_only_moves_the_lower_body(self):
         for pokemon in sprites.POKEMON.values():
             if pokemon.move != "walk":

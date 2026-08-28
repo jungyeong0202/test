@@ -75,6 +75,128 @@ class SpriteTest(unittest.TestCase):
             self.assertGreater(filled, 50, pokemon.key)
 
 
+class SpriteQualityTest(unittest.TestCase):
+    """손으로 두 번 겪은 두 가지 실수를 못박는다.
+
+    * 부위 상자가 다리 중간을 가로지르면, 윗다리만 올라가고 발끝은 바닥에
+      남는다. 구멍도 조각도 생기지 않아 다른 검사로는 안 잡힌다.
+    * 배경(흰색)이 그림 안으로 새어 들어오면 테두리에 흰 칸이 붙는다.
+      눈동자 흰자처럼 원래 흰 부분은 그림 안쪽에 있다.
+    """
+
+    @staticmethod
+    def _floor(grid, x):
+        for y in range(len(grid) - 1, -1, -1):
+            if grid[y][x] is not None:
+                return y
+        return -1
+
+    @staticmethod
+    def _pieces(grid):
+        from collections import deque
+
+        height = len(grid)
+        width = len(grid[0])
+        seen = [[False] * width for _ in range(height)]
+        count = 0
+        for sy in range(height):
+            for sx in range(width):
+                if grid[sy][sx] is None or seen[sy][sx]:
+                    continue
+                count += 1
+                queue = deque([(sx, sy)])
+                seen[sy][sx] = True
+                while queue:
+                    x, y = queue.popleft()
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                                   (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                        nx, ny = x + dx, y + dy
+                        if (0 <= nx < width and 0 <= ny < height
+                                and not seen[ny][nx] and grid[ny][nx] is not None):
+                            seen[ny][nx] = True
+                            queue.append((nx, ny))
+        return count
+
+    def test_lifting_a_foot_brings_the_toes_along(self):
+        for pokemon in sprites.POKEMON.values():
+            if pokemon.move != "walk":
+                continue          # 뛰기·떠다니기는 몸 전체가 변형된다
+            frames = pokemon.frames()
+            base = frames[0]
+            width = len(base[0])
+            for index in range(1, len(frames)):
+                grid = frames[index]
+                moved = stuck = 0
+                for x in range(width):
+                    if all(base[y][x] == grid[y][x] for y in range(len(base))):
+                        continue
+                    moved += 1
+                    if (self._floor(base, x) >= 0
+                            and self._floor(grid, x) == self._floor(base, x)):
+                        stuck += 1
+                if moved:
+                    self.assertLessEqual(
+                        stuck, moved // 2,
+                        "%s 걷기%d: 바뀐 세로줄 %d개 중 %d개에서 발끝이 바닥에 "
+                        "남았습니다 (상자가 다리를 가로지릅니다)"
+                        % (pokemon.key, index, moved, stuck))
+
+    def test_walking_only_moves_the_lower_body(self):
+        for pokemon in sprites.POKEMON.values():
+            if pokemon.move != "walk":
+                continue
+            frames = pokemon.frames()
+            base = frames[0]
+            height = len(base)
+            width = len(base[0])
+            for index in range(1, len(frames)):
+                rows = [y for y in range(height) for x in range(width)
+                        if base[y][x] != frames[index][y][x]]
+                if not rows:
+                    continue
+                share = (height - 1 - min(rows)) * 100 // height
+                self.assertLessEqual(
+                    share, 40,
+                    "%s 걷기%d: 아래에서 %d%% 지점까지 바뀝니다. 발이 아니라 "
+                    "몸이 움직이고 있습니다" % (pokemon.key, index, share))
+
+    def test_walking_does_not_tear_the_body(self):
+        for pokemon in sprites.POKEMON.values():
+            frames = pokemon.frames()
+            base = self._pieces(frames[0])
+            for index in range(1, len(frames)):
+                self.assertLessEqual(
+                    self._pieces(frames[index]), base,
+                    "%s 프레임%d: 몸에서 조각이 떨어졌습니다"
+                    % (pokemon.key, index))
+
+    def test_background_did_not_leak_into_the_edge(self):
+        for pokemon in sprites.POKEMON.values():
+            white = [char for char, value in pokemon.palette.items()
+                     if int(value[1:3], 16) > 235 and int(value[3:5], 16) > 235
+                     and int(value[5:7], 16) > 235]
+            if not white:
+                continue
+            rows = pokemon.frame_rows[0]
+            width = max(len(row) for row in rows)
+            grid = [row.ljust(width, ".") for row in rows]
+            touching = 0
+            for y in range(len(grid)):
+                for x in range(width):
+                    if grid[y][x] not in white:
+                        continue
+                    for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        ny, nx = y + dy, x + dx
+                        if (not (0 <= ny < len(grid) and 0 <= nx < width)
+                                or grid[ny][nx] == "."):
+                            touching += 1
+                            break
+            self.assertEqual(
+                touching, 0,
+                "%s: 흰 칸 %d개가 그림 테두리에 닿아 있습니다 (배경이 새어 "
+                "들어왔을 수 있습니다)" % (pokemon.key, touching))
+
+
 class CellSizeTest(unittest.TestCase):
     """그림에서 도트 격자를 알아내는 부분.
 

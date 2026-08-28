@@ -298,18 +298,25 @@ GIF 도 그대로 넣을 수 있습니다. 여러 장이 들어 있으면 `--fra
 빼면 첫 장을 씁니다. 투명한 배경은 흰 종이 위에 올려서 읽으므로 따로 지우지
 않아도 됩니다.
 
+`--native` 는 **원본이 이미 도트 해상도**(한 픽셀 = 한 칸)라는 뜻입니다. 격자를
+재지 않고 크기를 그림에서 그대로 가져오므로 `--grid`/`--rows` 를 손으로 셀
+필요가 없습니다. 받은 GIF 들이 모두 그렇습니다.
+
 피카츄는 `assets/images/pikachu-f.gif`(51x46, 112장)에서 이렇게 들여왔습니다.
 
 ```bash
 python3 tools/import_sprite.py assets/images/pikachu-f.gif \
-    --key pikachu --name 피카츄 --colors 14 --facing left \
-    --grid 40 --rows 46 \
-    --part lfoot:0,39,11,45 --part rfoot:13,39,23,45 \
+    --key pikachu --name 피카츄 --colors 14 --facing left --native \
+    --idle-frames "$(서로 다른 장 번호들)" \
+    --part lfoot:5,39,16,45 --part rfoot:18,39,28,45 \
     --motion "lfoot:0,0;0,-2;0,0;0,0" \
     --motion "rfoot:0,0;0,0;0,0;0,-2" \
-    --eyes 3,13,7,17 --eyes 13,11,17,16 \
     --pose-squash 1 --preview 확인용.png
 ```
+
+**격자는 쓸 장을 모두 합친 상자로 잡습니다.** 0번 장만 보고 잡으면, 다른 장에서
+꼬리가 더 뻗거나 넝쿨이 더 올라갈 때 그만큼 잘립니다 — 피카츄의 꼬리와 이상해씨의
+넝쿨 끝이 실제로 잘려 있었습니다. `--idle-frames` 를 주면 합친 상자를 알려 줍니다.
 
 이상해씨는 `assets/images/bulbasaur.gif`(37x38, 99장)에서 이렇게 들여왔습니다.
 원본이 이미 도트 해상도라 격자를 자동으로 재게 두지 않고 `--grid`/`--rows` 로
@@ -511,13 +518,13 @@ exe 를 새로 받아도 이전 것이 그대로 도는 경우가 있습니다. 
 `--list` 는 이렇게 나옵니다. 크기와 프레임 수가 아래와 다르면 예전 빌드입니다.
 
 ```
-pikachu       피카츄    41x47  4프레임  정면을 보는 그림
-charmander    파이리    40x44  4프레임  왼쪽 보는 그림
-bulbasaur     이상해씨  36x34  4프레임  왼쪽 보는 그림
-squirtle      꼬부기    40x41  4프레임  왼쪽 보는 그림
-ditto         메타몽    39x32  3프레임  왼쪽 보는 그림
-mew           뮤        52x44  4프레임  왼쪽 보는 그림
-wartortle     어니부기  58x60  4프레임  왼쪽 보는 그림
+pikachu       피카츄    51x47  4프레임  대기 60장
+charmander    파이리    42x43  4프레임  대기 54장
+bulbasaur     이상해씨  37x39  4프레임  대기 50장
+squirtle      꼬부기    39x44  4프레임  대기 33장
+ditto         메타몽    39x32  3프레임  (아직 예전 그림)
+mew           뮤        52x44  4프레임  (아직 예전 그림)
+wartortle     어니부기  61x58  4프레임  대기 44장
 ```
 
 `csharp\run.bat` 으로 직접 빌드해 쓰신다면 소스가 최신인지 확인하세요 (`git pull`).

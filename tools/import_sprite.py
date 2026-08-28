@@ -793,6 +793,9 @@ def main():
                         help="여러 장이 든 파일(GIF)에서 쓸 장 번호 (기본 0)")
     parser.add_argument("--idle-frames", default="", metavar="0,12,24",
                         help="가만히 있을 때 돌려 보여 줄 장 번호들 (GIF)")
+    parser.add_argument("--native", action="store_true",
+                        help="원본이 이미 도트 해상도다(한 픽셀 = 한 칸). "
+                             "격자를 재지 않고 크기를 그림에서 그대로 가져온다")
     parser.add_argument("--preview", default="", help="확인용 png 경로")
     parser.add_argument("--dry-run", action="store_true", help="파일을 고치지 않는다")
     args = parser.parse_args()
@@ -803,18 +806,41 @@ def main():
     def is_background(color):
         return color[0] > 235 and color[1] > 235 and color[2] > 235
 
+    idle_numbers = [int(n) for n in args.idle_frames.split(",") if n.strip() != ""] \
+        if args.idle_frames else []
+
+    # 격자를 0번 장만 보고 잡으면 안 된다. 다른 장에서 꼬리가 더 뻗거나 넝쿨이
+    # 더 올라가면 그만큼 격자 밖으로 나가 잘린다(피카츄는 꼬리가, 이상해씨는
+    # 넝쿨 끝이 실제로 잘렸다). 쓸 장을 모두 합친 상자로 잡는다.
     box = content_box(image, is_background)
+    for number in idle_numbers:
+        other = content_box(flatten(read_rgba(args.image, number, quiet=True)),
+                            is_background)
+        box = (min(box[0], other[0]), min(box[1], other[1]),
+               max(box[2], other[2]), max(box[3], other[3]))
     x0, y0, x1, y1 = box
-    if args.grid:
-        cell = (x1 - x0 + 1) / args.grid
+    if idle_numbers:
+        print("쓸 장을 모두 합친 상자: %s (%d x %d 픽셀)"
+              % (box, x1 - x0 + 1, y1 - y0 + 1))
+
+    if args.native:
+        # 원본이 이미 도트 해상도다. 한 픽셀이 한 칸이므로 재 볼 필요가 없다.
+        cell = 1.0
+        start_x, start_y = x0, y0
+        columns, rows = x1 - x0 + 1, y1 - y0 + 1
     else:
-        cell = refine_cell(image, box, guess_cell_size(image, box, is_background))
-    start_x, start_y, columns, rows = align_lattice(image, box, cell)
-    if args.grid:
-        columns = args.grid
-    if args.rows:
-        rows = args.rows
+        if args.grid:
+            cell = (x1 - x0 + 1) / args.grid
+        else:
+            cell = refine_cell(image, box, guess_cell_size(image, box, is_background))
+        start_x, start_y, columns, rows = align_lattice(image, box, cell)
+        if args.grid:
+            columns = args.grid
+        if args.rows:
+            rows = args.rows
     print("도트 격자: %d x %d 칸 (칸 크기 %.2f)" % (columns, rows, cell))
+
+    hole_total = [0]
 
     def read_cells(rgba, label):
         """한 장을 같은 격자로 읽어 (대표색, 비었는지) 를 돌려준다."""
@@ -830,18 +856,17 @@ def main():
                 if transparent[gy][gx] < 128 and not empty[gy][gx]:
                     empty[gy][gx] = True
                     holes += 1
-        if holes:
-            print("%s: 그림 안쪽의 투명한 칸 %d 개를 비웠다." % (label, holes))
+        hole_total[0] += holes
         return one, empty
 
     grid, outside = read_cells(source, "기본")
 
     # 가만히 있을 때 돌릴 장들도 같은 격자로 읽는다. 격자와 자르는 상자를 함께
     # 써야 장끼리 어긋나지 않는다.
-    idle_numbers = [int(n) for n in args.idle_frames.split(",") if n.strip() != ""] \
-        if args.idle_frames else []
     idle_reads = [read_cells(read_rgba(args.image, n, quiet=True), "%d번" % n)
                   for n in idle_numbers]
+    if hole_total[0]:
+        print("그림 안쪽의 투명한 칸 %d 개를 비웠다." % hole_total[0])
 
     inside_colors = []
     for one, empty in [(grid, outside)] + idle_reads:

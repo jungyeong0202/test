@@ -2822,7 +2822,6 @@ namespace PokemonTaskbar
         private Label tossCashValue;
         private Label tossPortfolioValue;
         private Label tossPortfolioProfit;
-        private Label tossPortfolioPercent;
         private Label tossDetailName;
         private Label tossDetailPrice;
         private Label tossDetailChange;
@@ -2967,23 +2966,20 @@ namespace PokemonTaskbar
             this.tossPortfolioValue.Size = new Size(190, 34);
             this.tossPortfolioValue.AccessibleName = "주식 평가액";
             portfolio.Controls.Add(this.tossPortfolioValue);
-            this.tossPortfolioProfit = TossLabel(portfolio, new Point(206, 33), new Size(92, 25),
+            this.tossPortfolioProfit = TossLabel(portfolio, new Point(206, 33), new Size(190, 25),
                 ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
-            this.tossPortfolioProfit.AccessibleName = "주식 평가 손익 금액";
-            this.tossPortfolioPercent = TossLabel(portfolio, new Point(298, 33), new Size(72, 25),
-                ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
-            this.tossPortfolioPercent.AccessibleName = "주식 평가 수익률";
-            Label cashCaption = TossLabel(portfolio, new Point(400, 8), new Size(140, 20),
+            this.tossPortfolioProfit.AccessibleName = "주식 평가 손익";
+            Label cashCaption = TossLabel(portfolio, new Point(406, 8), new Size(130, 20),
                 ContentAlignment.MiddleLeft, 9.5f, FontStyle.Regular);
             cashCaption.Text = "보유 현금"; cashCaption.ForeColor = MenuMuted;
-            this.tossCashValue = TossLabel(portfolio, new Point(400, 29), new Size(140, 29),
+            this.tossCashValue = TossLabel(portfolio, new Point(406, 29), new Size(130, 29),
                 ContentAlignment.MiddleLeft, 12.0f, FontStyle.Bold);
             this.tossCashValue.AccessibleName = "보유 현금";
-            Label portfolioTitle = TossLabel(portfolio, new Point(560, 8), new Size(208, 20),
+            Label portfolioTitle = TossLabel(portfolio, new Point(546, 8), new Size(214, 20),
                 ContentAlignment.MiddleLeft, 9.5f, FontStyle.Regular);
             portfolioTitle.Text = "투자 원금";
             portfolioTitle.ForeColor = MenuMuted;
-            this.balance = TossLabel(portfolio, new Point(560, 29), new Size(208, 29),
+            this.balance = TossLabel(portfolio, new Point(546, 29), new Size(214, 29),
                 ContentAlignment.MiddleLeft, 12.0f, FontStyle.Bold);
             this.balance.AccessibleName = "투자 원금";
             this.notice = new Label();
@@ -3425,6 +3421,17 @@ namespace PokemonTaskbar
                 .Replace("\r", " ").Replace("\n", " ");
         }
 
+        /// <summary>손익 금액과 수익률을 한 덩어리로 적는다.
+        ///
+        /// 둘은 늘 같은 색이고 같은 이야기를 하므로 붙여 둔다. 나눠 놓으면 금액
+        /// 길이에 따라 수익률이 멀찍이 떨어져 보인다.
+        /// </summary>
+        internal static string PortfolioChangeText(int profit, double percent)
+        {
+            return PetWorld.FormatSignedWon(profit)
+                + string.Format(" ({0:+0.0;-0.0;0.0}%)", percent);
+        }
+
         private static Color PercentColor(double value)
         {
             if (value > 0.0) return MenuRise;
@@ -3441,10 +3448,26 @@ namespace PokemonTaskbar
             this.balance.Text = PetWorld.FormatWon(this.world.StockPortfolioCostBasis());
             this.tossCashValue.Text = PetWorld.FormatWon(this.world.Options.Coins);
             this.tossPortfolioValue.Text = PetWorld.FormatWon(portfolio);
-            this.tossPortfolioProfit.Text = PetWorld.FormatSignedWon(portfolioProfit);
+            this.tossPortfolioProfit.Text = PortfolioChangeText(portfolioProfit, portfolioPercent);
             this.tossPortfolioProfit.ForeColor = PercentColor(portfolioPercent);
-            this.tossPortfolioPercent.Text = string.Format("{0:+0.0;-0.0;0.0}%", portfolioPercent);
-            this.tossPortfolioPercent.ForeColor = PercentColor(portfolioPercent);
+            // 평가액 글자 폭을 재서 손익을 바로 옆에 붙인다. 자리를 고정해 두면
+            // 금액이 짧을 때 멀찍이 떨어져 보인다.
+            int valueWidth = Math.Min(190, TextRenderer.MeasureText(
+                this.tossPortfolioValue.Text, this.tossPortfolioValue.Font).Width);
+            int nextTo = this.tossPortfolioValue.Left + valueWidth + 10;
+            if (this.tossPortfolioProfit.Left != nextTo)
+            {
+                // 평가액 라벨은 배경이 불투명해서, 폭이 글자보다 넓으면 옆에 붙인
+                // 손익을 덮어 버린다. 글자 폭에 맞춰 줄인 뒤 옆에 놓는다.
+                // 라벨을 옮기면 있던 자리가 그대로 남기도 하므로 부모를 다시 그린다.
+                this.tossPortfolioValue.Width = valueWidth + 4;
+                this.tossPortfolioProfit.Left = nextTo;
+                this.tossPortfolioProfit.Width = Math.Max(120, 396 - nextTo);
+                if (this.tossPortfolioProfit.Parent != null)
+                {
+                    this.tossPortfolioProfit.Parent.Invalidate();
+                }
+            }
             this.notice.Text = this.world.MarketMoverSummary;
             int ownedCount = 0;
             for (int i = 0; i < PetWorld.StockSlotCount; i++)

@@ -155,6 +155,7 @@ namespace PokemonTaskbar.Tests
                 Effects();
                 Poses();
                 Economy();
+                StockText();
                 Lifecycle();
                 Evolution();
             }
@@ -645,6 +646,23 @@ namespace PokemonTaskbar.Tests
                 app.TogglePause();
                 Check.That(!app.Paused, "다시 누르면 풀린다");
             }
+        }
+
+        // --- 주식창 표시 ------------------------------------------------------
+
+        private static void StockText()
+        {
+            Check.Section("주식창 표시");
+
+            // 수익률은 손익 금액 바로 옆에, 괄호 안에 적는다.
+            Check.Equal(StockOverlayForm.PortfolioChangeText(330, 1.9),
+                "+330원 (+1.9%)", "이익일 때");
+            Check.Equal(StockOverlayForm.PortfolioChangeText(-1200, -4.25),
+                "-1,200원 (-4.3%)", "손실일 때");
+            Check.Equal(StockOverlayForm.PortfolioChangeText(0, 0.0),
+                "0원 (0.0%)", "변동이 없을 때");
+            Check.That(StockOverlayForm.PortfolioChangeText(330, 1.9).EndsWith(")"),
+                "수익률이 괄호로 닫힌다");
         }
 
         // --- 뒷정리 -----------------------------------------------------------

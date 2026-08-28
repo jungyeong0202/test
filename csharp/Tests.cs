@@ -157,6 +157,7 @@ namespace PokemonTaskbar.Tests
                 Economy();
                 StockText();
                 StockNews();
+                StockSpecialEvents();
                 Lifecycle();
                 Evolution();
             }
@@ -789,6 +790,77 @@ namespace PokemonTaskbar.Tests
                 }
             }
             Check.That(quiet, "국면이 그대로면 전환을 알리지 않는다");
+
+            // 국면 알림은 한 시간에 열일곱 번쯤 나온다. 문구가 하나뿐이면 소식창에서
+            // 가장 자주 보이는 줄이 된다.
+            bool manyLines = true;
+            bool named = true;
+            for (int regime = 0; regime < PetWorld.RegimeNamesForTest.Length; regime++)
+            {
+                string[] lines = PetWorld.RegimeNewsForTest(regime);
+                if (lines.Length < 3)
+                {
+                    manyLines = false;
+                }
+                foreach (string line in lines)
+                {
+                    if (line.IndexOf(PetWorld.RegimeNamesForTest[regime]) >= 0)
+                    {
+                        // 문구 안에 국면 이름이 또 들어가면 "상승장 · 상승장" 이 된다
+                        named = false;
+                    }
+                }
+            }
+            Check.That(manyLines, "국면마다 알림 문구가 셋 이상 있다");
+            Check.That(named, "알림 문구에 국면 이름이 겹쳐 들어가지 않는다");
+
+            Check.That(PetWorld.RumourTextsForTest.Length >= 10,
+                "루머 문구가 열 개 이상이다");
+
+            world.Dispose();
+        }
+
+        // --- 주식 특별 사건 ---------------------------------------------------
+
+        private static void StockSpecialEvents()
+        {
+            Check.Section("주식 특별 사건");
+
+            TestWorld world = World("-p", "pikachu");
+            PetWorld app = world.World;
+
+            // 액면분할: 값이 반, 주식이 두 배. 재산은 그대로여야 한다.
+            app.Options.StockPrices[0] = 8000;
+            app.Options.StockShares[0] = 7;
+            app.Options.StockAveragePrices[0] = 6000;
+            long before = (long)app.Options.StockPrices[0] * app.Options.StockShares[0];
+            string said = app.SplitStock(0);
+            long after = (long)app.Options.StockPrices[0] * app.Options.StockShares[0];
+            Check.Equal(app.Options.StockPrices[0], 4000, "액면분할하면 값이 반이 된다");
+            Check.Equal(app.Options.StockShares[0], 14, "액면분할하면 주식이 두 배가 된다");
+            Check.Equal(app.Options.StockAveragePrices[0], 3000, "평균 단가도 반이 된다");
+            Check.Equal((int)after, (int)before, "액면분할로 재산이 늘거나 줄지 않는다");
+            Check.That(said.IndexOf("액면분할") >= 0, "액면분할을 알린다");
+
+            // 값이 싼 종목을 나누면 그대로 상장폐지선에 닿는다.
+            Check.That(PetWorld.StockSplitLeastPrice / 2 > PetWorld.StockDelistPrice,
+                "나눌 수 있는 값은 반이 되어도 상장폐지선 위에 있다");
+
+            // 투자경고: 값은 그대로, 흔들림만 커진다.
+            int plain = app.StockVolatilityForTest(1);
+            int price = app.Options.StockPrices[1];
+            app.AlertStock(1, 2);
+            Check.That(app.IsStockAlerted(1), "투자경고 종목이 된다");
+            Check.Equal(app.Options.StockPrices[1], price, "투자경고는 값을 건드리지 않는다");
+            Check.That(app.StockVolatilityForTest(1) > plain, "투자경고 동안 더 흔들린다");
+
+            // 2분이면 시장 갱신 열두 번이다. 그 뒤에는 풀려 있어야 한다.
+            for (int i = 0; i < 12; i++)
+            {
+                app.TickStockAlertsForTest();
+            }
+            Check.That(!app.IsStockAlerted(1), "시간이 지나면 투자경고가 풀린다");
+            Check.Equal(app.StockVolatilityForTest(1), plain, "풀리면 흔들림도 돌아온다");
 
             world.Dispose();
         }

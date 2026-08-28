@@ -5212,6 +5212,8 @@ namespace PokemonTaskbar
         public const double MarketEventChance = 0.08;
         // 예고해 두고 나중에 결판나는 사건(루머·실적 발표).
         public const double PendingEventChance = 0.10;
+        public const double SpecialEventChance = 0.04;
+        public const int StockSplitLeastPrice = 2500;
         public const double MarketTickScale = 0.70;
         public const double StockFeeRate = 0.02;
         public const int StockHaltSeconds = 20;
@@ -5329,6 +5331,10 @@ namespace PokemonTaskbar
             new MarketNews("풍년 예보 · 물가 안정", 3, 9),
             new MarketNews("대형 축제 개최", 4, 12),
             new MarketNews("무역 협정 타결", 6, 14),
+            new MarketNews("체육관 관장 순회 경기 특수", 5, 12),
+            new MarketNews("신규 도로 개통 · 물류 개선", 4, 10),
+            new MarketNews("포켓몬 도감 개정판 발간", 3, 8),
+            new MarketNews("해외 자본 유입", 8, 17),
         };
         private static readonly MarketNews[] WholeMarketBad = {
             new MarketNews("지진 발생 · 시설 피해", -15, -6),
@@ -5337,27 +5343,35 @@ namespace PokemonTaskbar
             new MarketNews("전염병 유행 · 외출 자제", -18, -8),
             new MarketNews("대규모 정전", -14, -6),
             new MarketNews("환율 급등 · 수입 물가 상승", -13, -5),
+            new MarketNews("태풍 북상 · 물류 마비", -15, -6),
+            new MarketNews("대형 회계 부정 적발", -17, -7),
+            new MarketNews("야생 포켓몬 대량 출현 · 외출 통제", -13, -5),
+            new MarketNews("연료 수급 차질", -14, -6),
         };
         private static readonly MarketNews[][] SectorGood = {
             new MarketNews[] {                      // 에너지
                 new MarketNews("전력 수요 급증", 10, 22),
                 new MarketNews("발전 단가 하락", 8, 18),
                 new MarketNews("신규 발전소 승인", 12, 25),
+                new MarketNews("송전망 국책 사업 선정", 11, 24),
             },
             new MarketNews[] {                      // 생활
                 new MarketNews("건강 열풍", 9, 19),
                 new MarketNews("수확 호조", 8, 17),
                 new MarketNews("신제품 완판", 11, 23),
+                new MarketNews("대형 유통사 입점", 10, 20),
             },
             new MarketNews[] {                      // 기술
                 new MarketNews("신기술 표준 채택", 13, 28),
                 new MarketNews("대형 투자 유치", 12, 26),
                 new MarketNews("특허 분쟁 승소", 10, 21),
+                new MarketNews("정부 연구비 지원 확정", 11, 24),
             },
             new MarketNews[] {                      // 유통
                 new MarketNews("물동량 사상 최대", 10, 20),
                 new MarketNews("신규 노선 개설", 9, 19),
                 new MarketNews("유가 하락 · 운송비 절감", 8, 17),
+                new MarketNews("대형 화주 장기 계약", 11, 22),
             },
         };
         private static readonly MarketNews[][] SectorBad = {
@@ -5365,26 +5379,54 @@ namespace PokemonTaskbar
                 new MarketNews("송전망 사고", -21, -9),
                 new MarketNews("연료비 급등", -19, -8),
                 new MarketNews("발전 설비 점검 명령", -16, -7),
+                new MarketNews("전기 요금 동결 결정", -17, -7),
             },
             new MarketNews[] {                      // 생활
                 new MarketNews("원재료 값 급등", -18, -8),
                 new MarketNews("위생 규제 강화", -16, -7),
                 new MarketNews("작황 부진", -20, -9),
+                new MarketNews("불매 운동 확산", -19, -8),
             },
             new MarketNews[] {                      // 기술
                 new MarketNews("보안 사고", -26, -11),
                 new MarketNews("규제 심사 착수", -24, -10),
                 new MarketNews("핵심 인력 이탈", -20, -9),
+                new MarketNews("기술 유출 수사", -23, -10),
             },
             new MarketNews[] {                      // 유통
                 new MarketNews("항만 파업", -19, -8),
                 new MarketNews("운임 급락", -18, -8),
                 new MarketNews("폭풍 · 항로 폐쇄", -21, -9),
+                new MarketNews("배송 사고 집단 소송", -20, -9),
             },
         };
 
         private static readonly string[] MarketRegimeNames = {
             "횡보장", "상승장", "하락장", "과열장", "공포장"
+        };
+
+        /// <summary>국면이 바뀔 때 알릴 문구. 국면마다 여럿을 두고 돌려쓴다.
+        ///
+        /// 국면은 한 시간에 열일곱 번쯤 바뀌는데 문구가 "시장 국면 전환: 상승장"
+        /// 하나뿐이라, 소식창에서 가장 자주 보이는 줄이 되어 버렸다. 국면이 자주
+        /// 바뀌는 것 자체는 시세를 만드는 뼈대라 그대로 두고, 말만 바꾼다.
+        /// </summary>
+        private static readonly string[][] MarketRegimeNews = {
+            new string[] {                          // 횡보장
+                "방향을 잃었습니다", "거래가 한산합니다", "박스권에 갇혔습니다",
+            },
+            new string[] {                          // 상승장
+                "매수세가 붙습니다", "지수가 고개를 듭니다", "낙관론이 퍼집니다",
+            },
+            new string[] {                          // 하락장
+                "매도세가 이어집니다", "지수가 밀립니다", "관망세가 짙어집니다",
+            },
+            new string[] {                          // 과열장
+                "너도나도 뛰어듭니다", "과열 경보", "거래량 폭증",
+            },
+            new string[] {                          // 공포장
+                "투매가 나옵니다", "공포 지수 급등", "바닥이 보이지 않습니다",
+            },
         };
         private static readonly double[] MarketRegimeDrifts = { 0.0, 2.0, -2.0, 4.0, -4.0 };
         private static readonly int[] MarketRegimeWeights = { 3, 2, 2, 1, 1 };
@@ -5497,6 +5539,9 @@ namespace PokemonTaskbar
         private int marketRegime;
         private int marketRegimeUpdates = 6;
         private int stockEventCount;
+        // 투자경고로 남은 시장 갱신 횟수. 설정에 남기지 않는다 — 프로그램을 껐다
+        // 켜면 풀린 것으로 본다.
+        private readonly int[] stockAlertTicks = new int[StockSlotCount];
         private int marketSecondsLeft = MarketUpdateMilliseconds / 1000;
         private bool marketOpen = true;
         private int marketSessionSecondsLeft = MarketOpenSeconds;
@@ -5867,6 +5912,7 @@ namespace PokemonTaskbar
             }
             this.stockEvent = "";
             this.UpdateMarketRegime();
+            this.TickStockAlerts();
             List<int> active = new List<int>();
             for (int i = 0; i < StockSlotCount; i++)
             {
@@ -5886,6 +5932,10 @@ namespace PokemonTaskbar
             if (broadText.Length == 0)
             {
                 broadText = this.RollBroadEvent(active, broadPercent);
+            }
+            if (broadText.Length == 0)
+            {
+                broadText = this.RollSpecialEvent(active);
             }
             if (broadText.Length == 0)
             {
@@ -6115,7 +6165,9 @@ namespace PokemonTaskbar
             // "전환" 이라고 알리면 소식창이 바뀌지도 않은 국면 이야기로 가득 찬다.
             if (this.marketRegime != before)
             {
-                this.AnnounceStockEvent("시장 국면 전환: " + this.MarketRegimeLabel);
+                string[] lines = MarketRegimeNews[this.marketRegime];
+                this.AnnounceStockEvent(lines[this.Random.Next(lines.Length)]
+                    + " · " + this.MarketRegimeLabel);
             }
         }
 
@@ -6307,7 +6359,9 @@ namespace PokemonTaskbar
 
         private int StockVolatility(int index)
         {
-            return StockVolatilities[this.Options.StockListingIds[index] % StockVolatilities.Length];
+            int volatility =
+                StockVolatilities[this.Options.StockListingIds[index] % StockVolatilities.Length];
+            return this.stockAlertTicks[index] > 0 ? volatility * 2 : volatility;
         }
 
         private int StockPrimaryTraitId(int index)
@@ -6413,7 +6467,9 @@ namespace PokemonTaskbar
         }
 
         private static readonly string[] RumourTexts = {
-            "인수합병설", "대형 계약설", "신제품 유출설", "실적 개선설", "지분 매각설"
+            "인수합병설", "대형 계약설", "신제품 유출설", "실적 개선설", "지분 매각설",
+            "해외 진출설", "신규 상장 자회사설", "대주주 지분 확대설", "정부 과제 선정설",
+            "경쟁사 인수설", "공장 증설설", "유명 트레이너 광고 계약설",
         };
 
         /// <summary>결판날 때가 된 예고 사건을 처리한다. 없으면 빈 문자열.</summary>
@@ -6468,6 +6524,135 @@ namespace PokemonTaskbar
             broadPercent[index] = percent;
             return name + " 실적 " + (good ? "어닝 서프라이즈!" : "어닝 쇼크!") + "  "
                 + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", percent);
+        }
+
+        /// <summary>돈이나 보유 주식을 건드리는 사건을 굴린다.
+        ///
+        /// 다른 사건은 전부 "몇 % 움직였다" 로 끝난다. 소식이 아무리 많아도 하는
+        /// 일이 같으면 결국 같은 사건이다. 그래서 값이 아니라 지갑과 보유 주식을
+        /// 건드리는 것을 따로 둔다.
+        /// </summary>
+        private string RollSpecialEvent(List<int> active)
+        {
+            if (active.Count == 0 || this.Random.NextDouble() >= SpecialEventChance)
+            {
+                return "";
+            }
+            // 이미 투자경고가 걸린 종목은 빼고 고른다. 뽑아 놓고 접으면 사건이
+            // 그만큼 덜 나온다.
+            List<int> pickable = new List<int>();
+            foreach (int candidate in active)
+            {
+                if (this.stockAlertTicks[candidate] == 0
+                    || this.Options.StockPrices[candidate] >= StockSplitLeastPrice)
+                {
+                    pickable.Add(candidate);
+                }
+            }
+            if (pickable.Count == 0)
+            {
+                return "";
+            }
+            int index = pickable[this.Random.Next(pickable.Count)];
+            int price = this.Options.StockPrices[index];
+
+            // 값이 싼 종목이 반이 되면 그대로 상장폐지선에 닿으므로 비싼 것만 나눈다.
+            if (price >= StockSplitLeastPrice && this.Random.Next(2) == 0)
+            {
+                return this.SplitStock(index);
+            }
+            if (this.stockAlertTicks[index] > 0)
+            {
+                return "";                                  // 이미 지정돼 있다
+            }
+            return this.AlertStock(index, 2 + this.Random.Next(3));
+        }
+
+        /// <summary>액면분할. 값이 반이 되고 주식이 두 배가 된다. 재산은 그대로다.</summary>
+        internal string SplitStock(int index)
+        {
+            string name = this.StockName(index);
+            int shares = this.Options.StockShares[index];
+            this.Options.StockPrices[index] = this.Options.StockPrices[index] / 2;
+            this.Options.StockAveragePrices[index] =
+                this.Options.StockAveragePrices[index] / 2;
+            this.Options.StockShares[index] =
+                shares > int.MaxValue / 2 ? int.MaxValue : shares * 2;
+            // 차트도 같이 나눠야 반토막 절벽이 생기지 않는다.
+            for (int i = 0; i < this.stockHistory[index].Count; i++)
+            {
+                this.stockHistory[index][i] = this.stockHistory[index][i] / 2;
+            }
+            this.stockSessionOpeningPrices[index] =
+                this.stockSessionOpeningPrices[index] / 2;
+            this.SaveSettings();
+            return name + " 액면분할! 주식 수가 두 배가 되고 값은 반이 됩니다"
+                + (shares > 0
+                    ? "  (보유 " + shares + "주 → "
+                        + this.Options.StockShares[index] + "주)"
+                    : "");
+        }
+
+        /// <summary>투자경고 종목 지정. 값을 건드리지 않고 "앞으로 얼마나 흔들릴지"
+        /// 를 바꾼다. 지정된 동안에는 오르내림이 두 배가 된다.</summary>
+        internal string AlertStock(int index, int minutes)
+        {
+            this.stockAlertTicks[index] =
+                minutes * 60 / (MarketUpdateMilliseconds / 1000);
+            return this.StockName(index) + " 투자경고 종목 지정! "
+                + minutes + "분 동안 크게 흔들립니다";
+        }
+
+        /// <summary>테스트용. 투자경고의 남은 시간을 한 번 줄인다.</summary>
+        internal void TickStockAlertsForTest()
+        {
+            this.TickStockAlerts();
+        }
+
+        /// <summary>테스트용. 종목의 지금 변동성.</summary>
+        internal int StockVolatilityForTest(int index)
+        {
+            return this.StockVolatility(index);
+        }
+
+        /// <summary>테스트용. 국면별 알림 문구.</summary>
+        internal static string[] RegimeNewsForTest(int regime)
+        {
+            return MarketRegimeNews[regime];
+        }
+
+        /// <summary>테스트용. 국면 이름.</summary>
+        internal static string[] RegimeNamesForTest
+        {
+            get { return MarketRegimeNames; }
+        }
+
+        /// <summary>테스트용. 루머 문구.</summary>
+        internal static string[] RumourTextsForTest
+        {
+            get { return RumourTexts; }
+        }
+
+        /// <summary>투자경고 종목의 남은 시간을 줄인다.
+        ///
+        /// 풀릴 때는 알리지 않는다. 지정할 때 "몇 분 동안" 인지 이미 말했고,
+        /// 한 사건이 알림을 두 줄씩 내면 그 줄이 소식창에서 가장 흔해진다.
+        /// </summary>
+        private void TickStockAlerts()
+        {
+            for (int i = 0; i < StockSlotCount; i++)
+            {
+                if (this.stockAlertTicks[i] > 0)
+                {
+                    this.stockAlertTicks[i]--;
+                }
+            }
+        }
+
+        /// <summary>투자경고 종목인가. 지정된 동안에는 오르내림이 두 배가 된다.</summary>
+        internal bool IsStockAlerted(int index)
+        {
+            return this.stockAlertTicks[index] > 0;
         }
 
         /// <summary>새 예고 사건을 굴린다. 루머는 지금 조금 움직이고, 실적은 예고만 한다.</summary>
@@ -6544,7 +6729,32 @@ namespace PokemonTaskbar
             }
 
             // 업종 사건: 그 업종에 속한 종목만 함께 움직인다.
-            int sector = this.Random.Next(SectorNames.Length);
+            //
+            // 업종을 아무렇게나 고르면 절반은 헛돈다. 열두 이름 중 여섯만 상장돼
+            // 있어서 고른 업종에 살아 있는 종목이 하나뿐인 일이 잦고, 한 종목짜리
+            // "업종 사건" 은 개별 사건과 구별되지 않으니 접을 수밖에 없다.
+            // 그래서 둘 이상 살아 있는 업종 중에서 고른다.
+            List<int> sectors = new List<int>();
+            for (int candidate = 0; candidate < SectorNames.Length; candidate++)
+            {
+                int count = 0;
+                foreach (int i in active)
+                {
+                    if (this.StockSector(i) == candidate)
+                    {
+                        count++;
+                    }
+                }
+                if (count >= 2)
+                {
+                    sectors.Add(candidate);
+                }
+            }
+            if (sectors.Count == 0)
+            {
+                return "";
+            }
+            int sector = sectors[this.Random.Next(sectors.Count)];
             List<int> members = new List<int>();
             foreach (int i in active)
             {
@@ -6552,13 +6762,6 @@ namespace PokemonTaskbar
                 {
                     members.Add(i);
                 }
-            }
-            // 한 종목만 남은 업종은 "업종 사건" 이라 부를 수 없다. 상장폐지나 거래
-            // 정지로 식구가 줄었을 때 "(1종목)" 이라고 알리면 개별 사건과 구별이
-            // 안 된다. 그럴 때는 사건을 접고 개별 사건에 자리를 넘긴다.
-            if (members.Count < 2)
-            {
-                return "";
             }
             MarketNews[] sectorTable = (positive ? SectorGood : SectorBad)[sector];
             MarketNews sectorNews = sectorTable[this.Random.Next(sectorTable.Length)];
@@ -6679,6 +6882,7 @@ namespace PokemonTaskbar
             this.Options.StockDelisted[index] = 0;
             this.Options.StockRelistSeconds[index] = 0;
             this.Options.StockHaltSeconds[index] = 0;
+            this.stockAlertTicks[index] = 0;
             this.stockHistory[index].Clear();
             this.stockHistory[index].Add(this.Options.StockPrices[index]);
             this.stockSessionOpeningPrices[index] = this.Options.StockPrices[index];

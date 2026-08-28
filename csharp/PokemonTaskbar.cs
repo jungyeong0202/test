@@ -1914,10 +1914,27 @@ namespace PokemonTaskbar
             {
                 return this.GreetingSpeaking() ? "stretch" : "squash";
             }
-            // 서 있을 때는 원본 GIF 에서 가져온 장들을 돌린다. 걷는 중이거나
-            // 뛰거나 떠다니는 중에는 그쪽 프레임이 이미 움직임을 담고 있다.
-            if (this.idleFrameCount > 0 && !this.walking && this.stopKind == null
-                && !this.hops && !this.floats && this.lift <= 0 && !this.napping)
+            // 가만히 있을 때는 원본 GIF 에서 가져온 장들을 돌린다.
+            //
+            // '가만히' 의 뜻이 이동 방식마다 다르다. 걷는 포켓몬은 멈춰 섰을 때,
+            // 뛰는 포켓몬(메타몽)은 땅에 앉아 쉬는 동안, 떠다니는 포켓몬(뮤)은
+            // 늘 그렇다 — 뮤는 애초에 발을 딛지 않으므로 떠 있는 모습 자체가
+            // 원본 애니메이션이다.
+            bool restingNow;
+            if (this.hops)
+            {
+                restingNow = this.hopState == "rest";
+            }
+            else if (this.floats)
+            {
+                restingNow = true;
+            }
+            else
+            {
+                restingNow = !this.walking && this.stopKind == null
+                    && this.lift <= 0 && !this.napping;
+            }
+            if (this.idleFrameCount > 0 && restingNow)
             {
                 int step = (int)(this.animTime * this.idleFrameCount / IdleLoopSeconds)
                     % this.idleFrameCount;

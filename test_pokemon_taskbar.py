@@ -933,6 +933,7 @@ class EvolutionTest(unittest.TestCase):
         self.app.stock_shares[0] = 2
         self.app.stock_average_prices[0] = 900
         self.assertEqual(self.app.stock_portfolio_value(), 1960)
+        self.assertEqual(self.app.stock_portfolio_profit(), 160)
         self.assertAlmostEqual(self.app.stock_portfolio_change_percent(), 1960 * 100.0 / 1800 - 100.0)
 
     def test_stock_maximum_order_quantities_are_not_limited_to_ninety_nine(self):
@@ -1049,6 +1050,15 @@ class EvolutionTest(unittest.TestCase):
         self.assertIsNotNone(overlay)
         self.assertTrue(overlay.window.winfo_exists())
         self.assertTrue(overlay.detail_graph.find_all(), "선택 종목 그래프가 그려지지 않습니다")
+        self.app.coins = 999999
+        self.app.stock_shares[0] = 2
+        self.app.stock_average_prices[0] = 900
+        overlay.refresh_toss()
+        self.assertEqual(overlay.investment_caption.cget("text"), "투자 원금")
+        self.assertEqual(overlay.balance.cget("text"), pt.format_won(1800))
+        self.assertEqual(overlay.portfolio_profit.cget("text"), "+160원")
+        self.assertEqual(overlay.portfolio_profit.cget("fg"), overlay.RISE)
+        self.assertEqual(overlay.portfolio_percent.cget("fg"), overlay.RISE)
         self.app.coins = self.app.stock_buy_cost(0) * 175
         overlay.set_trade_mode(True)
         overlay.set_maximum_quantity()

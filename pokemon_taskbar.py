@@ -2464,13 +2464,14 @@ class StockOverlay:
         metrics.pack(fill="x", padx=14, pady=(7, 2))
         total_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL)
         total_metric.pack(side="left", fill="x", expand=True)
-        tk.Label(total_metric, text="내 투자 현황", bg=GameMenuOverlay.PANEL,
+        self.investment_caption = tk.Label(total_metric, text="투자 원금", bg=GameMenuOverlay.PANEL,
                  fg=GameMenuOverlay.MUTED, anchor="w",
-                 font=(UI_FONT_FAMILY, 10, "bold")).pack(fill="x")
+                 font=(UI_FONT_FAMILY, 10, "bold"))
+        self.investment_caption.pack(fill="x")
         self.balance = tk.Label(total_metric, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
                                 anchor="w", font=(UI_FONT_FAMILY, 17, "bold"))
         self.balance.pack(fill="x")
-        cash_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=155)
+        cash_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=135)
         cash_metric.pack(side="left", padx=(12, 0))
         tk.Label(cash_metric, text="보유 현금", bg=GameMenuOverlay.PANEL,
                  fg=GameMenuOverlay.MUTED, anchor="w",
@@ -2478,7 +2479,7 @@ class StockOverlay:
         self.cash_value = tk.Label(cash_metric, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
                                    anchor="w", font=(UI_FONT_FAMILY, 12, "bold"))
         self.cash_value.pack(fill="x")
-        stock_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=175)
+        stock_metric = tk.Frame(metrics, bg=GameMenuOverlay.PANEL, width=250)
         stock_metric.pack(side="left", padx=(10, 0))
         tk.Label(stock_metric, text="주식 평가액", bg=GameMenuOverlay.PANEL,
                  fg=GameMenuOverlay.MUTED, anchor="w",
@@ -2489,9 +2490,13 @@ class StockOverlay:
             portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.INK,
             anchor="w", font=(UI_FONT_FAMILY, 12, "bold"))
         self.portfolio_value.pack(side="left")
+        self.portfolio_profit = tk.Label(
+            portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED,
+            anchor="w", font=(UI_FONT_FAMILY, 10, "bold"))
+        self.portfolio_profit.pack(side="left", padx=(7, 0))
         self.portfolio_percent = tk.Label(
             portfolio_value_row, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED,
-            anchor="w", font=(UI_FONT_FAMILY, 12, "bold"))
+            anchor="w", font=(UI_FONT_FAMILY, 10, "bold"))
         self.portfolio_percent.pack(side="left", padx=(6, 0))
         self.market_summary = tk.Label(portfolio, bg=GameMenuOverlay.PANEL, fg=GameMenuOverlay.MUTED, anchor="w",
                                        font=(UI_FONT_FAMILY, 10, "bold"), padx=14, pady=2)
@@ -2791,10 +2796,13 @@ class StockOverlay:
             activebackground=GameMenuOverlay.RED if self.buying else GameMenuOverlay.BLUE,
         )
         total = self.app.stock_portfolio_value()
+        profit = self.app.stock_portfolio_profit()
         percent = self.app.stock_portfolio_change_percent()
-        self.balance.configure(text=format_won(self.app.coins + total))
+        self.balance.configure(text=format_won(self.app.stock_portfolio_cost_basis()))
         self.cash_value.configure(text=format_won(self.app.coins))
         self.portfolio_value.configure(text=format_won(total))
+        self.portfolio_profit.configure(
+            text="{:+,}원".format(profit), fg=self.percent_colour(percent))
         self.portfolio_percent.configure(
             text="%+.1f%%" % percent, fg=self.percent_colour(percent))
         self.market_summary.configure(text=self.app.market_mover_summary())
@@ -3262,6 +3270,9 @@ class App:
                 self.stock_average_prices, self.stock_shares, self.stock_delisted
             ) if not delisted
         )
+
+    def stock_portfolio_profit(self):
+        return self.stock_portfolio_value() - self.stock_portfolio_cost_basis()
 
     def stock_portfolio_change_percent(self):
         cost_basis = self.stock_portfolio_cost_basis()

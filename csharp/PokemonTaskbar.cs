@@ -3287,18 +3287,28 @@ namespace PokemonTaskbar
                 background = Color.FromArgb(67, 48, 66);
                 border = MenuRise; titleColor = MenuRise;
             }
-            else if (string.IsNullOrEmpty(this.world.StockEvent))
-            {
-                title = "●  시장 알림";
-                text = "새 이벤트를 기다리는 중입니다.";
-            }
-            else if (this.world.StockEvent.IndexOf(this.world.StockName(index),
-                StringComparison.Ordinal) >= 0)
+            else if (!string.IsNullOrEmpty(this.world.StockEvent)
+                && this.world.StockEvent.IndexOf(this.world.StockName(index),
+                    StringComparison.Ordinal) >= 0)
             {
                 title = "●  선택 종목 이벤트";
                 text = this.world.StockEvent;
                 background = Color.FromArgb(58, 55, 73);
                 border = MenuYellow; titleColor = MenuYellow;
+            }
+            else if (this.world.IsStockInCrisis(index))
+            {
+                // 그 종목을 짚은 소식보다는 뒤, 나머지 무엇보다는 앞이다. 소식이
+                // 없을 때가 대부분이라 "기다리는 중" 뒤에 두면 경고가 가려진다.
+                title = "●  상장폐지 위험";
+                text = this.world.StockCrisisText(index);
+                background = Color.FromArgb(74, 42, 46);
+                border = MenuRed; titleColor = MenuRed;
+            }
+            else if (string.IsNullOrEmpty(this.world.StockEvent))
+            {
+                title = "●  시장 알림";
+                text = "새 이벤트를 기다리는 중입니다.";
             }
             else
             {
@@ -3519,9 +3529,12 @@ namespace PokemonTaskbar
                     + (this.world.IsStockDelisted(i) ? "상장폐지" : PetWorld.FormatWon(this.world.Options.StockPrices[i])
                         + " " + string.Format(CultureInfo.InvariantCulture, "{0:+0.0;-0.0;0.0}%", delta));
                 this.tossNames[i].ForeColor = MenuInk;
+                bool crisis = this.world.IsStockInCrisis(i);
                 this.tossHoldings[i].Text = this.world.Options.StockShares[i] > 0
-                    ? "보유 " + this.world.Options.StockShares[i] + "주"
-                    : this.world.StockPrimaryProfile(i);
+                    ? (crisis ? "위험 · 보유 " + this.world.Options.StockShares[i] + "주"
+                        : "보유 " + this.world.Options.StockShares[i] + "주")
+                    : (crisis ? "위험 · 폐지 임박" : this.world.StockPrimaryProfile(i));
+                this.tossHoldings[i].ForeColor = crisis ? MenuRed : MenuMuted;
                 this.tossPrices[i].Text = this.world.IsStockDelisted(i) ? "상장폐지"
                     : PetWorld.FormatWon(this.world.Options.StockPrices[i]);
                 this.tossChanges[i].Text = this.world.IsStockDelisted(i) ? "신규 상장 대기"
@@ -5561,6 +5574,9 @@ namespace PokemonTaskbar
         // 투자경고로 남은 시장 갱신 횟수. 설정에 남기지 않는다 — 프로그램을 껐다
         // 켜면 풀린 것으로 본다.
         private readonly int[] stockAlertTicks = new int[StockSlotCount];
+        // 위기 구간에 들어섰다고 이미 알렸는가. 매 갱신마다 알리면 소식창이
+        // 그 줄로 가득 차므로, 들어설 때 한 번만 알리고 회복하면 되돌린다.
+        private readonly bool[] stockCrisisTold = new bool[StockSlotCount];
         private int marketSecondsLeft = MarketUpdateMilliseconds / 1000;
         private bool marketOpen = true;
         private int marketSessionSecondsLeft = MarketOpenSeconds;
@@ -6013,6 +6029,21 @@ namespace PokemonTaskbar
                 {
                     this.stockHistory[i].RemoveAt(0);
                 }
+                // 상장폐지는 보유 주식을 전부 없앤다. 지지가 끊기는 자리에
+                // 들어섰다는 것만이라도 알려야 팔고 나올 기회가 생긴다.
+                if (this.IsStockInCrisis(i))
+                {
+                    if (!this.stockCrisisTold[i])
+                    {
+                        this.stockCrisisTold[i] = true;
+                        this.AnnounceStockEvent(this.StockName(i)
+                            + " 상장폐지 위험! 지지선이 무너졌습니다");
+                    }
+                }
+                else
+                {
+                    this.stockCrisisTold[i] = false;
+                }
             }
             if (broadText.Length > 0)
             {
@@ -6057,6 +6088,26 @@ namespace PokemonTaskbar
         internal int StockCrisisPrice(int index)
         {
             return (int)Math.Round(this.StockBasePrice(index) * StockCrisisRatio);
+        }
+
+        /// <summary>위기 구간에 들어와 있는가.
+        ///
+        /// 상장폐지는 보유 주식을 전부 없앤다. 예고 없이 그러면 영문 모르고 돈이
+        /// 사라지므로, 떠받침이 끊기는 이 구간부터는 눈에 보이게 알린다.
+        /// </summary>
+        public bool IsStockInCrisis(int index)
+        {
+            return !this.IsStockDelisted(index)
+                && this.Options.StockPrices[index] < this.StockCrisisPrice(index);
+        }
+
+        /// <summary>위기 구간 안내 문구. 폐지까지 얼마나 남았는지 알려 준다.</summary>
+        public string StockCrisisText(int index)
+        {
+            // 카드 한 줄에 들어가야 한다. 길게 쓰면 뒤가 잘려서 정작 "사라집니다"
+            // 가 안 보인다(실제로 그렇게 잘려 있었다).
+            return FormatWon(this.StockDelistPrice(index))
+                + " 밑이면 상장폐지 · 보유 주식이 사라집니다";
         }
 
         public string MarketRegimeLabel
@@ -6940,6 +6991,7 @@ namespace PokemonTaskbar
             this.Options.StockRelistSeconds[index] = 0;
             this.Options.StockHaltSeconds[index] = 0;
             this.stockAlertTicks[index] = 0;
+            this.stockCrisisTold[index] = false;
             this.stockHistory[index].Clear();
             this.stockHistory[index].Add(this.Options.StockPrices[index]);
             this.stockSessionOpeningPrices[index] = this.Options.StockPrices[index];

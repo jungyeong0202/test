@@ -880,6 +880,33 @@ namespace PokemonTaskbar.Tests
             Check.That(!app.IsStockAlerted(1), "시간이 지나면 투자경고가 풀린다");
             Check.Equal(app.StockVolatilityForTest(1), plain, "풀리면 흔들림도 돌아온다");
 
+            // 상장폐지 위험. 보유 주식이 전부 사라지는 일이라 예고가 있어야 한다.
+            app.Options.StockBasePrices[2] = 2000;
+            app.Options.StockPrices[2] = 2000;
+            Check.That(!app.IsStockInCrisis(2), "제 값에서는 위험이 아니다");
+            Check.Equal(app.StockCrisisPrice(2), 1100, "위기선은 기준가의 55%다");
+            Check.Equal(app.StockDelistPrice(2), 600, "폐지선은 기준가의 30%다");
+
+            app.Options.StockPrices[2] = 1099;
+            Check.That(app.IsStockInCrisis(2), "위기선 밑이면 위험이다");
+            Check.That(app.StockCrisisText(2).IndexOf("600원") >= 0,
+                "안내가 폐지선을 알려 준다");
+            Check.That(app.StockCrisisText(2).IndexOf("사라집니다") >= 0,
+                "안내가 보유 주식이 없어진다고 알려 준다");
+            // 카드의 문구 자리는 462px 한 줄이다. 넘치면 뒤가 잘려 정작 보유 주식이
+            // 사라진다는 말이 안 보인다 — 실제로 그렇게 잘려 있었다.
+            Check.That(TextRenderer.MeasureText(app.StockCrisisText(2),
+                    new Font("Arial", 10.0f)).Width <= 462,
+                "안내가 카드 한 줄에 들어간다");
+
+            app.Options.StockPrices[2] = 1200;
+            Check.That(!app.IsStockInCrisis(2), "값이 올라오면 위험이 풀린다");
+
+            // 폐지된 종목은 "위험" 이 아니라 이미 끝난 것이다.
+            app.Options.StockPrices[2] = 100;
+            app.Options.StockDelisted[2] = 1;
+            Check.That(!app.IsStockInCrisis(2), "이미 폐지된 종목은 위험이 아니다");
+
             world.Dispose();
         }
 

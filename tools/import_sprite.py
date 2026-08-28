@@ -732,6 +732,56 @@ def flatten(rgba):
     return Image.alpha_composite(paper, rgba).convert("RGB")
 
 
+def sample_rgba(rgba, start, cell, columns, rows):
+    """알파가 있는 그림을 칸 단위로 읽는다. (대표색, 비었는지) 를 돌려준다.
+
+    투명한 정도로만 배경을 가린다. 밝기로 가리면 안 된다 — 이 도구는 '거의
+    흰색'을 배경으로 보는데, 도트 그림에는 진짜 흰색이 쓰인다. 어니부기 꼬리의
+    흰 하이라이트가 그림 가장자리와 이어져 있어서 통째로 지워졌고, 꼬리가
+    성기게 부서져 보였다. 열세 마리 모두 그런 픽셀을 갖고 있었다.
+    """
+    pixels = rgba.load()
+    width, height = rgba.size
+    x0, y0 = start
+    colors = []
+    empty = []
+    for gy in range(rows):
+        top = y0 + gy * cell
+        color_line = []
+        empty_line = []
+        for gx in range(columns):
+            left = x0 + gx * cell
+            reds = greens = blues = inside = total = 0
+            for y in range(int(round(top)), int(round(top + cell))):
+                if not 0 <= y < height:
+                    continue
+                for x in range(int(round(left)), int(round(left + cell))):
+                    if not 0 <= x < width:
+                        continue
+                    pixel = pixels[x, y]
+                    total += 1
+                    if pixel[3] < 128:
+                        continue          # 투명한 픽셀은 평균에 넣지 않는다
+                    reds += pixel[0]
+                    greens += pixel[1]
+                    blues += pixel[2]
+                    inside += 1
+            if total == 0 or inside == 0 or inside < total * SPRITE_SHARE:
+                color_line.append((255, 255, 255))
+                empty_line.append(True)
+            else:
+                color_line.append((reds // inside, greens // inside, blues // inside))
+                empty_line.append(False)
+        colors.append(color_line)
+        empty.append(empty_line)
+    return colors, empty
+
+
+def has_alpha(rgba):
+    """투명한 픽셀이 하나라도 있는가."""
+    return rgba.getextrema()[3][0] < 255
+
+
 def sample_alpha(rgba, start, cell, columns, rows):
     """칸마다 얼마나 불투명한지 평균한다.
 
@@ -842,23 +892,17 @@ def main():
             rows = args.rows
     print("도트 격자: %d x %d 칸 (칸 크기 %.2f)" % (columns, rows, cell))
 
-    hole_total = [0]
+    alpha_mode = has_alpha(source)
+    if alpha_mode:
+        print("투명 정보가 있는 그림이다. 밝기가 아니라 투명도로 배경을 가린다.")
 
     def read_cells(rgba, label):
         """한 장을 같은 격자로 읽어 (대표색, 비었는지) 를 돌려준다."""
+        if alpha_mode:
+            return sample_rgba(rgba, (start_x, start_y), cell, columns, rows)
         flat = flatten(rgba)
         one = sample_grid(flat, (start_x, start_y), cell, columns, rows, is_background)
         empty = clear_background(one, is_background)
-        # 원본이 투명하다고 한 자리는 그림 안쪽이라도 비운다. 안 그러면 꼬리와
-        # 몸 사이처럼 갇힌 구멍이 흰 도트로 남는다.
-        transparent = sample_alpha(rgba, (start_x, start_y), cell, columns, rows)
-        holes = 0
-        for gy in range(rows):
-            for gx in range(columns):
-                if transparent[gy][gx] < 128 and not empty[gy][gx]:
-                    empty[gy][gx] = True
-                    holes += 1
-        hole_total[0] += holes
         return one, empty
 
     grid, outside = read_cells(source, "기본")
@@ -867,8 +911,6 @@ def main():
     # 써야 장끼리 어긋나지 않는다.
     idle_reads = [read_cells(read_rgba(args.image, n, quiet=True), "%d번" % n)
                   for n in idle_numbers]
-    if hole_total[0]:
-        print("그림 안쪽의 투명한 칸 %d 개를 비웠다." % hole_total[0])
 
     inside_colors = []
     for one, empty in [(grid, outside)] + idle_reads:

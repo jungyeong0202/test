@@ -306,9 +306,10 @@ GIF 도 그대로 넣을 수 있습니다. 여러 장이 들어 있으면 `--fra
 python3 tools/import_sprite.py assets/images/bulbasaur.gif \
     --key bulbasaur --name 이상해씨 --colors 16 --facing left \
     --grid 35 --rows 33 \
-    --part lfoot:2,24,10,28 --part rfoot:13,24,21,28 \
-    --motion "lfoot:0,0;0,-2;0,0;0,-1" \
-    --motion "rfoot:0,0;0,-1;0,0;0,-2" \
+    --part lfoot:4,23,12,32 --part rfoot:12,23,20,32 --part bfoot:23,23,31,32 \
+    --motion "lfoot:0,0;0,-2;0,0;0,0" \
+    --motion "rfoot:0,0;0,0;0,0;0,-2" \
+    --motion "bfoot:0,0;0,-1;0,0;0,0" \
     --eyes 10,14,13,17 --eyes 17,13,21,17 \
     --pose-squash 1 --preview 확인용.png
 ```
@@ -316,6 +317,11 @@ python3 tools/import_sprite.py assets/images/bulbasaur.gif \
 **0번과 2번 프레임은 같아야 합니다**(양발을 다 딛은 자세). `--motion` 의 첫째와
 셋째 값을 둘 다 `0,0` 으로 두세요. 어긋나면 `test_imported_sprites_have_a_walk_cycle`
 이 잡아냅니다.
+
+**상자는 다리 전체를 감싸야 합니다.** 처음에 `lfoot:2,24,10,28` 로 잡았더니
+발가락(y=29~31)이 상자 밖에 남아, 윗다리만 올라가고 발가락은 그 자리에 붙어
+있었습니다 — 걸을 때 다리 중간이 잘려 보입니다. 상자 아래변을 그림 맨 아래줄까지
+내리세요. 이건 검사로는 안 잡히고 `--preview` 를 봐야 보입니다.
 
 메타몽처럼 다리가 없는 포켓몬은 부위를 나눌 필요 없이 `--hop` 한 줄이면 됩니다.
 

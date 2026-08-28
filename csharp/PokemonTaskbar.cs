@@ -1234,7 +1234,9 @@ namespace PokemonTaskbar
             add.DropDownItems.Add(randomPet);
             menu.Items.Add(add);
 
-            menu.Items.Add("이 포켓몬 보내주기", null, delegate { world.Remove(this); });
+            menu.Items.Add("이 포켓몬 보내주기…", null, delegate {
+                if (world.ConfirmRelease(this)) { world.Remove(this); }
+            });
 
             // 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 새로 만든다.
             menu.Items.Add(new ToolStripSeparator());
@@ -4041,6 +4043,30 @@ namespace PokemonTaskbar
         private static readonly Color Line = Color.FromArgb(69, 83, 106);
         private static readonly Color Green = Color.FromArgb(84, 201, 149);
 
+        /// <summary>되돌릴 수 없는 동작(보내주기·게임 종료)에만 쓰는 생김새.
+        ///
+        /// 이 화면의 빨강은 이미 두 가지 일을 한다 — 왼쪽 메뉴의 "선택됨" 과
+        /// "먹이 주기" 같은 주 동작이다. 여기에 위험까지 같은 빨강으로 칠해 두어서
+        /// 색만 보고는 무엇이 위험한지 알 수 없었다. 채우지 않고 테두리만 빨갛게
+        /// 두면 꽉 찬 빨강(주 동작)과 한눈에 갈린다.
+        /// </summary>
+        private static void MakeDangerous(Button button)
+        {
+            button.BackColor = PanelColor;
+            button.ForeColor = Red;
+            GameActionButton gameButton = button as GameActionButton;
+            if (gameButton != null)
+            {
+                gameButton.EdgeColor = Red;
+                gameButton.DepthColor = PanelColor;
+                gameButton.ShowDepth = false;
+                // 못 누를 때는 테두리도 같이 죽어야 한다. 그대로 두면 흰 테두리가
+                // 남아 오히려 눈에 띈다.
+                gameButton.DisabledFaceColor = PanelColor;
+                gameButton.DisabledEdgeColor = Line;
+            }
+        }
+
         private readonly PetWorld world;
         private readonly Dictionary<string, Panel> pages = new Dictionary<string, Panel>();
         private readonly Dictionary<string, Button> navigation = new Dictionary<string, Button>();
@@ -4563,10 +4589,11 @@ namespace PokemonTaskbar
             this.petFeed = NewButton("먹이 주기", Red, delegate { this.FeedSelected(); });
             this.petEvolve = NewButton("진화", Blue, delegate { this.EvolveSelected(); });
             this.petRecall = NewButton("화면 가운데로", Green, delegate { this.RecallSelected(); });
-            this.petRelease = NewButton("보내주기…", Color.FromArgb(107,114,128), delegate { this.ReleaseSelected(); });
+            this.petRelease = NewButton("보내주기…", PanelColor, delegate { this.ReleaseSelected(); });
             foreach (Button button in new Button[] { this.petFeed, this.petEvolve, this.petRecall, this.petRelease }) {
                 button.Width = 145; button.Height = 56; actions.Controls.Add(button);
             }
+            MakeDangerous(this.petRelease);
             actions.Padding = new Padding(12, 2, 0, 0); detailCard.Controls.Add(actions); actions.BringToFront();
             layout.Controls.Add(detailCard, 0, 2);
         }
@@ -4762,21 +4789,23 @@ namespace PokemonTaskbar
             this.autostartButton = NewButton("윈도우 시작 시 실행", PanelColor, delegate {
                 AutoStart.Set(!AutoStart.Enabled()); this.RefreshGameState();
             });
-            Button quit = NewButton("게임 종료…", Red, delegate { this.ConfirmQuit(); });
+            Button quit = NewButton("게임 종료…", PanelColor, delegate { this.ConfirmQuit(); });
             Button back = NewButton("뒤로 보내기", PanelColor, delegate {
                 this.TopMost = false; this.SendToBack(); this.RefreshGameState();
             });
             this.topmostButton.Width = 150; this.pauseButton.Width = 145;
             this.autostartButton.Width = 190; quit.Width = 130; back.Width = 145;
             foreach (Button button in new Button[] { this.topmostButton, this.pauseButton, this.autostartButton, quit, back }) {
-                button.Height = 46; button.ForeColor = button == quit ? Color.White : Ink;
+                button.Height = 46; button.ForeColor = Ink;
                 GameActionButton gameButton = button as GameActionButton;
                 if (gameButton != null && button != quit) gameButton.EdgeColor = Line;
             }
-            this.AddSettingsActionCard(page, "창 표시", 104,
-                new Button[] { this.topmostButton, back });
-            this.AddSettingsActionCard(page, "게임 동작", 104,
-                new Button[] { this.pauseButton, this.autostartButton });
+            MakeDangerous(quit);
+            // 카드 다섯이 화면을 60px쯤 넘겨서, 마지막 "게임 종료…" 가 잘린 채
+            // 스크롤됐다. 창과 동작은 결국 같은 이야기(앱이 어떻게 떠 있을지)라
+            // 한 장으로 합쳤다. 네 장이 되니 스크롤 없이 들어간다.
+            this.AddSettingsActionCard(page, "창과 동작", 104, new Button[] {
+                this.topmostButton, back, this.pauseButton, this.autostartButton });
             this.AddSettingsActionCard(page, "위험 작업", 104, new Button[] { quit });
         }
 
@@ -5169,10 +5198,7 @@ namespace PokemonTaskbar
         private void ReleaseSelected()
         {
             PetForm pet = this.SelectedPet(); if (pet == null) return;
-            PokemonSprite sprite = Sprites.Find(pet.SpriteKey);
-            string name = sprite == null ? pet.SpriteKey : sprite.NameKo;
-            if (MessageBox.Show(name + "을(를) 정말 보내줄까요?", "포켓몬 보내주기",
-                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes) {
+            if (this.world.ConfirmRelease(pet)) {
                 this.world.Remove(pet); this.RefreshGameState();
             }
         }
@@ -7211,6 +7237,35 @@ namespace PokemonTaskbar
         public void Remove(PetForm pet)
         {
             pet.Close();
+        }
+
+        /// <summary>보내주기 전에 묻는다.
+        ///
+        /// 포켓몬 한 마리는 396,000원, 기본 속도로 두 시간 산책해서 버는 돈이다.
+        /// 예전에는 포켓몬을 우클릭해서 고르는 쪽에만 확인이 없어서, 바로 위의
+        /// "새 포켓몬 영입" 을 누르려다 손이 미끄러지면 그대로 잃었다. 게임
+        /// 메뉴의 "보내주기…" 는 묻고 있었으므로, 그쪽에 맞춰 한 곳으로 모은다.
+        /// </summary>
+        public bool ConfirmRelease(PetForm pet)
+        {
+            return MessageBox.Show(this.ReleaseConfirmText(pet), "포켓몬 보내주기",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
+        }
+
+        /// <summary>확인 창에 적을 말. 창을 띄우지 않으므로 검사할 수 있다.</summary>
+        internal string ReleaseConfirmText(PetForm pet)
+        {
+            PokemonSprite sprite = Sprites.Find(pet.SpriteKey);
+            string name = sprite == null ? pet.SpriteKey : sprite.NameKo;
+            string text = name + "을(를) 정말 보내줄까요?";
+            if (this.pets.Count <= 1)
+            {
+                // 마지막 한 마리를 보내면 Forget() 이 QuitAll() 을 부른다.
+                // 그냥 한 마리 없어지는 줄 알고 눌렀다가 앱이 통째로 닫힌다.
+                text += Environment.NewLine + Environment.NewLine
+                    + "마지막 한 마리입니다. 보내주면 포켓몬 센터도 함께 종료됩니다.";
+            }
+            return text;
         }
 
         private void Forget(PetForm pet)

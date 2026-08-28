@@ -158,6 +158,7 @@ namespace PokemonTaskbar.Tests
                 StockText();
                 StockNews();
                 StockSpecialEvents();
+                DangerousActions();
                 Lifecycle();
                 Evolution();
             }
@@ -906,6 +907,33 @@ namespace PokemonTaskbar.Tests
             app.Options.StockPrices[2] = 100;
             app.Options.StockDelisted[2] = 1;
             Check.That(!app.IsStockInCrisis(2), "이미 폐지된 종목은 위험이 아니다");
+
+            world.Dispose();
+        }
+
+        // --- 되돌릴 수 없는 동작 ---------------------------------------------
+
+        private static void DangerousActions()
+        {
+            Check.Section("되돌릴 수 없는 동작");
+
+            TestWorld world = World("-p", "pikachu", "-p", "squirtle");
+            PetWorld app = world.World;
+            PetForm[] pets = app.PetsSnapshot();
+
+            // 포켓몬 한 마리는 396,000원이다. 묻지 않고 지우면 안 된다.
+            string text = app.ReleaseConfirmText(pets[0]);
+            Check.That(text.IndexOf("피카츄") >= 0, "누구를 보내는지 이름을 댄다");
+            Check.That(text.IndexOf("정말") >= 0, "정말 보낼지 묻는다");
+            Check.That(text.IndexOf("종료") < 0,
+                "두 마리 있을 때는 종료 이야기를 하지 않는다");
+
+            // 마지막 한 마리를 보내면 앱이 통째로 닫힌다. 그것까지 말해야 한다.
+            app.Remove(pets[1]);
+            Check.Equal(world.Pets.Count, 1, "한 마리가 남았다");
+            string last = app.ReleaseConfirmText(world.Pets[0]);
+            Check.That(last.IndexOf("마지막") >= 0, "마지막 한 마리라고 알린다");
+            Check.That(last.IndexOf("종료") >= 0, "함께 종료된다고 알린다");
 
             world.Dispose();
         }

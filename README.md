@@ -292,6 +292,31 @@ python tools/import_sprite.py 피카츄.png --key pikachu --name 피카츄 --col
 - 네발 포켓몬(이상해씨)은 다리를 셋으로 나눠 번갈아 들면 자연스럽습니다
 - 좌표는 `--preview` 로 나온 그림을 보고 잡으면 됩니다
 
+#### 움직이는 GIF 를 원본으로 쓰기
+
+GIF 도 그대로 넣을 수 있습니다. 여러 장이 들어 있으면 `--frame` 으로 고르고,
+빼면 첫 장을 씁니다. 투명한 배경은 흰 종이 위에 올려서 읽으므로 따로 지우지
+않아도 됩니다.
+
+이상해씨는 `assets/images/bulbasaur.gif`(37x38, 99장)에서 이렇게 들여왔습니다.
+원본이 이미 도트 해상도라 격자를 자동으로 재게 두지 않고 `--grid`/`--rows` 로
+1:1 이라고 알려 줍니다.
+
+```bash
+python3 tools/import_sprite.py assets/images/bulbasaur.gif \
+    --key bulbasaur --name 이상해씨 --colors 16 --facing left \
+    --grid 35 --rows 33 \
+    --part lfoot:2,24,10,28 --part rfoot:13,24,21,28 \
+    --motion "lfoot:0,0;0,-2;0,0;0,-1" \
+    --motion "rfoot:0,0;0,-1;0,0;0,-2" \
+    --eyes 10,14,13,17 --eyes 17,13,21,17 \
+    --pose-squash 1 --preview 확인용.png
+```
+
+**0번과 2번 프레임은 같아야 합니다**(양발을 다 딛은 자세). `--motion` 의 첫째와
+셋째 값을 둘 다 `0,0` 으로 두세요. 어긋나면 `test_imported_sprites_have_a_walk_cycle`
+이 잡아냅니다.
+
 메타몽처럼 다리가 없는 포켓몬은 부위를 나눌 필요 없이 `--hop` 한 줄이면 됩니다.
 
 ```bash
@@ -442,7 +467,7 @@ exe 를 새로 받아도 이전 것이 그대로 도는 경우가 있습니다. 
 ```
 pikachu       피카츄    39x41  4프레임  왼쪽 보는 그림
 charmander    파이리    40x44  4프레임  왼쪽 보는 그림
-bulbasaur     이상해씨  37x35  4프레임  왼쪽 보는 그림
+bulbasaur     이상해씨  36x34  4프레임  왼쪽 보는 그림
 squirtle      꼬부기    40x41  4프레임  왼쪽 보는 그림
 ditto         메타몽    39x32  3프레임  왼쪽 보는 그림
 mew           뮤        52x44  4프레임  왼쪽 보는 그림

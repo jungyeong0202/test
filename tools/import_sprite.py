@@ -911,12 +911,16 @@ def main():
         print("가만히 있을 때 돌릴 장: %d 개, 한 바퀴 %.2f 초"
               % (len(idle_cells), idle_loop_ms / 1000.0))
 
-    # 자주 쓰인 색부터 팔레트 문자 배정
+    # 자주 쓰인 색부터 팔레트 문자 배정.
+    #
+    # 대기 장에만 나오는 색까지 세야 한다. 기본 장만 세면 그 색에 글자가
+    # 배정되지 않아 나중에 KeyError 로 죽는다(거북왕이 그랬다).
     counts = {}
-    for line in cells:
-        for color in line:
-            if color is not None:
-                counts[color] = counts.get(color, 0) + 1
+    for block in [cells] + idle_cells:
+        for line in block:
+            for color in line:
+                if color is not None:
+                    counts[color] = counts.get(color, 0) + 1
     ordered = sorted(counts.items(), key=lambda item: -item[1])
     palette = [(PALETTE_CHARS[i], color) for i, (color, _) in enumerate(ordered)]
     palette_map = {color: char for char, color in palette}

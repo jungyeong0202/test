@@ -321,8 +321,21 @@ namespace PokemonTaskbar.Tests
                 "진화체는 처음 고를 수 있는 목록에 없다");
             Check.Equal(PokemonTaskbar.Sprites.Find("squirtle").EvolvesTo, "wartortle",
                 "꼬부기는 어니부기가 된다");
-            Check.Equal(PokemonTaskbar.Sprites.Find("pikachu").EvolvesTo, null,
-                "피카츄는 진화하지 않는다");
+            Check.Equal(PokemonTaskbar.Sprites.Find("pikachu").EvolvesTo, "raichu",
+                "피카츄는 라이츄가 된다");
+            // 세 단계짜리 줄기. 마지막만 더 갈 곳이 없다.
+            Check.Equal(PokemonTaskbar.Sprites.Find("bulbasaur").EvolvesTo, "ivysaur",
+                "이상해씨는 이상해풀이 된다");
+            Check.Equal(PokemonTaskbar.Sprites.Find("ivysaur").EvolvesTo, "venusaur",
+                "이상해풀은 이상해꽃이 된다");
+            Check.Equal(PokemonTaskbar.Sprites.Find("venusaur").EvolvesTo, null,
+                "이상해꽃은 더 진화하지 않는다");
+            Check.Equal(PokemonTaskbar.Sprites.Find("charmander").EvolvesTo, "charmeleon",
+                "파이리는 리자드가 된다");
+            Check.Equal(PokemonTaskbar.Sprites.Find("charmeleon").EvolvesTo, "charizard",
+                "리자드는 리자몽이 된다");
+            Check.Equal(PokemonTaskbar.Sprites.Find("wartortle").EvolvesTo, "blastoise",
+                "어니부기는 거북왕이 된다");
         }
 
         // --- 움직임 -------------------------------------------------------
@@ -1092,7 +1105,7 @@ namespace PokemonTaskbar.Tests
                 Check.Equal(world.Pets.Count, 1, "진화한 뒤에도 한 마리다");
                 PetForm grown = world.Pets[0];
                 Check.Equal(grown.SpriteKey, "wartortle", "어니부기가 됐다");
-                Check.Equal(grown.NextKey, null, "더 진화하지 않는다");
+                Check.Equal(grown.NextKey, "blastoise", "다음은 거북왕이다");
                 Check.Near(grown.Position, where, 2.0, "있던 자리를 지킨다");
             }
 

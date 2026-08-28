@@ -904,11 +904,10 @@ namespace PokemonTaskbar
         private const double FloatStopChance = 0.004;
         private const double FloatNudge = 30.0;       // 쓰다듬으면 이만큼 위로
 
-        // 진화. 함께 걸은 거리와 쓰다듬은 횟수를 채운 뒤, 메뉴에서 직접 진화한다.
+        // 진화. 먹이로 올린 친밀도와 함께 걸은 거리를 채운 뒤, 메뉴에서 직접 진화한다.
         //
         // 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이
-        // 바뀌면 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
-        private const double EvolvePerPet = 1.0;       // 한 번 쓰다듬을 때마다
+        // 바뀌면 곤란하므로, 진화할지 말지는 플레이어가 메뉴에서 정한다.
         private static readonly double[] EvolvePetNeeds = { 10.0, 25.0 };
         private static readonly double[] EvolveWalkNeeds = { 10000.0, 40000.0 };
         private static readonly int[] EvolveDropNeeds = { 1, 3 };
@@ -1270,9 +1269,9 @@ namespace PokemonTaskbar
                 else
                 {
                     List<string> needs = new List<string>();
-                    if (this.PetsLeft() > 0)
+                    if (this.FoodsLeft() > 0)
                     {
-                        needs.Add(string.Format("{0}번 더 쓰다듬기", this.PetsLeft()));
+                        needs.Add(string.Format("포켓푸드 {0}개 더 필요", this.FoodsLeft()));
                     }
                     if (this.WalkLeft() > 0)
                     {
@@ -1644,6 +1643,10 @@ namespace PokemonTaskbar
         /// <summary>게임 센터에서 진화 진행도를 표시하기 위한 읽기 전용 상태.</summary>
         public double FriendshipValue { get { return this.friendship; } }
         public double FriendshipNeed { get { return this.EvolvePetNeed; } }
+        public double DisplayedFriendshipValue
+        {
+            get { return this.nextKey == null ? this.EvolvePetNeed : this.friendship; }
+        }
         public double WalkedValue { get { return this.walked; } }
         public double WalkNeed { get { return this.EvolveWalkNeed; } }
         public int GrowthDropsNeed { get { return this.EvolveDropNeed; } }
@@ -2106,11 +2109,17 @@ namespace PokemonTaskbar
                 && !this.evolving;
         }
 
-        /// <summary>진화까지 몇 번 더 쓰다듬어야 하는지.</summary>
+        /// <summary>진화 친밀도를 채우려면 포켓푸드가 몇 개 더 필요한지.</summary>
+        public int FoodsLeft()
+        {
+            double left = (this.EvolvePetNeed - this.friendship) / PetWorld.FoodFriendship;
+            return Math.Max(0, (int)Math.Ceiling(left));
+        }
+
+        /// <summary>이전 외부 코드와의 호환용 별칭.</summary>
         public int PetsLeft()
         {
-            double left = (this.EvolvePetNeed - this.friendship) / EvolvePerPet;
-            return Math.Max(0, (int)Math.Ceiling(left));
+            return this.FoodsLeft();
         }
 
         /// <summary>진화까지 몇 픽셀을 더 산책해야 하는지.</summary>
@@ -2175,25 +2184,20 @@ namespace PokemonTaskbar
             this.PaintEffects(graphics);
         }
 
-        /// <summary>쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다.
+        /// <summary>쓰다듬었을 때. 친밀도와 별개로 하트 반응만 보여 준다.
         ///
         /// </summary>
         private void Petted()
         {
             this.SpawnEmote("heart");
-            if (this.nextKey == null || this.evolving)
-            {
-                return;
-            }
-            this.friendship = Math.Min(this.EvolvePetNeed, this.friendship + EvolvePerPet);
         }
 
-        /// <summary>포켓푸드로 친밀도와 5분짜리 2배 산책 버프를 준다.</summary>
+        /// <summary>포켓푸드로 친밀도와 누적되는 5분짜리 2배 산책 버프를 준다.</summary>
         public void Fed()
         {
             this.SpawnEmote("heart");
-            this.foodBoostLeft = PetWorld.FoodBoostSeconds;
-            if (this.nextKey == null || this.evolving)
+            this.foodBoostLeft += PetWorld.FoodBoostSeconds;
+            if (this.evolving)
             {
                 return;
             }
@@ -4860,14 +4864,15 @@ namespace PokemonTaskbar
                     + pet.IncomeMultiplierValue.ToString("0.##", CultureInfo.InvariantCulture);
                 this.income.Text = "+" + ((int)Math.Round(PetWorld.CoinsPerWalk * pet.IncomeMultiplierValue))
                     .ToString("N0", CultureInfo.InvariantCulture) + "원 / 100px";
-                this.friendshipText.Metric = pet.FriendshipValue.ToString("0", CultureInfo.InvariantCulture)
+                double displayedFriendship = pet.DisplayedFriendshipValue;
+                this.friendshipText.Metric = displayedFriendship.ToString("0", CultureInfo.InvariantCulture)
                     + " / " + pet.FriendshipNeed.ToString("0", CultureInfo.InvariantCulture);
                 this.friendshipText.Invalidate();
                 this.walkText.Metric = ((int)pet.WalkedValue).ToString("N0", CultureInfo.InvariantCulture)
                     + " / " + ((int)pet.WalkNeed).ToString("N0", CultureInfo.InvariantCulture) + "px";
                 this.walkText.Invalidate();
                 this.friendshipProgress.Value = Math.Min(1000, Math.Max(0,
-                    (int)Math.Round(pet.FriendshipValue * 1000.0 / Math.Max(1.0, pet.FriendshipNeed))));
+                    (int)Math.Round(displayedFriendship * 1000.0 / Math.Max(1.0, pet.FriendshipNeed))));
                 this.walkProgress.Value = Math.Min(1000, Math.Max(0,
                     (int)Math.Round(pet.WalkedValue * 1000.0 / Math.Max(1.0, pet.WalkNeed))));
                 this.foodBoost.Text = "● 포켓푸드 효과  ·  " + pet.FoodBoostLabel();
@@ -5000,7 +5005,7 @@ namespace PokemonTaskbar
             if (pet.IsEvolving) return "진화하는 중입니다…";
             if (pet.CanEvolve()) return name + "로 진화할 준비가 완료되었습니다!";
             List<string> needs = new List<string>();
-            if (pet.PetsLeft() > 0) needs.Add("친밀도 " + pet.PetsLeft());
+            if (pet.FoodsLeft() > 0) needs.Add("포켓푸드 " + pet.FoodsLeft() + "개");
             if (pet.WalkLeft() > 0) needs.Add("산책 " + pet.WalkLeft().ToString("N0", CultureInfo.InvariantCulture) + "px");
             int dropLeft = Math.Max(0, pet.GrowthDropsNeed - this.world.Options.GrowthDrops);
             if (dropLeft > 0) needs.Add("성장의 물방울 " + dropLeft + "개");

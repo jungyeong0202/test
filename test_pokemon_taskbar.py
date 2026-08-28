@@ -773,8 +773,8 @@ class EvolutionTest(unittest.TestCase):
             self.app.pets[0].tick()
 
     def _meet_requirements(self):
-        for _ in range(int(pt.EVOLVE_PET_NEED)):
-            self.pet.petted()
+        for _ in range(int(math.ceil(pt.EVOLVE_PET_NEED / pt.FOOD_FRIENDSHIP))):
+            self.pet.fed()
         self.pet.walked = pt.EVOLVE_WALK_NEED
         self.app.growth_drops = 1
 
@@ -793,22 +793,22 @@ class EvolutionTest(unittest.TestCase):
 
     def test_it_is_not_ready_at_the_start(self):
         self.assertFalse(self.pet.can_evolve())
-        self.assertEqual(self.pet.pets_left(), int(pt.EVOLVE_PET_NEED))
+        self.assertEqual(self.pet.foods_left(), int(math.ceil(pt.EVOLVE_PET_NEED / pt.FOOD_FRIENDSHIP)))
         self.assertEqual(self.pet.walk_left(), int(pt.EVOLVE_WALK_NEED))
 
-    def test_petting_needs_a_walk_and_manual_choice(self):
-        for _ in range(int(pt.EVOLVE_PET_NEED)):
-            self.pet.petted()
+    def test_feeding_needs_a_walk_and_manual_choice(self):
+        for _ in range(self.pet.foods_left()):
+            self.pet.fed()
         self.assertFalse(self.pet.can_evolve())
         self.assertFalse(self.pet.evolving)
-        self.assertEqual(self.pet.pets_left(), 0)
+        self.assertEqual(self.pet.foods_left(), 0)
         self.assertEqual(self.pet.walk_left(), int(pt.EVOLVE_WALK_NEED))
 
-    def test_walking_needs_petting(self):
+    def test_walking_needs_feeding(self):
         self.pet.walked = pt.EVOLVE_WALK_NEED
         self.assertFalse(self.pet.evolving)
         self.assertFalse(self.pet.can_evolve())
-        self.assertEqual(self.pet.pets_left(), int(pt.EVOLVE_PET_NEED))
+        self.assertEqual(self.pet.foods_left(), int(math.ceil(pt.EVOLVE_PET_NEED / pt.FOOD_FRIENDSHIP)))
         self.assertEqual(self.pet.walk_left(), 0)
 
     def test_ready_pet_waits_for_manual_choice(self):
@@ -862,6 +862,21 @@ class EvolutionTest(unittest.TestCase):
         self.assertEqual(self.app.food, 0)
         self.assertEqual(self.pet.friendship, pt.FOOD_FRIENDSHIP)
         self.assertEqual(self.pet.food_boost_left, pt.FOOD_BOOST_SECONDS)
+
+    def test_food_raises_friendship_without_registered_evolution(self):
+        self.app.add_pet("pikachu")
+        pet = self.app.pets[-1]
+        self.assertIsNone(pet.next_key)
+        pet.fed()
+        self.assertEqual(pet.friendship, pt.FOOD_FRIENDSHIP)
+        self.assertEqual(pet.displayed_friendship(), pet.evolution_requirement()[0])
+
+    def test_food_boost_time_stacks_five_minutes_per_food(self):
+        self.pet.fed()
+        self.pet.fed()
+        self.assertEqual(self.pet.friendship, pt.FOOD_FRIENDSHIP * 2)
+        self.assertEqual(self.pet.food_boost_left, pt.FOOD_BOOST_SECONDS * 2)
+        self.assertEqual(self.pet.food_boost_label(), "2배 산책 10:00")
 
     def test_food_doubles_walking_speed(self):
         self.pet.x = self.pet.max_x / 2.0
@@ -1105,9 +1120,15 @@ class EvolutionTest(unittest.TestCase):
         self.assertGreater(self.pet.walked, 0.0)
         self.assertFalse(self.pet.evolving)
 
-    def test_petting_more_does_not_start_or_overfill_it(self):
+    def test_petting_never_changes_friendship(self):
         for _ in range(int(pt.EVOLVE_PET_NEED) * 3):
             self.pet.petted()
+        self.assertEqual(self.pet.friendship, 0.0)
+        self.assertFalse(self.pet.evolving)
+
+    def test_feeding_more_does_not_start_or_overfill_it(self):
+        for _ in range(int(pt.EVOLVE_PET_NEED) * 3):
+            self.pet.fed()
         self.assertEqual(self.pet.friendship, pt.EVOLVE_PET_NEED)
         self.assertFalse(self.pet.evolving)
         self.assertEqual(self.pet.evolve_step, 0)

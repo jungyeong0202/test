@@ -95,11 +95,10 @@ FLOAT_TURN_CHANCE = 0.003      # 틱마다 이 확률로 방향을 바꾼다
 FLOAT_STOP_CHANCE = 0.004      # 틱마다 이 확률로 잠깐 멈춘다
 FLOAT_NUDGE = 30.0             # 쓰다듬으면(클릭) 이만큼 위로 올라간다
 
-# 진화. 함께 걸은 거리와 쓰다듬은 횟수를 채운 뒤, 메뉴에서 직접 진화한다.
+# 진화. 먹이로 올린 친밀도와 함께 걸은 거리를 채운 뒤, 메뉴에서 직접 진화한다.
 #
 # 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이 바뀌면
-# 곤란하므로, 진화할지 말지는 쓰다듬는 사람이 정한다.
-EVOLVE_PER_PET = 1.0        # 한 번 쓰다듬을 때마다
+# 곤란하므로, 진화할지 말지는 플레이어가 메뉴에서 정한다.
 # (친밀도, 산책 거리(px), 성장의 물방울). 마지막 값은 이후 3단계 진화에도 쓴다.
 EVOLUTION_REQUIREMENTS = ((10.0, 10000.0, 1), (25.0, 40000.0, 3))
 EVOLUTION_INCOME_MULTIPLIERS = (1.0, 1.5, 2.25)
@@ -813,17 +812,14 @@ class PokemonPet:
             self.petted()
 
     def petted(self):
-        """쓰다듬었을 때. 하트가 뜨고 친밀도가 오른다."""
+        """쓰다듬었을 때. 친밀도와 별개로 하트 반응만 보여 준다."""
         self.spawn_emote("heart")
-        if not self.next_key or self.evolving:
-            return
-        self.friendship = min(self.evolution_requirement()[0], self.friendship + EVOLVE_PER_PET)
 
     def fed(self):
-        """포켓푸드로 친밀도와 5분짜리 2배 산책 버프를 준다."""
+        """포켓푸드로 친밀도와 누적되는 5분짜리 2배 산책 버프를 준다."""
         self.spawn_emote("heart")
-        self.food_boost_left = FOOD_BOOST_SECONDS
-        if not self.next_key or self.evolving:
+        self.food_boost_left += FOOD_BOOST_SECONDS
+        if self.evolving:
             return
         self.friendship = min(self.evolution_requirement()[0], self.friendship + FOOD_FRIENDSHIP)
 
@@ -885,8 +881,8 @@ class PokemonPet:
             state = "normal"
         else:
             needs = []
-            if self.pets_left():
-                needs.append("%d번 더 쓰다듬기" % self.pets_left())
+            if self.foods_left():
+                needs.append("포켓푸드 %d개 더 필요" % self.foods_left())
             if self.walk_left():
                 needs.append("%dpx 더 산책" % self.walk_left())
             drops_need = self.evolution_requirement()[2]
@@ -1324,14 +1320,23 @@ class PokemonPet:
         stage = min(evolution_stage(self.pokemon.key), len(EVOLUTION_REQUIREMENTS) - 1)
         return EVOLUTION_REQUIREMENTS[stage]
 
+    def displayed_friendship(self):
+        """다음 진화가 없으면 메뉴의 친밀도를 가득 찬 상태로 보여 준다."""
+        return self.evolution_requirement()[0] if not self.next_key else self.friendship
+
     def income_multiplier(self):
         """등급과 진화 단계 보상을 함께 적용한 산책 수입 배율."""
         stage = min(evolution_stage(self.pokemon.key), len(EVOLUTION_INCOME_MULTIPLIERS) - 1)
         return pokemon_grade(self.pokemon.key)[1] * EVOLUTION_INCOME_MULTIPLIERS[stage]
 
+    def foods_left(self):
+        """진화 친밀도를 채우려면 포켓푸드가 몇 개 더 필요한지."""
+        return max(0, int(math.ceil(
+            (self.evolution_requirement()[0] - self.friendship) / FOOD_FRIENDSHIP)))
+
     def pets_left(self):
-        """진화까지 몇 번 더 쓰다듬어야 하는지."""
-        return max(0, int(-(-(self.evolution_requirement()[0] - self.friendship) // EVOLVE_PER_PET)))
+        """이전 외부 코드와의 호환용 별칭. 이제 포켓푸드 개수를 반환한다."""
+        return self.foods_left()
 
     def walk_left(self):
         """진화까지 몇 픽셀을 더 산책해야 하는지."""
@@ -2101,10 +2106,13 @@ class GameMenuOverlay:
                 "산책 일시정지" if self.app.paused else "산책 중", pet.income_multiplier()))
             self.income_label.configure(text="+%s / 100px" % format_won(
                 int(round(COINS_PER_WALK * pet.income_multiplier()))))
-            self.friend_label.configure(text="%.0f / %.0f" % (pet.friendship, friendship_need))
+            displayed_friendship = pet.displayed_friendship()
+            self.friend_label.configure(text="%.0f / %.0f" % (
+                displayed_friendship, friendship_need))
             self.walk_label.configure(text="%s / %spx" % (
                 "{:,}".format(int(pet.walked)), "{:,}".format(int(walk_need))))
-            self.friend_progress["value"] = min(100, pet.friendship * 100.0 / max(1, friendship_need))
+            self.friend_progress["value"] = min(
+                100, displayed_friendship * 100.0 / max(1, friendship_need))
             self.walk_progress["value"] = min(100, pet.walked * 100.0 / max(1, walk_need))
             self.buff_label.configure(text="● 포켓푸드 효과  ·  %s" % pet.food_boost_label())
             image = self.app.get_images(pet.pokemon)["right"][0]
@@ -2209,7 +2217,7 @@ class GameMenuOverlay:
         if drops_need is None:
             drops_need = pet.evolution_requirement()[2]
         needs = []
-        if pet.pets_left(): needs.append("친밀도 %d" % pet.pets_left())
+        if pet.foods_left(): needs.append("포켓푸드 %d개" % pet.foods_left())
         if pet.walk_left(): needs.append("산책 %spx" % "{:,}".format(pet.walk_left()))
         if self.app.growth_drops < drops_need:
             needs.append("성장의 물방울 %d개" % (drops_need - self.app.growth_drops))

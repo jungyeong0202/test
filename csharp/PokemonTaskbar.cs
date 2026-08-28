@@ -6605,8 +6605,11 @@ namespace PokemonTaskbar
             // 기준가가 함께 반이 되어 비율이 1 로 돌아간다 — 다시 두 배가 될
             // 때까지는 또 나뉘지 않는다. 너무 잘게 쪼개지지 않도록 나눈 값이
             // 최소 금액은 넘게 한다.
+            // 바닥은 값이 아니라 기준가에 건다. 분할은 기준가를 영영 반으로
+            // 만들므로, 값에만 바닥을 걸면 나눌 때마다 기준가가 반씩 줄어
+            // 오래 하면 시세가 세 자리로 내려앉는다(재 보니 91원까지 갔다).
             if (price >= this.StockBasePrice(index) * 2
-                && price / 2 >= StockSplitLeastPrice
+                && this.StockBasePrice(index) / 2 >= StockSplitLeastPrice
                 && this.Random.Next(2) == 0)
             {
                 return this.SplitStock(index);

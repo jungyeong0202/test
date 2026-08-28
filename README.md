@@ -2,7 +2,7 @@
 
 화면 맨 아래(작업 표시줄) 위를 포켓몬이 어슬렁어슬렁 돌아다니는 아주 간단한 데스크톱 펫입니다.
 
-- 파이썬 **표준 라이브러리만** 사용합니다 (tkinter). 설치할 패키지가 없습니다.
+- **설치가 필요 없습니다.** exe 하나를 더블클릭하면 끝이고, 별도 런타임도 필요 없습니다.
 - 도트 그림을 코드로 직접 그리기 때문에 **이미지 파일이나 인터넷 연결이 필요 없습니다.**
 - 작업 표시줄을 가리지 않고 그 **위에 올라서서** 걸어 다닙니다 (작업 영역을 자동으로 감지).
 - 가는 방향을 보고 걷습니다. 오른쪽으로 가면 오른쪽을, 왼쪽으로 가면 왼쪽을 봅니다.
@@ -41,25 +41,6 @@ pikachu    charmander    bulbasaur    squirtle      ditto       mew
 꼬리가 살랑이는 것은 프레임에 그려져 있습니다.
 도트 하나를 1.5픽셀로 그리므로, `--scale 3` 을 주면 도트 그대로(작게), `--scale 6` 이면 두 배가 됩니다.
 `tools/import_sprite.py` 로 원하는 그림을 넣으면 누구든 걷게 만들 수 있습니다.
-
-## 실행 방법
-
-파이썬 3.8 이상이 필요합니다.
-
-```bash
-PokemonTaskbar.exe
-```
-
-윈도우에서는 `run.bat`을 더블클릭하면 콘솔 창 없이 실행됩니다.
-(파이썬이 PATH에 없어도 `py` 런처와 기본 설치 경로를 자동으로 찾습니다.)
-
-실행이 안 되거나 창이 안 뜨면 `run_debug.bat`을 실행하세요. 콘솔 창에 오류가 그대로 남습니다.
-
-리눅스에서 `ModuleNotFoundError: No module named 'tkinter'` 가 나오면 tkinter를 설치하세요.
-
-```bash
-sudo apt install python3-tk      # 데비안 / 우분투 계열
-```
 
 ## exe 하나로 실행하기 (윈도우, 설치 불필요)
 
@@ -250,17 +231,17 @@ on_taskbar = false
 | 파일 | 내용 |
 | --- | --- |
 | `csharp/PokemonTaskbar.cs` | 창 생성, 이동/애니메이션, 마우스 조작 등 프로그램 본체 |
-| `sprites.py` | 도트 그림 데이터 (문자 그리드 + 색 팔레트). tkinter에 의존하지 않음 |
-| `settings.py` | 사용자 설정 저장/불러오기 (C# 판과 같은 파일 형식) |
+| `sprites.py` | 도트 그림 데이터 (문자 그리드 + 색 팔레트) |
 | `csharp/Tests.cs` | 프로그램 테스트 |
 | `test_tools.py` | 도트 데이터와 도구 테스트 |
-| `run.bat` / `run_debug.bat` | 윈도우용 실행 스크립트 (일반 실행 / 오류 확인용) |
-| `csharp/` | 파이썬 없이 도는 C# 판 (`run.bat` 이 빌드까지 해 줍니다) |
+| `csharp/run.bat` | 윈도우에서 소스로 빌드해 실행 |
+| `csharp/run_tests.bat` | 윈도우에서 테스트 실행 |
 | `dist/PokemonTaskbar.exe` | 바로 실행할 수 있는 빌드 결과물 |
 | `tools/gen_sprites_cs.py` | `sprites.py` 도트 데이터를 `csharp/Sprites.cs` 로 변환 |
 | `tools/import_sprite.py` | 내 도트 그림(png/jpg)을 스프라이트 + 걷기 프레임으로 변환 |
 | `tools/make_icon.py` | 도트로 exe 아이콘(`csharp/pokemon.ico`) 생성 |
 | `tools/build_exe.sh` | 리눅스/맥에서 Mono 로 exe 빌드 |
+| `tools/run_tests.sh` | 도구 테스트와 프로그램 테스트를 함께 실행 |
 
 ### 내 그림으로 포켓몬 추가하기
 
@@ -471,36 +452,6 @@ wartortle     어니부기  58x60  4프레임  왼쪽 보는 그림
 `csharp\run.bat` 으로 직접 빌드해 쓰신다면 소스가 최신인지 확인하세요 (`git pull`).
 run.bat 은 `csharp` 폴더의 `.cs` 파일로 다시 빌드하므로, 소스가 예전 것이면 exe 도 예전 그림이 됩니다.
 
-
-**`'pythonw'을(를) 찾을 수 없습니다` 또는 `'python'은(는) 내부 또는 외부 명령이 아닙니다`**
-
-파이썬이 없거나, 설치할 때 PATH에 등록하지 않은 경우입니다. cmd를 열고 확인해 보세요.
-
-```bat
-py --version
-python --version
-```
-
-둘 다 실패하면 [python.org](https://www.python.org/downloads/) 에서 파이썬 3을 설치하되,
-설치 첫 화면의 **"Add python.exe to PATH"** 를 반드시 체크하세요.
-이미 설치돼 있다면 `run.bat` 이 `py` 런처와 아래 경로들을 자동으로 찾아 줍니다.
-
-- `%LOCALAPPDATA%\Programs\Python\Python3xx\`
-- `C:\Program Files\Python3xx\`
-- `C:\Python3xx\`
-
-**창이 잠깐 떴다가 바로 사라짐 / 아무 반응이 없음**
-
-`run_debug.bat` 으로 실행하면 콘솔에 오류 메시지가 남습니다.
-`ModuleNotFoundError: No module named 'tkinter'` 가 보이면 파이썬 설치 프로그램을 다시 실행해
-**Modify → "tcl/tk and IDLE"** 를 켜 주세요.
-
-**아예 파이썬을 안 쓰고 싶다면** 위의 [exe 하나로 실행하기](#exe-하나로-실행하기-윈도우-설치-불필요) 를 보세요.
-
-**Microsoft Store 버전 파이썬**
-
-Store 버전은 `python` 을 입력하면 스토어 페이지만 열리는 경우가 있습니다.
-이때는 python.org 설치본을 쓰는 편이 확실합니다.
 
 **포켓몬 위치 조절**
 

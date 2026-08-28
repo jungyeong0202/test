@@ -160,6 +160,7 @@ namespace PokemonTaskbar.Tests
                 StockNews();
                 StockSpecialEvents();
                 Relisting();
+                ShortSelling();
                 DangerousActions();
                 Lifecycle();
                 Evolution();
@@ -1050,6 +1051,112 @@ namespace PokemonTaskbar.Tests
                 app.UpdateMarket();
                 Check.That(!app.IsStockDelisted(0), "시간이 지나면 새 종목이 들어온다");
                 Check.That(app.Options.StockPrices[0] > 0, "새 종목에 값이 붙는다");
+            }
+        }
+
+        // --- 공매도 ------------------------------------------------------------
+
+        private static void ShortSelling()
+        {
+            Check.Section("공매도");
+
+            // 손익은 진입가를 기준으로 대칭이다. 값이 내린 만큼 벌고 오른 만큼 잃는다.
+            Check.Equal(PetWorld.ShortPayout(1000, 1000), 980,
+                "값이 그대로면 담보에서 수수료만 빠진다");
+            Check.That(PetWorld.ShortPayout(1000, 800) > PetWorld.ShortPayout(1000, 1000),
+                "값이 내리면 더 받는다");
+            Check.That(PetWorld.ShortPayout(1000, 1200) < PetWorld.ShortPayout(1000, 1000),
+                "값이 오르면 덜 받는다");
+
+            // 손실 상한. 진입가의 두 배가 되면 담보를 다 잃고, 그 위로는 더 잃지 않는다.
+            Check.Equal(PetWorld.ShortPayout(1000, 2000), 0,
+                "두 배가 되면 담보를 다 잃는다");
+            Check.Equal(PetWorld.ShortPayout(1000, 5000), 0,
+                "그 위로 아무리 올라도 빚이 되지는 않는다");
+            Check.Equal(PetWorld.ShortPayout(0, 1000), 0, "공매도가 없으면 받을 것도 없다");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                app.OpenMarketForTest();
+                app.Options.Coins = 100000;
+                app.Options.StockPrices[0] = 1000;
+
+                // 공매도하면 담보와 수수료가 현금에서 빠진다.
+                int before = app.Options.Coins;
+                app.ShortStock(0, 5);
+                Check.Equal(app.Options.StockShorts[0], 5, "공매도 수량이 잡힌다");
+                Check.Equal(app.Options.StockShortPrices[0], 1000, "그때의 값이 진입가가 된다");
+                Check.Equal(before - app.Options.Coins, app.StockShortCost(0) * 5,
+                    "담보와 수수료만큼 현금이 빠진다");
+                Check.Equal(app.StockShortWipePrice(0), 2000, "강제 청산가는 진입가의 두 배다");
+
+                // 값이 내리면 청산해서 번다.
+                app.Options.StockPrices[0] = 700;
+                Check.That(app.StockShortProfit(0) > 0, "값이 내리면 평가 손익이 이익이 된다");
+                int payout = app.StockCoverProceeds(0);
+                int cash = app.Options.Coins;
+                app.CoverStock(0, 5);
+                Check.Equal(app.Options.StockShorts[0], 0, "청산하면 공매도가 사라진다");
+                Check.Equal(app.Options.StockShortPrices[0], 0, "진입가도 지워진다");
+                Check.Equal(app.Options.Coins - cash, payout * 5, "청산한 만큼 현금이 들어온다");
+
+                // 진입가의 두 배가 되면 담보를 잃고 저절로 정리된다.
+                app.Options.StockPrices[0] = 1000;
+                app.ShortStock(0, 2);
+                app.Options.StockPrices[0] = 2500;
+                cash = app.Options.Coins;
+                app.TickShortMarginForTest();
+                Check.Equal(app.Options.StockShorts[0], 0, "두 배가 되면 강제 청산된다");
+                Check.Equal(app.Options.Coins, cash, "강제 청산에서는 한 푼도 못 돌려받는다");
+
+                // 휴장 중에는 열지도 닫지도 못한다.
+                app.CloseMarketForTest();
+                app.Options.StockPrices[0] = 1000;
+                app.ShortStock(0, 1);
+                Check.Equal(app.Options.StockShorts[0], 0, "휴장 중에는 공매도할 수 없다");
+
+                // 담보보다 현금이 적으면 열리지 않는다.
+                app.OpenMarketForTest();
+                app.Options.Coins = 100;
+                app.ShortStock(0, 1);
+                Check.Equal(app.Options.StockShorts[0], 0, "현금이 모자라면 공매도할 수 없다");
+            }
+
+            // 상장폐지는 공매도의 최대 이익이다. 종목이 사라지기 전에 정산해 준다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                app.OpenMarketForTest();
+                app.Options.Coins = 100000;
+                app.Options.StockPrices[0] = 1000;
+                app.ShortStock(0, 3);
+                int cash = app.Options.Coins;
+                app.Options.StockPrices[0] = 1;
+                app.OpenMarketForTest();
+                app.UpdateMarket();
+                Check.That(app.IsStockDelisted(0), "값이 무너지면 상장폐지된다");
+                Check.Equal(app.Options.StockShorts[0], 0, "상장폐지되면 공매도도 정리된다");
+                Check.That(app.Options.Coins > cash + 3 * 1000,
+                    "상장폐지된 값으로 정산해 담보보다 많이 돌려받는다");
+            }
+
+            // 목록 한 줄에 보유와 공매도가 함께 나온다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                app.Options.StockShares[0] = 2;
+                app.Options.StockShorts[0] = 3;
+                Check.Equal(StockOverlayForm.HoldingRowText(app, 0, false),
+                    "보유 2주 · 공매도 3주", "둘 다 있으면 둘 다 적는다");
+                app.Options.StockShares[0] = 0;
+                Check.Equal(StockOverlayForm.HoldingRowText(app, 0, false),
+                    "공매도 3주", "공매도만 있으면 그것만 적는다");
+                Check.Equal(StockOverlayForm.HoldingRowText(app, 0, true),
+                    "위험 · 공매도 3주", "위기 종목이면 앞에 표시가 붙는다");
+                app.Options.StockShorts[0] = 0;
+                Check.That(app.HasStockPosition(0) == false,
+                    "아무것도 없으면 보유 종목으로 세지 않는다");
             }
         }
 

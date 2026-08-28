@@ -36,6 +36,9 @@ namespace PokemonTaskbar
         public int[] StockDelisted = { 0, 0, 0, 0, 0, 0 };
         public int[] StockRelistSeconds = { 0, 0, 0, 0, 0, 0 };
         public int[] StockAveragePrices = { 0, 0, 0, 0, 0, 0 };
+        // 공매도한 수량과 그때의 값. 진입가가 담보이자 손익의 기준이 된다.
+        public int[] StockShorts = { 0, 0, 0, 0, 0, 0 };
+        public int[] StockShortPrices = { 0, 0, 0, 0, 0, 0 };
         public int[] StockHaltSeconds = { 0, 0, 0, 0, 0, 0 };
         // 종목의 기준가. 평균 회귀가 향하는 값이고, 상장폐지선·위기선도 여기에
         // 비율을 곱해 정한다. 0 이면 상장 종목의 시작가로 채운다(예전 설정 파일).
@@ -502,6 +505,23 @@ namespace PokemonTaskbar
                             options.StockAveragePrices = averages;
                         }
                         break;
+                    case "stock_shorts":
+                        int shortCount;
+                        int[] shorts2 = ParseStockValues(value, false, options.StockShorts, out shortCount);
+                        if (shorts2 != null)
+                        {
+                            options.StockShorts = shorts2;
+                        }
+                        break;
+                    case "stock_short_prices":
+                        int shortPriceCount;
+                        int[] shortPrices = ParseStockValues(value, false, options.StockShortPrices,
+                            out shortPriceCount);
+                        if (shortPrices != null)
+                        {
+                            options.StockShortPrices = shortPrices;
+                        }
+                        break;
                     case "stock_halt_seconds":
                         int haltCount;
                         int[] halts = ParseStockValues(value, false, options.StockHaltSeconds, out haltCount);
@@ -590,6 +610,10 @@ namespace PokemonTaskbar
                     options.StockRelistSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_average_prices = " + string.Join(", ", Array.ConvertAll(
                     options.StockAveragePrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("stock_shorts = " + string.Join(", ", Array.ConvertAll(
+                    options.StockShorts, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("stock_short_prices = " + string.Join(", ", Array.ConvertAll(
+                    options.StockShortPrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_halt_seconds = " + string.Join(", ", Array.ConvertAll(
                     options.StockHaltSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_base_prices = " + string.Join(", ", Array.ConvertAll(
@@ -2721,13 +2745,21 @@ namespace PokemonTaskbar
         private NumericUpDown tossQuantity;
         private GameActionButton tossBuyTab;
         private GameActionButton tossSellTab;
+        private GameActionButton tossShortTab;
         private GameActionButton tossAction;
+        private GameActionButton tossCoverAction;
+        /// <summary>탭이 아니라 공매도 안에 있는 동작이라 번호만 이어 붙인다.</summary>
+        private const int TossCover = 3;
         private Label tossOrderSummary;
         private GameCardPanel tossToast;
         private Label tossToastTitle;
         private Label tossToastDetail;
         private Timer tossToastTimer;
-        private bool tossBuying = true;
+        // 0 매수, 1 매도, 2 공매도. 공매도일 때만 청산 단추가 함께 나온다.
+        private int tossMode = TossBuy;
+        public const int TossBuy = 0;
+        public const int TossSell = 1;
+        public const int TossShort = 2;
         private int selectedStock;
         private Point dragCursor;
         private Point dragLocation;
@@ -2762,12 +2794,17 @@ namespace PokemonTaskbar
                 }
                 if (e.Control && e.KeyCode == Keys.B)
                 {
-                    this.SetTossTradeMode(true); this.tossAction.Focus(); e.Handled = true;
+                    this.SetTossTradeMode(TossBuy); this.tossAction.Focus(); e.Handled = true;
                     return;
                 }
                 if (e.Control && e.KeyCode == Keys.S)
                 {
-                    this.SetTossTradeMode(false); this.tossAction.Focus(); e.Handled = true;
+                    this.SetTossTradeMode(TossSell); this.tossAction.Focus(); e.Handled = true;
+                    return;
+                }
+                if (e.Control && e.KeyCode == Keys.D)
+                {
+                    this.SetTossTradeMode(TossShort); this.tossAction.Focus(); e.Handled = true;
                     return;
                 }
                 if (e.Control && e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D6)
@@ -2981,29 +3018,36 @@ namespace PokemonTaskbar
             this.tossGraph.GridColor = MenuLine;
             this.tossGraph.RiseColor = MenuRise;
             this.tossGraph.FallColor = MenuBlue;
-            this.tossGraph.Location = new Point(14, 128);
-            this.tossGraph.Size = new Size(494, 166);
+            this.tossGraph.Location = new Point(14, 124);
+            this.tossGraph.Size = new Size(494, 154);
             detail.Controls.Add(this.tossGraph);
-            this.tossDetailHolding = TossLabel(detail, new Point(16, 302), new Size(490, 68),
+            this.tossDetailHolding = TossLabel(detail, new Point(16, 284), new Size(490, 88),
                 ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
             this.tossDetailHolding.BackColor = MenuSoft;
-            this.tossDetailProfitPercent = TossLabel(detail, new Point(414, 327), new Size(80, 24),
+            this.tossDetailProfitPercent = TossLabel(detail, new Point(414, 314), new Size(80, 24),
                 ContentAlignment.MiddleRight, 11.0f, FontStyle.Bold);
             this.tossDetailProfitPercent.BackColor = MenuSoft;
             this.tossDetailProfitPercent.AccessibleName = "선택 종목 보유 수익률";
+            // 보유 카드 라벨이 이 자리를 덮고 있어 그대로 두면 보이지 않는다.
+            this.tossDetailProfitPercent.BringToFront();
             GameCardPanel orderCard = new GameCardPanel();
             orderCard.BackColor = MenuSoft; orderCard.BorderColor = MenuLine;
             orderCard.CornerRadius = 11; orderCard.BorderThickness = 1;
             orderCard.Location = new Point(16, 378); orderCard.Size = new Size(490, 210);
             detail.Controls.Add(orderCard);
             this.tossBuyTab = CreateSegmentButton("매수", true);
-            this.tossBuyTab.Location = new Point(12, 10); this.tossBuyTab.Size = new Size(226, 36);
-            this.tossBuyTab.Click += delegate { this.SetTossTradeMode(true); };
+            this.tossBuyTab.Location = new Point(12, 10); this.tossBuyTab.Size = new Size(150, 36);
+            this.tossBuyTab.Click += delegate { this.SetTossTradeMode(TossBuy); };
             orderCard.Controls.Add(this.tossBuyTab);
             this.tossSellTab = CreateSegmentButton("매도", false);
-            this.tossSellTab.Location = new Point(252, 10); this.tossSellTab.Size = new Size(226, 36);
-            this.tossSellTab.Click += delegate { this.SetTossTradeMode(false); };
+            this.tossSellTab.Location = new Point(170, 10); this.tossSellTab.Size = new Size(150, 36);
+            this.tossSellTab.Click += delegate { this.SetTossTradeMode(TossSell); };
             orderCard.Controls.Add(this.tossSellTab);
+            this.tossShortTab = CreateSegmentButton("공매도", false);
+            this.tossShortTab.Location = new Point(328, 10); this.tossShortTab.Size = new Size(150, 36);
+            this.tossShortTab.Click += delegate { this.SetTossTradeMode(TossShort); };
+            this.tossShortTab.AccessibleDescription = "값이 내리면 버는 거래입니다. 담보를 걸고 반대로 섭니다.";
+            orderCard.Controls.Add(this.tossShortTab);
             Label quantityLabel = TossLabel(orderCard, new Point(14, 55), new Size(76, 29),
                 ContentAlignment.MiddleLeft, 10.0f, FontStyle.Bold);
             quantityLabel.Text = "주문 수량";
@@ -3043,9 +3087,17 @@ namespace PokemonTaskbar
             this.tossAction = (GameActionButton)CreateActionButton("매수하기", MenuRed);
             this.tossAction.Location = new Point(14, 144);
             this.tossAction.Size = new Size(462, 52);
-            this.tossAction.Click += delegate { this.TradeToss(this.tossBuying); };
+            this.tossAction.Click += delegate { this.TradeToss(this.tossMode); };
             this.tossAction.AccessibleName = "주식 주문 실행";
             orderCard.Controls.Add(this.tossAction);
+            // 공매도는 열기와 정리가 따로라 단추가 둘 필요하다.
+            this.tossCoverAction = (GameActionButton)CreateActionButton("청산하기", MenuGreen);
+            this.tossCoverAction.Location = new Point(250, 144);
+            this.tossCoverAction.Size = new Size(226, 52);
+            this.tossCoverAction.Visible = false;
+            this.tossCoverAction.Click += delegate { this.TradeToss(TossCover); };
+            this.tossCoverAction.AccessibleName = "공매도 청산";
+            orderCard.Controls.Add(this.tossCoverAction);
             this.tossToast = new GameCardPanel();
             this.tossToast.BackColor = Color.FromArgb(37, 72, 67);
             this.tossToast.BorderColor = MenuGreen; this.tossToast.CornerRadius = 11;
@@ -3075,6 +3127,22 @@ namespace PokemonTaskbar
             // 소식이 번쩍이면 "새 이벤트" 라는 뜻이 흐려진다.
             this.tossEventFlashKey = this.world.StockEvent;
             this.RefreshTossMarket();
+        }
+
+        /// <summary>목록 한 줄에 적는 보유 상태. 보유와 공매도가 같이 있을 수 있다.</summary>
+        public static string HoldingRowText(PetWorld world, int index, bool crisis)
+        {
+            int shares = world.Options.StockShares[index];
+            int shorts = world.Options.StockShorts[index];
+            string state = shares > 0 && shorts > 0
+                ? "보유 " + shares + "주 · 공매도 " + shorts + "주"
+                : shares > 0 ? "보유 " + shares + "주"
+                : shorts > 0 ? "공매도 " + shorts + "주" : "";
+            if (state.Length == 0)
+            {
+                return crisis ? "위험 · 폐지 임박" : world.StockPrimaryProfile(index);
+            }
+            return crisis ? "위험 · " + state : state;
         }
 
         private static Label TossLabel(Control parent, Point location, Size size,
@@ -3129,19 +3197,19 @@ namespace PokemonTaskbar
             this.RefreshTossMarket();
         }
 
-        private void SetTossTradeMode(bool buying)
+        private void SetTossTradeMode(int mode)
         {
-            this.tossBuying = buying;
+            this.tossMode = mode;
             this.RefreshTossMarket();
         }
 
         private void SetTossStockFilter(bool ownedOnly)
         {
-            if (ownedOnly && this.world.Options.StockShares[this.selectedStock] <= 0)
+            if (ownedOnly && !this.world.HasStockPosition(this.selectedStock))
             {
                 int firstOwned = -1;
                 for (int i = 0; i < PetWorld.StockSlotCount; i++)
-                    if (this.world.Options.StockShares[i] > 0) { firstOwned = i; break; }
+                    if (this.world.HasStockPosition(i)) { firstOwned = i; break; }
                 if (firstOwned < 0) return;
                 this.selectedStock = firstOwned;
             }
@@ -3151,15 +3219,30 @@ namespace PokemonTaskbar
 
         private void ApplyTossTradeMode()
         {
-            this.tossBuyTab.BackColor = this.tossBuying ? MenuRed : MenuPanel;
-            this.tossBuyTab.ForeColor = this.tossBuying ? Color.White : MenuMuted;
-            this.tossBuyTab.EdgeColor = this.tossBuying ? MenuRed : MenuLine;
-            this.tossSellTab.BackColor = this.tossBuying ? MenuPanel : MenuBlue;
-            this.tossSellTab.ForeColor = this.tossBuying ? MenuMuted : Color.White;
-            this.tossSellTab.EdgeColor = this.tossBuying ? MenuLine : MenuBlue;
-            this.tossAction.BackColor = this.tossBuying ? MenuRed : MenuBlue;
-            this.tossAction.DepthColor = this.tossBuying ? MenuRedDark : Color.FromArgb(48, 111, 168);
-            this.tossBuyTab.Invalidate(); this.tossSellTab.Invalidate(); this.tossAction.Invalidate();
+            Color shortColor = Color.FromArgb(188, 130, 62);
+            PaintTossTab(this.tossBuyTab, this.tossMode == TossBuy, MenuRed);
+            PaintTossTab(this.tossSellTab, this.tossMode == TossSell, MenuBlue);
+            PaintTossTab(this.tossShortTab, this.tossMode == TossShort, shortColor);
+            Color action = this.tossMode == TossBuy ? MenuRed
+                : this.tossMode == TossSell ? MenuBlue : shortColor;
+            this.tossAction.BackColor = action;
+            this.tossAction.DepthColor = this.tossMode == TossBuy ? MenuRedDark
+                : this.tossMode == TossSell ? Color.FromArgb(48, 111, 168)
+                : Color.FromArgb(140, 94, 40);
+            // 공매도일 때만 청산 단추가 나오므로 실행 단추를 절반으로 줄인다.
+            bool shorting = this.tossMode == TossShort;
+            this.tossAction.Width = shorting ? 226 : 462;
+            this.tossCoverAction.Visible = shorting;
+            this.tossBuyTab.Invalidate(); this.tossSellTab.Invalidate();
+            this.tossShortTab.Invalidate(); this.tossAction.Invalidate();
+            this.tossCoverAction.Invalidate();
+        }
+
+        private static void PaintTossTab(GameActionButton tab, bool active, Color color)
+        {
+            tab.BackColor = active ? color : MenuPanel;
+            tab.ForeColor = active ? Color.White : MenuMuted;
+            tab.EdgeColor = active ? color : MenuLine;
         }
 
         private void RefreshTossEvent(int index)
@@ -3286,18 +3369,35 @@ namespace PokemonTaskbar
 
         private int MaximumTossQuantity()
         {
-            int maximum = this.tossBuying
-                ? this.world.StockMaximumBuyQuantity(this.selectedStock)
-                : this.world.StockMaximumSellQuantity(this.selectedStock);
+            int index = this.selectedStock;
+            int maximum = this.tossMode == TossBuy ? this.world.StockMaximumBuyQuantity(index)
+                : this.tossMode == TossSell ? this.world.StockMaximumSellQuantity(index)
+                : this.world.StockMaximumShortQuantity(index);
             return Math.Max(1, maximum);
         }
 
-        private void TradeToss(bool buying)
+        /// <summary>한 주에 오가는 돈. 공매도는 담보, 청산은 돌려받는 돈이다.</summary>
+        private int TossUnitAmount(int mode, int index)
+        {
+            if (mode == TossBuy) return this.world.StockBuyCost(index);
+            if (mode == TossSell) return this.world.StockSellProceeds(index);
+            if (mode == TossShort) return this.world.StockShortCost(index);
+            return this.world.StockCoverProceeds(index);
+        }
+
+        private static string TossModeName(int mode)
+        {
+            if (mode == TossBuy) return "매수";
+            if (mode == TossSell) return "매도";
+            return mode == TossShort ? "공매도" : "청산";
+        }
+
+        private void TradeToss(int mode)
         {
             int quantity = (int)this.tossQuantity.Value;
             int index = this.selectedStock;
-            long amount = (long)(buying ? this.world.StockBuyCost(index)
-                : this.world.StockSellProceeds(index)) * quantity;
+            long amount = (long)this.TossUnitAmount(mode, index) * quantity;
+            bool spending = mode == TossBuy || mode == TossShort;
             if (this.world.IsStockDelisted(index))
             {
                 this.ShowTossFeedback(false, "주문할 수 없습니다", "상장폐지된 종목입니다."); return;
@@ -3311,41 +3411,63 @@ namespace PokemonTaskbar
                 this.ShowTossFeedback(false, "거래가 일시 정지됐습니다",
                     this.world.Options.StockHaltSeconds[index] + "초 후 다시 시도해 주세요."); return;
             }
-            if (buying && this.world.Options.Coins < amount)
+            if (spending && this.world.Options.Coins < amount)
             {
                 this.ShowTossFeedback(false, "보유금이 부족합니다",
                     PetWorld.FormatWon(amount - this.world.Options.Coins) + "이 더 필요합니다."); return;
             }
-            if (!buying && this.world.Options.StockShares[index] < quantity)
+            if (mode == TossSell && this.world.Options.StockShares[index] < quantity)
             {
                 this.ShowTossFeedback(false, "보유 수량이 부족합니다",
                     "현재 " + this.world.Options.StockShares[index] + "주를 보유하고 있습니다."); return;
             }
-            if (quantity >= 10 || (buying && amount >= this.world.Options.Coins * 0.2))
+            if (mode == TossCover && this.world.Options.StockShorts[index] < quantity)
             {
-                string action = buying ? "매수" : "매도";
+                this.ShowTossFeedback(false, "공매도 수량이 부족합니다",
+                    "현재 " + this.world.Options.StockShorts[index] + "주를 공매도하고 있습니다."); return;
+            }
+            if (quantity >= 10 || (spending && amount >= this.world.Options.Coins * 0.2))
+            {
+                string action = TossModeName(mode);
+                string warning = mode == TossShort
+                    ? "\n값이 " + PetWorld.FormatWon(this.world.Options.StockPrices[index] * 2)
+                        + "까지 오르면 담보를 다 잃습니다."
+                    : "";
                 if (MessageBox.Show(action + " " + quantity + "주\n" + PetWorld.FormatWon(amount)
-                    + "\n거래할까요?", "거래 확인", MessageBoxButtons.YesNo,
+                    + warning + "\n거래할까요?", "거래 확인", MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question) != DialogResult.Yes)
                 {
                     return;
                 }
             }
-            if (buying)
+            string detail;
+            if (mode == TossBuy)
             {
                 this.world.BuyStock(index, quantity);
-                this.RefreshTossMarket();
-                this.ShowTossFeedback(true, "매수 완료 · " + this.world.StockName(index) + " " + quantity + "주",
-                    PetWorld.FormatWon(amount) + " · 남은 현금 " + PetWorld.FormatWon(this.world.Options.Coins));
+                detail = PetWorld.FormatWon(amount) + " · 남은 현금 "
+                    + PetWorld.FormatWon(this.world.Options.Coins);
+            }
+            else if (mode == TossSell)
+            {
+                this.world.SellStock(index, quantity);
+                detail = PetWorld.FormatWon(amount) + " · 남은 보유 "
+                    + this.world.Options.StockShares[index] + "주";
+            }
+            else if (mode == TossShort)
+            {
+                this.world.ShortStock(index, quantity);
+                detail = "담보 " + PetWorld.FormatWon(amount) + " · 강제 청산가 "
+                    + PetWorld.FormatWon(this.world.StockShortWipePrice(index));
             }
             else
             {
-                this.world.SellStock(index, quantity);
-                this.RefreshTossMarket();
-                this.ShowTossFeedback(true, "매도 완료 · " + this.world.StockName(index) + " " + quantity + "주",
-                    PetWorld.FormatWon(amount) + " · 남은 보유 "
-                    + this.world.Options.StockShares[index] + "주");
+                this.world.CoverStock(index, quantity);
+                detail = PetWorld.FormatWon(amount) + " · 남은 공매도 "
+                    + this.world.Options.StockShorts[index] + "주";
             }
+            this.RefreshTossMarket();
+            this.ShowTossFeedback(true, TossModeName(mode) + " 완료 · "
+                + this.world.StockName(index) + " " + quantity + "주", detail);
         }
 
         private void ShowTossFeedback(bool success, string title, string detail)
@@ -3424,7 +3546,7 @@ namespace PokemonTaskbar
             this.notice.Text = this.world.MarketMoverSummary;
             int ownedCount = 0;
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
-                if (this.world.Options.StockShares[i] > 0) ownedCount++;
+                if (this.world.HasStockPosition(i)) ownedCount++;
             this.tossAllStocksTab.Text = "전체 " + PetWorld.StockSlotCount;
             this.tossOwnedStocksTab.Text = "보유 " + ownedCount;
             this.tossOwnedStocksTab.Enabled = ownedCount > 0;
@@ -3437,7 +3559,7 @@ namespace PokemonTaskbar
             int visibleRow = 0;
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
-                bool visible = !this.tossOwnedOnly || this.world.Options.StockShares[i] > 0;
+                bool visible = !this.tossOwnedOnly || this.world.HasStockPosition(i);
                 this.tossRows[i].Visible = visible;
                 if (visible)
                 {
@@ -3460,10 +3582,7 @@ namespace PokemonTaskbar
                         + " " + string.Format(CultureInfo.InvariantCulture, "{0:+0.0;-0.0;0.0}%", delta));
                 this.tossNames[i].ForeColor = MenuInk;
                 bool crisis = this.world.IsStockInCrisis(i);
-                this.tossHoldings[i].Text = this.world.Options.StockShares[i] > 0
-                    ? (crisis ? "위험 · 보유 " + this.world.Options.StockShares[i] + "주"
-                        : "보유 " + this.world.Options.StockShares[i] + "주")
-                    : (crisis ? "위험 · 폐지 임박" : this.world.StockPrimaryProfile(i));
+                this.tossHoldings[i].Text = HoldingRowText(this.world, i, crisis);
                 this.tossHoldings[i].ForeColor = crisis ? MenuRed : MenuMuted;
                 this.tossPrices[i].Text = this.world.IsStockDelisted(i) ? "상장폐지"
                     : PetWorld.FormatWon(this.world.Options.StockPrices[i]);
@@ -3495,6 +3614,7 @@ namespace PokemonTaskbar
                 this.tossOrderSummary.Text = "상장폐지 종목은 주문할 수 없습니다.";
                 this.tossAction.Text = "주문할 수 없습니다";
                 this.tossAction.Enabled = false;
+                this.tossCoverAction.Enabled = false;
                 this.UpdateTossActionAccessibility();
                 return;
             }
@@ -3508,9 +3628,14 @@ namespace PokemonTaskbar
                 + this.world.StockProfileDescription(index);
             this.tossDetailMeta.AccessibleDescription = this.tossDetailMeta.Text
                 .Replace("\r", " ").Replace("\n", " ");
-            double profitPercent = this.world.StockProfitPercent(index);
-            this.tossDetailHolding.Text = this.world.StockPositionText(index, false);
-            this.tossDetailProfitPercent.Text = this.world.Options.StockShares[index] > 0
+            bool bothPositions = this.world.Options.StockShares[index] > 0
+                && this.world.Options.StockShorts[index] > 0;
+            bool shortOnly = this.world.Options.StockShares[index] <= 0
+                && this.world.Options.StockShorts[index] > 0;
+            double profitPercent = shortOnly ? this.world.StockShortProfitPercent(index)
+                : this.world.StockProfitPercent(index);
+            this.tossDetailHolding.Text = this.world.StockPositionText(index, bothPositions);
+            this.tossDetailProfitPercent.Text = !bothPositions && this.world.HasStockPosition(index)
                 ? string.Format("{0:+0.0;-0.0;0.0}%", profitPercent) : "";
             this.tossDetailProfitPercent.ForeColor = PercentColor(profitPercent);
             if (!this.world.MarketIsOpen)
@@ -3519,6 +3644,7 @@ namespace PokemonTaskbar
                 this.tossOrderSummary.Text = "휴장 중에는 주문할 수 없습니다.";
                 this.tossAction.Text = "휴장 중 · 주문 불가";
                 this.tossAction.Enabled = false;
+                this.tossCoverAction.Enabled = false;
                 this.UpdateTossActionAccessibility();
                 return;
             }
@@ -3528,16 +3654,17 @@ namespace PokemonTaskbar
                 this.tossOrderSummary.Text = "변동성 완화장치가 해제되면 주문할 수 있습니다.";
                 this.tossAction.Text = "거래 정지 · 주문 불가";
                 this.tossAction.Enabled = false;
+                this.tossCoverAction.Enabled = false;
                 this.UpdateTossActionAccessibility();
                 return;
             }
             int quantity = (int)this.tossQuantity.Value;
             this.tossQuantity.Enabled = true;
             long gross = (long)price * quantity;
-            long amount = (long)(this.tossBuying ? this.world.StockBuyCost(index)
-                : this.world.StockSellProceeds(index)) * quantity;
+            long amount = (long)this.TossUnitAmount(this.tossMode, index) * quantity;
             long fee = Math.Abs(amount - gross);
-            if (this.tossBuying)
+            this.tossCoverAction.Enabled = false;
+            if (this.tossMode == TossBuy)
             {
                 int maximum = this.world.StockMaximumBuyQuantity(index);
                 this.tossOrderSummary.Text = "주문금액 " + PetWorld.FormatWon(amount)
@@ -3550,7 +3677,7 @@ namespace PokemonTaskbar
                     : "보유금이 부족합니다\r\n" + PetWorld.FormatWon(amount) + " 필요";
                 this.tossAction.Enabled = affordable;
             }
-            else
+            else if (this.tossMode == TossSell)
             {
                 int shares = this.world.Options.StockShares[index];
                 this.tossOrderSummary.Text = "예상 수령액 " + PetWorld.FormatWon(amount)
@@ -3562,6 +3689,33 @@ namespace PokemonTaskbar
                     ? quantity + "주 매도하기\r\n" + PetWorld.FormatWon(amount)
                     : "보유 수량이 부족합니다";
                 this.tossAction.Enabled = enough;
+            }
+            else
+            {
+                // 공매도는 담보를 걸고 값이 내리기를 기다리는 것이다. 얼마까지
+                // 오르면 담보를 다 잃는지가 가장 중요한 값이라 늘 함께 적는다.
+                int shorts = this.world.Options.StockShorts[index];
+                long cover = (long)this.world.StockCoverProceeds(index) * quantity;
+                this.tossOrderSummary.Text = "담보 " + PetWorld.FormatWon(amount)
+                    + "  ·  수수료 " + PetWorld.FormatWon(fee)
+                    + "  ·  " + PetWorld.FormatWon((long)price * 2) + "까지 오르면 담보 전액 손실"
+                    + "\r\n현재 공매도 " + shorts + "주"
+                    + (shorts > 0 ? "  ·  진입가 "
+                        + PetWorld.FormatWon(this.world.Options.StockShortPrices[index])
+                        + "  ·  청산 시 " + PetWorld.FormatWon(cover) : "")
+                    + "  ·  최대 " + this.world.StockMaximumShortQuantity(index) + "주";
+                bool affordable = this.world.Options.Coins >= amount;
+                this.tossAction.Text = affordable
+                    ? quantity + "주 공매도\r\n담보 " + PetWorld.FormatWon(amount)
+                    : "보유금이 부족합니다\r\n" + PetWorld.FormatWon(amount) + " 필요";
+                this.tossAction.Enabled = affordable;
+                bool coverable = shorts >= quantity;
+                this.tossCoverAction.Text = coverable
+                    ? quantity + "주 청산\r\n" + PetWorld.FormatWon(cover)
+                    : "공매도 수량 부족";
+                this.tossCoverAction.Enabled = coverable;
+                this.tossCoverAction.AccessibleDescription = this.tossCoverAction.Text
+                    .Replace("\r", " ").Replace("\n", " ");
             }
             this.UpdateTossActionAccessibility();
         }
@@ -5068,9 +5222,17 @@ namespace PokemonTaskbar
             for (int i = 0; i < PetWorld.StockSlotCount; i++)
             {
                 int shares = this.world.Options.StockShares[i];
-                if (shares <= 0) continue;
-                lines.Add(this.world.StockName(i) + "  " + shares + "주  ·  "
-                    + PetWorld.FormatWon(shares * this.world.Options.StockPrices[i]));
+                if (shares > 0)
+                {
+                    lines.Add(this.world.StockName(i) + "  " + shares + "주  ·  "
+                        + PetWorld.FormatWon(shares * this.world.Options.StockPrices[i]));
+                }
+                int shorts = this.world.Options.StockShorts[i];
+                if (shorts > 0)
+                {
+                    lines.Add(this.world.StockName(i) + "  공매도 " + shorts + "주  ·  "
+                        + PetWorld.FormatWon(this.world.StockShortValue(i)));
+                }
             }
             return lines.Count == 0 ? "보유 종목이 없습니다.\r\n전체 주식창에서 종목을 살펴보세요."
                 : string.Join("\r\n", lines.ToArray());
@@ -5278,6 +5440,10 @@ namespace PokemonTaskbar
         // 가장 안전했다. 비율로 두면 모든 종목이 같은 낙폭에서 위험해진다.
         public const double StockCrisisRatio = 0.55;    // 기준가의 55% 밑 = 위기
         public const double StockDelistRatio = 0.30;    // 기준가의 30% 밑 = 상장폐지
+        // 공매도는 담보를 걸고 반대로 서는 것이다. 값이 내린 만큼 벌고 오른 만큼
+        // 잃되, 진입가의 두 배가 되면 담보를 다 잃고 강제 청산된다. 이 상한이
+        // 없으면 손실이 끝없이 불어나 게임이 아니라 빚이 된다.
+        public const double StockShortWipeRatio = 2.0;
         public static readonly string[] StockNames = {
             "피카츄전기", "꼬부기워터", "이상해씨농장", "파이리화력",
             "메타몽랩", "뮤테크", "이브이패션", "고라파덕물류",
@@ -5996,6 +6162,80 @@ namespace PokemonTaskbar
             this.RefreshStockOverlay();
         }
 
+        /// <summary>담보를 걸고 하락에 선다. 값이 내리면 그만큼 번다.</summary>
+        public void ShortStock(int index, int quantity)
+        {
+            if (!this.marketOpen || this.IsStockDelisted(index) || this.IsStockHalted(index))
+            {
+                return;
+            }
+            quantity = Math.Max(1, quantity);
+            int price = this.Options.StockPrices[index];
+            int shorts = this.Options.StockShorts[index];
+            long cost = (long)this.StockShortCost(index) * quantity;
+            if (price <= 0 || this.Options.Coins < cost)
+            {
+                return;
+            }
+            this.Options.Coins -= (int)cost;
+            // 담보와 손익의 기준은 수수료를 뺀 그때의 값이다.
+            this.Options.StockShortPrices[index] = (int)Math.Round(
+                (this.Options.StockShortPrices[index] * (double)shorts + (double)price * quantity)
+                / (shorts + quantity), MidpointRounding.AwayFromZero);
+            this.Options.StockShorts[index] = shorts + quantity;
+            this.SaveSettings();
+            this.RefreshStockOverlay();
+        }
+
+        /// <summary>공매도를 되사서 정리한다(청산).</summary>
+        public void CoverStock(int index, int quantity)
+        {
+            quantity = Math.Max(1, quantity);
+            if (!this.marketOpen || this.IsStockDelisted(index) || this.IsStockHalted(index)
+                || this.Options.StockShorts[index] < quantity)
+            {
+                return;
+            }
+            long payout = (long)this.StockCoverProceeds(index) * quantity;
+            this.Options.StockShorts[index] -= quantity;
+            this.Options.Coins = (int)Math.Min(int.MaxValue, this.Options.Coins + payout);
+            if (this.Options.StockShorts[index] == 0)
+            {
+                this.Options.StockShortPrices[index] = 0;
+            }
+            this.SaveSettings();
+            this.RefreshStockOverlay();
+        }
+
+        /// <summary>담보가 다 녹은 공매도를 강제로 정리한다.</summary>
+        private void MarginCallStock(int index)
+        {
+            if (this.Options.StockShorts[index] <= 0
+                || this.Options.StockPrices[index] < this.StockShortWipePrice(index))
+            {
+                return;
+            }
+            long lost = (long)this.Options.StockShortPrices[index] * this.Options.StockShorts[index];
+            this.SettleShort(index, this.Options.StockPrices[index]);
+            this.AnnounceStockEvent(this.StockName(index) + " 공매도 강제 청산! 담보 "
+                + FormatWon(lost) + "을 잃었습니다.");
+        }
+
+        /// <summary>공매도를 지금 값으로 전부 정리하고 돌려받은 돈을 알려 준다.</summary>
+        private long SettleShort(int index, int price)
+        {
+            int shorts = this.Options.StockShorts[index];
+            if (shorts <= 0)
+            {
+                return 0;
+            }
+            long payout = (long)ShortPayout(this.Options.StockShortPrices[index], price) * shorts;
+            this.Options.StockShorts[index] = 0;
+            this.Options.StockShortPrices[index] = 0;
+            this.Options.Coins = (int)Math.Min(int.MaxValue, this.Options.Coins + payout);
+            return payout;
+        }
+
         /// <summary>종목 성격별 등락과 이벤트, 상장폐지·신규 상장을 처리한다.</summary>
         public void UpdateMarket()
         {
@@ -6071,16 +6311,21 @@ namespace PokemonTaskbar
                 int price = StockPriceAfterChange(this.Options.StockPrices[i], change);
                 if (price <= this.StockDelistPrice(i))
                 {
+                    // 값이 0 이 되므로 공매도는 여기서 최대로 번다. 종목이 사라지기
+                    // 전에 정리해 주지 않으면 걸어 둔 담보까지 같이 없어진다.
+                    long shortWin = this.SettleShort(i, 0);
                     this.Options.StockPrices[i] = 0;
                     this.Options.StockShares[i] = 0;
                     this.Options.StockAveragePrices[i] = 0;
                     this.Options.StockDelisted[i] = 1;
                     this.Options.StockRelistSeconds[i] = StockRelistSeconds;
-                    this.AnnounceStockEvent(this.StockName(i) + " 상장폐지! 보유 주식은 소멸했습니다.");
+                    this.AnnounceStockEvent(this.StockName(i) + " 상장폐지! 보유 주식은 소멸했습니다."
+                        + (shortWin > 0 ? " 공매도 정산 " + FormatWon(shortWin) + "!" : ""));
                 }
                 else
                 {
                     this.Options.StockPrices[i] = price;
+                    this.MarginCallStock(i);
                 }
                 this.stockHistory[i].Add(this.Options.StockPrices[i]);
                 if (this.stockHistory[i].Count > 20)
@@ -6183,6 +6428,21 @@ namespace PokemonTaskbar
         internal void OpenMarketForTest()
         {
             this.marketOpen = true;
+        }
+
+        /// <summary>테스트용. 장을 닫아 둔다.</summary>
+        internal void CloseMarketForTest()
+        {
+            this.marketOpen = false;
+        }
+
+        /// <summary>테스트용. 담보가 녹은 공매도를 정리하는 부분만 돌린다.</summary>
+        internal void TickShortMarginForTest()
+        {
+            for (int i = 0; i < StockSlotCount; i++)
+            {
+                this.MarginCallStock(i);
+            }
         }
 
         /// <summary>테스트용. 지금 국면 번호.</summary>
@@ -6475,6 +6735,76 @@ namespace PokemonTaskbar
             return Math.Max(0, price - (int)Math.Ceiling(price * StockFeeRate));
         }
 
+        /// <summary>한 주 공매도할 때 잠기는 담보와 수수료.</summary>
+        public int StockShortCost(int index)
+        {
+            int price = this.Options.StockPrices[index];
+            return price + (int)Math.Ceiling(price * StockFeeRate);
+        }
+
+        /// <summary>한 주 청산할 때 돌려받는 돈. 담보에 손익을 더한 값이다.</summary>
+        public int StockCoverProceeds(int index)
+        {
+            return ShortPayout(this.Options.StockShortPrices[index], this.Options.StockPrices[index]);
+        }
+
+        /// <summary>진입가 대비 지금 값으로 한 주를 정리하면 받는 돈.</summary>
+        public static int ShortPayout(int entry, int price)
+        {
+            if (entry <= 0)
+            {
+                return 0;
+            }
+            long gross = Math.Max(0L, (long)entry * 2 - price);
+            long net = gross - (long)Math.Ceiling(gross * StockFeeRate);
+            return (int)Math.Max(0L, Math.Min(int.MaxValue, net));
+        }
+
+        /// <summary>여기까지 오르면 담보가 다 녹아 강제 청산된다.</summary>
+        public int StockShortWipePrice(int index)
+        {
+            return (int)Math.Ceiling(this.Options.StockShortPrices[index] * StockShortWipeRatio);
+        }
+
+        public int StockMaximumShortQuantity(int index)
+        {
+            int affordable = this.Options.Coins / Math.Max(1, this.StockShortCost(index));
+            int remaining = Math.Max(0, StockMaxOrderQuantity - this.Options.StockShorts[index]);
+            return Math.Max(0, Math.Min(affordable, remaining));
+        }
+
+        public int StockMaximumCoverQuantity(int index)
+        {
+            return Math.Max(0, this.Options.StockShorts[index]);
+        }
+
+        public int StockShortValue(int index)
+        {
+            return (int)Math.Min(int.MaxValue,
+                (long)this.StockCoverProceeds(index) * this.Options.StockShorts[index]);
+        }
+
+        public int StockShortProfit(int index)
+        {
+            return (int)(this.StockShortValue(index)
+                - (long)this.Options.StockShortPrices[index] * this.Options.StockShorts[index]);
+        }
+
+        public double StockShortProfitPercent(int index)
+        {
+            int entry = this.Options.StockShortPrices[index];
+            if (this.Options.StockShorts[index] <= 0 || entry <= 0)
+            {
+                return 0.0;
+            }
+            return (this.StockCoverProceeds(index) - entry) * 100.0 / entry;
+        }
+
+        public bool HasStockPosition(int index)
+        {
+            return this.Options.StockShares[index] > 0 || this.Options.StockShorts[index] > 0;
+        }
+
         public double StockProfitPercent(int index)
         {
             int average = this.Options.StockAveragePrices[index];
@@ -6505,16 +6835,39 @@ namespace PokemonTaskbar
         {
             string trend = this.stockTrends[index] < 0 ? "하락 추세"
                 : this.stockTrends[index] > 0 ? "상승 추세" : "횡보";
-            if (this.Options.StockShares[index] <= 0)
+            int shares = this.Options.StockShares[index];
+            int shorts = this.Options.StockShorts[index];
+            if (shares <= 0 && shorts <= 0)
             {
-                return "보유 주식 없음\n매수 후 평균 매입가·평가액·손익이 표시됩니다.";
+                return "보유 주식 없음\n매수하면 평가액과 손익이, 공매도하면 정산 예상액이 나옵니다.";
             }
-            string percentText = includePercent
-                ? string.Format(" ({0:+0.0;-0.0;0.0}%)", this.StockProfitPercent(index)) : "";
-            return string.Format("보유 {0}주  ·  평균 매입가 {1}\n평가액 {2}  ·  손익 {3:+#,0;-#,0;0}원{4}\n{5}",
-                this.Options.StockShares[index], FormatWon(this.Options.StockAveragePrices[index]),
-                FormatWon(this.StockHoldingValue(index)), this.StockHoldingProfit(index),
-                percentText, trend);
+            List<string> lines = new List<string>();
+            if (shares > 0)
+            {
+                string percentText = includePercent
+                    ? string.Format(" ({0:+0.0;-0.0;0.0}%)", this.StockProfitPercent(index)) : "";
+                lines.Add(string.Format("보유 {0}주  ·  평균 매입가 {1}",
+                    shares, FormatWon(this.Options.StockAveragePrices[index])));
+                lines.Add(string.Format("평가액 {0}  ·  손익 {1:+#,0;-#,0;0}원{2}",
+                    FormatWon(this.StockHoldingValue(index)), this.StockHoldingProfit(index),
+                    percentText));
+            }
+            if (shorts > 0)
+            {
+                string percentText = includePercent
+                    ? string.Format(" ({0:+0.0;-0.0;0.0}%)", this.StockShortProfitPercent(index)) : "";
+                lines.Add(string.Format("공매도 {0}주  ·  진입가 {1}  ·  강제 청산가 {2}",
+                    shorts, FormatWon(this.Options.StockShortPrices[index]),
+                    FormatWon(this.StockShortWipePrice(index))));
+                lines.Add(string.Format("정산 예상 {0}  ·  손익 {1:+#,0;-#,0;0}원{2}",
+                    FormatWon(this.StockShortValue(index)), this.StockShortProfit(index),
+                    percentText));
+            }
+            if (lines.Count <= 2)
+            {
+                lines.Add(trend);
+            }
+            return string.Join("\n", lines.ToArray());
         }
 
         private int StockVolatility(int index)
@@ -6567,6 +6920,7 @@ namespace PokemonTaskbar
                 if (!this.IsStockDelisted(i))
                 {
                     total += this.StockSellProceeds(i) * this.Options.StockShares[i];
+                    total += this.StockShortValue(i);
                 }
             }
             return total;
@@ -6580,6 +6934,8 @@ namespace PokemonTaskbar
                 if (!this.IsStockDelisted(i))
                 {
                     total += this.Options.StockAveragePrices[i] * this.Options.StockShares[i];
+                    // 공매도는 진입가만큼을 담보로 걸어 둔 것이라 원금에 들어간다.
+                    total += this.Options.StockShortPrices[i] * this.Options.StockShorts[i];
                 }
             }
             return total;

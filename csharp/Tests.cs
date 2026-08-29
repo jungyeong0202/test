@@ -161,6 +161,7 @@ namespace PokemonTaskbar.Tests
                 StockSpecialEvents();
                 Relisting();
                 EventSpread();
+                StockRisk();
                 Dex();
                 Training();
                 ShortSelling();
@@ -1125,6 +1126,75 @@ namespace PokemonTaskbar.Tests
                 app.UpdateMarket();
                 Check.That(!app.IsStockDelisted(0), "시간이 지나면 새 종목이 들어온다");
                 Check.That(app.Options.StockPrices[0] > 0, "새 종목에 값이 붙는다");
+            }
+        }
+
+        // --- 주식의 위험 -------------------------------------------------------
+
+        private static void StockRisk()
+        {
+            Check.Section("주식의 위험");
+
+            // 평균 회귀가 셀수록 "기준가보다 싸다" 가 곧 "곧 오른다" 가 되어
+            // 눌린 값에 사는 것이 무위험 차익이 된다. 재 보니 승률 95%,
+            // 시간당 82만원 — 포켓몬 네 마리보다 많이 벌었다.
+            Check.That(PetWorld.StockReversionScale < 1.0,
+                "평균 회귀가 예전보다 약하다");
+            Check.That(PetWorld.StockReversionScale > 0.0,
+                "그래도 기준가로 돌아오려는 힘은 남아 있다");
+
+            // 극단 사건은 보통 사건보다 훨씬 크게 움직여야 뜻이 있다.
+            int plainBest = 0, plainWorst = 0;
+            foreach (int bound in PetWorld.BroadNewsRangeForTest(-1, true))
+                if (bound > plainBest) plainBest = bound;
+            foreach (int bound in PetWorld.BroadNewsRangeForTest(-1, false))
+                if (bound < plainWorst) plainWorst = bound;
+            bool boomBigger = true, crashDeeper = true;
+            foreach (PetWorld.MarketNews news in PetWorld.ExtremeNewsForTest(true))
+                if (news.Least <= plainBest) boomBigger = false;
+            foreach (PetWorld.MarketNews news in PetWorld.ExtremeNewsForTest(false))
+                if (news.Most >= plainWorst) crashDeeper = false;
+            Check.That(boomBigger, "대폭등은 보통 호재보다 크게 오른다");
+            Check.That(crashDeeper, "대폭락은 보통 악재보다 깊게 내린다");
+            Check.That(PetWorld.StockExtremeShare > 0.0 && PetWorld.StockExtremeShare < 0.5,
+                "극단 사건은 드물게만 터진다");
+
+            // 분식회계: 값이 멀쩡해도 그 자리에서 사라진다. 위기 경고를 보고
+            // 팔고 나올 틈이 있으면 들고 있는 것이 안전해져서 도박이 아니게 된다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                app.OpenMarketForTest();
+                app.Options.Coins = 100000000;
+                app.Options.StockPrices[0] = app.StockBasePrice(0);   // 제 값이다
+                app.BuyStock(0, 10);
+                Check.Equal(app.Options.StockShares[0], 10, "제 값에 열 주를 샀다");
+                Check.That(!app.IsStockInCrisis(0), "위기 경고는 뜨지 않은 상태다");
+
+                string said = app.ScandalStockForTest(0);
+                Check.That(app.IsStockDelisted(0), "값이 멀쩡해도 상장폐지된다");
+                Check.Equal(app.Options.StockShares[0], 0, "보유 주식이 사라진다");
+                Check.That(said.IndexOf("분식회계") >= 0, "무슨 일인지 알려 준다");
+                Check.Equal(app.Options.StockRelistSeconds[0], PetWorld.StockRelistSeconds,
+                    "재상장 시계도 걸린다");
+                Check.That(PetWorld.StockScandalChance > 0.0
+                    && PetWorld.StockScandalChance < 0.01,
+                    "아주 드물게만 터진다");
+            }
+
+            // 공매도 중이었다면 분식회계는 최대 이익이다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                app.OpenMarketForTest();
+                app.Options.Coins = 100000000;
+                app.Options.StockPrices[0] = 1000;
+                app.ShortStock(0, 4);
+                int cash = app.Options.Coins;
+                app.ScandalStockForTest(0);
+                Check.Equal(app.Options.StockShorts[0], 0, "공매도가 정리된다");
+                Check.That(app.Options.Coins > cash + 4 * 1000,
+                    "값이 0 이 되므로 담보보다 많이 돌려받는다");
             }
         }
 

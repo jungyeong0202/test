@@ -5339,6 +5339,26 @@ namespace PokemonTaskbar
         // 재상장할 때 업종 균형을 무시하고 아무 종목이나 뽑을 확률의 역수.
         // 이것이 없으면 흔들림이 작은 종목끼리 자리를 잡은 업종의 명단이 굳는다.
         public const int StockRosterShuffleOdds = 3;
+        // 평균 회귀의 세기. 1.0 이 예전 값이다.
+        //
+        // 기준가 아래면 무조건 위로 미는 힘이 붙어서 "싸면 곧 오른다" 가 보장이
+        // 됐다. 눌린 값에 사서 기준가에 파는 뻔한 전략이 승률 95%, 시간당
+        // 82만원 — 포켓몬 네 마리보다 많이 벌었다.
+        //
+        // 기준가를 흔들어 보는 것은 소용이 없었다(82만 → 83만). 회귀는 기준가가
+        // 어디든 그 아래면 위로 밀기 때문이다. 미는 힘 자체를 줄여야 "싸다" 가
+        // 보장이 아니라 판단이 된다.
+        public const double StockReversionScale = 0.5;
+        // 전체 시장 사건이 났을 때 드물게 터지는 극단 사건일 확률.
+        //
+        // 벌 때는 크게 벌고 잃을 때는 크게 잃어야 도박이 된다. 보통 사건은
+        // ±3~18% 인데 이쪽은 ±25~60% 다.
+        public const double StockExtremeShare = 0.16;
+        // 예고 없이 상장폐지되는 사건(분식회계 적발)이 날 확률(갱신 한 번에).
+        //
+        // 값이 위기선을 지나면 경고가 뜨므로, 그것만 있으면 "물려도 기다리면
+        // 된다" 가 된다. 아주 드물게 경고 없이 사라지는 자리를 둔다.
+        public const double StockScandalChance = 0.0007;
         // 공매도는 담보를 걸고 반대로 서는 것이다. 값이 내린 만큼 벌고 오른 만큼
         // 잃되, 진입가의 두 배가 되면 담보를 다 잃고 강제 청산된다. 이 상한이
         // 없으면 손실이 끝없이 불어나 게임이 아니라 빚이 된다.
@@ -5469,6 +5489,20 @@ namespace PokemonTaskbar
             new MarketNews("야생 포켓몬 대량 출현 · 외출 통제", -13, -5),
             new MarketNews("연료 수급 차질", -14, -6),
         };
+        // 드물게 터지는 극단 사건. 보통 사건의 서너 배로 움직인다.
+        private static readonly MarketNews[] WholeMarketBoom = {
+            new MarketNews("전설의 포켓몬 목격 · 온 나라가 들썩", 28, 55),
+            new MarketNews("초대형 투자 유치 · 시장 과열", 26, 50),
+            new MarketNews("신대륙 항로 개통 · 기대감 폭발", 30, 60),
+            new MarketNews("세기의 합병 발표", 25, 46),
+        };
+        private static readonly MarketNews[] WholeMarketCrash = {
+            new MarketNews("대공황 · 시장이 무너졌습니다", -55, -30),
+            new MarketNews("초대형 지진 · 산업 기반 붕괴", -52, -28),
+            new MarketNews("역병 창궐 · 모든 거래 마비", -50, -30),
+            new MarketNews("연쇄 도산 · 신용 경색", -60, -34),
+        };
+
         private static readonly MarketNews[][] SectorGood = {
             new MarketNews[] {                      // 에너지
                 new MarketNews("전력 수요 급증", 10, 22),
@@ -6307,6 +6341,10 @@ namespace PokemonTaskbar
             }
             if (broadText.Length == 0)
             {
+                broadText = this.RollScandal(active);
+            }
+            if (broadText.Length == 0)
+            {
                 broadText = this.RollSpecialEvent(active);
             }
             if (broadText.Length == 0)
@@ -6521,6 +6559,12 @@ namespace PokemonTaskbar
             get { return SectorNames; }
         }
 
+        /// <summary>테스트용. 드물게 터지는 극단 사건표의 문구와 폭.</summary>
+        internal static MarketNews[] ExtremeNewsForTest(bool positive)
+        {
+            return positive ? WholeMarketBoom : WholeMarketCrash;
+        }
+
         /// <summary>테스트용. 시장 전체·업종 소식표의 문구.</summary>
         internal static string[] BroadNewsTextsForTest(int sector, bool positive)
         {
@@ -6665,7 +6709,7 @@ namespace PokemonTaskbar
             double meanReversion =
                 this.Options.StockPrices[index] < this.StockCrisisPrice(index) ? 0.0
                 : Math.Max(-5.0, Math.Min(5.0,
-                    priceGap * pullRate * StockPrimaryReversion[primary]));
+                    priceGap * pullRate * StockPrimaryReversion[primary] * StockReversionScale));
             double trend = this.stockTrends[index] * Math.Max(1.0, volatility * 0.16)
                 * StockPrimaryTrend[primary];
             // 위기 구간에서는 오르는 쪽만 좁힌다. 내리는 폭은 그대로라, 값이
@@ -7104,6 +7148,46 @@ namespace PokemonTaskbar
                 + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", percent);
         }
 
+        /// <summary>분식회계 적발. 값과 상관없이 그 자리에서 상장폐지된다.
+        ///
+        /// 값이 위기선을 지나면 경고가 뜨고, 그때부터 팔고 나올 틈이 있다.
+        /// 그것만 있으면 "물려도 기다리면 된다" 가 되어 들고 있는 것이 안전해진다.
+        /// 아주 드물게(갱신 1,400번에 한 번쯤) 경고 없이 사라지는 자리를 둔다.
+        /// </summary>
+        private string RollScandal(List<int> active)
+        {
+            if (active.Count == 0 || this.Random.NextDouble() >= StockScandalChance)
+            {
+                return "";
+            }
+            return this.ScandalStock(active[this.Random.Next(active.Count)]);
+        }
+
+        /// <summary>그 종목을 값과 상관없이 그 자리에서 상장폐지시킨다.</summary>
+        private string ScandalStock(int index)
+        {
+            string name = this.StockName(index);
+            int shares = this.Options.StockShares[index];
+            // 값이 0 이 되므로 공매도는 여기서 최대로 번다.
+            long shortWin = this.SettleShort(index, 0);
+            this.Options.StockPrices[index] = 0;
+            this.Options.StockShares[index] = 0;
+            this.Options.StockAveragePrices[index] = 0;
+            this.Options.StockDelisted[index] = 1;
+            this.Options.StockRelistSeconds[index] = StockRelistSeconds;
+            this.stockHistory[index].Add(0);
+            this.stockCrisisTold[index] = false;
+            return name + " 분식회계 적발! 예고 없이 상장폐지됐습니다."
+                + (shares > 0 ? " 보유 " + shares + "주가 사라졌습니다." : "")
+                + (shortWin > 0 ? " 공매도 정산 " + FormatWon(shortWin) + "!" : "");
+        }
+
+        /// <summary>테스트용. 그 자리에 분식회계를 터뜨린다.</summary>
+        internal string ScandalStockForTest(int index)
+        {
+            return this.ScandalStock(index);
+        }
+
         /// <summary>돈이나 보유 주식을 건드리는 사건을 굴린다.
         ///
         /// 다른 사건은 전부 "몇 % 움직였다" 로 끝난다. 소식이 아무리 많아도 하는
@@ -7284,7 +7368,10 @@ namespace PokemonTaskbar
 
             if (wholeMarket)
             {
-                MarketNews[] table = positive ? WholeMarketGood : WholeMarketBad;
+                bool extreme = this.Random.NextDouble() < StockExtremeShare;
+                MarketNews[] table = extreme
+                    ? (positive ? WholeMarketBoom : WholeMarketCrash)
+                    : (positive ? WholeMarketGood : WholeMarketBad);
                 MarketNews news = table[this.Random.Next(table.Length)];
                 double percent = this.PickNewsPercent(news);
                 foreach (int i in active)
@@ -7292,7 +7379,7 @@ namespace PokemonTaskbar
                     // 종목 성격에 따라 같은 소식도 다르게 받는다.
                     broadPercent[i] = this.StockEventChange(i, percent);
                 }
-                return "전체 시장 · " + news.Text + "  "
+                return (extreme ? "!!  전체 시장 · " : "전체 시장 · ") + news.Text + "  "
                     + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", percent);
             }
 

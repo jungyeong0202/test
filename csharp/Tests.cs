@@ -161,6 +161,7 @@ namespace PokemonTaskbar.Tests
                 StockSpecialEvents();
                 Relisting();
                 EventSpread();
+                Training();
                 ShortSelling();
                 DangerousActions();
                 Lifecycle();
@@ -1146,6 +1147,75 @@ namespace PokemonTaskbar.Tests
                 app.UpdateMarket();
                 Check.That(!app.IsStockDelisted(0), "시간이 지나면 새 종목이 들어온다");
                 Check.That(app.Options.StockPrices[0] > 0, "새 종목에 값이 붙는다");
+            }
+        }
+
+        // --- 훈련 --------------------------------------------------------------
+
+        private static void Training()
+        {
+            Check.Section("훈련");
+
+            // 값은 단계마다 오른다. 오르지 않으면 무한한 소비처가 되지 못한다.
+            Check.Equal(PetWorld.TrainCost(0), PetWorld.TrainCostBase, "첫 단계는 기본 값이다");
+            bool rising = true;
+            for (int level = 1; level < PetWorld.TrainLevelCap; level++)
+            {
+                if (PetWorld.TrainCost(level) <= PetWorld.TrainCost(level - 1)) { rising = false; }
+            }
+            Check.That(rising, "단계가 오를수록 값이 비싸진다");
+            Check.Equal(PetWorld.TrainCost(PetWorld.TrainLevelCap), 0,
+                "다 올리면 더 낼 것이 없다");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                PetForm pet = world.Pets[0];
+                double before = pet.IncomeMultiplierValue;
+
+                // 잔액이 모자라면 오르지 않는다.
+                app.Options.Coins = PetWorld.TrainCost(0) - 1;
+                Check.That(!app.TrainPet(pet), "잔액이 모자라면 훈련하지 못한다");
+                Check.Equal(pet.Level, 0, "실패하면 단계도 그대로다");
+
+                int cost = PetWorld.TrainCost(0);
+                app.Options.Coins = cost;
+                Check.That(app.TrainPet(pet), "값을 치르면 훈련된다");
+                Check.Equal(pet.Level, 1, "한 단계 오른다");
+                Check.Equal(app.Options.Coins, 0, "값만큼 돈이 빠진다");
+                Check.Near(pet.IncomeMultiplierValue, before + PetWorld.TrainIncomeStep, 0.0001,
+                    "한 단계가 기본 벌이의 5%를 더한다");
+
+                // 끝까지 올리면 더 오르지 않는다.
+                app.Options.Coins = int.MaxValue;
+                for (int i = 0; i < PetWorld.TrainLevelCap + 5; i++) { app.TrainPet(pet); }
+                Check.Equal(pet.Level, PetWorld.TrainLevelCap, "정해진 단계에서 멈춘다");
+                Check.That(!app.TrainPet(pet), "다 올린 뒤에는 훈련되지 않는다");
+                Check.Near(pet.IncomeMultiplierValue, before + 1.0, 0.0001,
+                    "다 올리면 벌이가 두 배가 된다");
+
+                // 훈련은 등급 배수에 곱하지 않는다. 곱하면 귀한 포켓몬일수록
+                // 훈련이 남는 장사가 되어 격차가 눈덩이처럼 불어난다.
+                Check.That(PetWorld.BestIncomeMultiplier()
+                    >= PetWorld.PokemonIncomeMultiplier("mew")
+                        * PetWorld.StageIncomeMultiplier(0)
+                        + PetWorld.TrainIncomeStep * PetWorld.TrainLevelCap,
+                    "희귀도 막대의 가득 값이 훈련까지 담는다");
+            }
+
+            // 단계는 저장되고 다시 열린다. 마리마다 따로 쌓여야 한다.
+            using (TestWorld world = World("-p", "pikachu", "-p", "ditto"))
+            {
+                PetWorld app = world.World;
+                app.Options.Coins = int.MaxValue;
+                app.TrainPet(world.Pets[0]);
+                app.TrainPet(world.Pets[0]);
+                app.TrainPet(world.Pets[1]);
+                Check.Equal(world.Pets[0].Level, 2, "첫 마리는 두 단계다");
+                Check.Equal(world.Pets[1].Level, 1, "둘째 마리는 한 단계다");
+                app.SaveSettings();
+                Check.Equal(app.Options.PetLevels[0], 2, "첫 마리 단계가 저장된다");
+                Check.Equal(app.Options.PetLevels[1], 1, "둘째 마리 단계가 저장된다");
             }
         }
 

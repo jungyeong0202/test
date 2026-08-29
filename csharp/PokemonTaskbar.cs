@@ -47,6 +47,8 @@ namespace PokemonTaskbar
         // 비율을 곱해 정한다. 0 이면 상장 종목의 시작가로 채운다(예전 설정 파일).
         public int[] StockBasePrices = { 0, 0, 0, 0, 0, 0, 0, 0 };
         public int[] FoodBoostSeconds = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        // 마리마다의 훈련 레벨. 자리는 Species 차례와 짝을 맞춘다.
+        public int[] PetLevels = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
         public bool ShowList = false;
@@ -544,6 +546,14 @@ namespace PokemonTaskbar
                             options.StockBasePrices = bases;
                         }
                         break;
+                    case "pet_levels":
+                        int levelCount;
+                        int[] levels = ParseStockValues(value, false, options.PetLevels, out levelCount);
+                        if (levels != null)
+                        {
+                            options.PetLevels = levels;
+                        }
+                        break;
                     case "food_boost_seconds":
                         int boostCount;
                         int[] boosts = ParseStockValues(value, false, options.FoodBoostSeconds, out boostCount);
@@ -624,6 +634,8 @@ namespace PokemonTaskbar
                     options.StockHaltSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("stock_base_prices = " + string.Join(", ", Array.ConvertAll(
                     options.StockBasePrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
+                lines.Add("pet_levels = " + string.Join(", ", Array.ConvertAll(
+                    options.PetLevels, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 lines.Add("food_boost_seconds = " + string.Join(", ", Array.ConvertAll(
                     options.FoodBoostSeconds, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
                 File.WriteAllLines(path, lines.ToArray());
@@ -1059,6 +1071,7 @@ namespace PokemonTaskbar
         private readonly bool hops;
         private readonly bool floats;
         private double foodBoostLeft;
+        private int level;                    // 훈련 단계
         private readonly int ownWidth;
         private readonly int ownHeight;
         private readonly int ownOffsetX;
@@ -1255,6 +1268,16 @@ namespace PokemonTaskbar
                 delegate { world.Feed(this); });
             feed.Enabled = world.Options.Food > 0;
             menu.Items.Add(feed);
+
+            ToolStripMenuItem train = new ToolStripMenuItem(
+                this.Level >= PetWorld.TrainLevelCap
+                    ? string.Format("▶ 훈련 완료 · {0}단계", this.Level)
+                    : string.Format("▶ 훈련 {0}단계로 · {1} · 벌이 +5%", this.Level + 1,
+                        PetWorld.FormatWon(PetWorld.TrainCost(this.Level))), null,
+                delegate { world.TrainPet(this); });
+            train.Enabled = this.Level < PetWorld.TrainLevelCap
+                && world.Options.Coins >= PetWorld.TrainCost(this.Level);
+            menu.Items.Add(train);
 
             menu.Items.Add(string.Format("▶ 주식시장 열기 · 평가액 {0}",
                 PetWorld.FormatWon(world.StockPortfolioValue())), null,
@@ -1915,8 +1938,22 @@ namespace PokemonTaskbar
 
         private double IncomeMultiplier()
         {
+            // 훈련은 등급 배수에 곱하지 않고 기본 벌이만큼을 더한다. 먹이와 같은
+            // 까닭이다 — 곱하면 귀한 포켓몬일수록 훈련이 남는 장사가 된다.
             return PetWorld.PokemonIncomeMultiplier(this.SpriteKey)
-                * PetWorld.StageIncomeMultiplier(this.RarityStage());
+                * PetWorld.StageIncomeMultiplier(this.RarityStage())
+                + PetWorld.TrainIncomeStep * this.level;
+        }
+
+        /// <summary>훈련 단계. 한 단계마다 기본 벌이의 5%씩 늘어난다.</summary>
+        public int Level
+        {
+            get { return this.level; }
+        }
+
+        public void SetLevel(int value)
+        {
+            this.level = Math.Min(PetWorld.TrainLevelCap, Math.Max(0, value));
         }
 
         /// <summary>포켓푸드로 5분 동안 벌이가 늘어나는 시간을 누적해 준다.</summary>
@@ -3912,11 +3949,13 @@ namespace PokemonTaskbar
         private Label stockMarketPreview;
         private Label savedStatus;
         private Button homeFeed;
+        private Button homeTrain;
         private Button homeRecall;
         private Button homePetsShortcut;
         private Button homeShopShortcut;
         private Button homeStockShortcut;
         private Button petFeed;
+        private Button petTrain;
         private Label petDrawNote;
         private Button petRecall;
         private Button petRelease;
@@ -4316,14 +4355,16 @@ namespace PokemonTaskbar
             buff.TextAlign = ContentAlignment.MiddleCenter; buff.Margin = new Padding(0, 4, 0, 4);
             status.Controls.Add(buff, 0, 3);
             TableLayoutPanel actions = new TableLayoutPanel(); actions.Dock = DockStyle.Fill;
-            actions.BackColor = PanelColor; actions.ColumnCount = 2; actions.RowCount = 1;
-            for (int i = 0; i < 2; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            actions.BackColor = PanelColor; actions.ColumnCount = 3; actions.RowCount = 1;
+            for (int i = 0; i < 3; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
             this.homeFeed = NewButton("먹이 주기", Red, delegate { this.FeedSelected(); });
+            this.homeTrain = NewButton("훈련", Yellow, delegate { this.TrainSelected(); });
+            this.homeTrain.ForeColor = Color.FromArgb(75, 57, 0);
             this.homeRecall = NewButton("위치 찾기", Blue, delegate { this.RecallSelected(); });
-            Button[] actionButtons = { this.homeFeed, this.homeRecall };
+            Button[] actionButtons = { this.homeFeed, this.homeTrain, this.homeRecall };
             for (int i = 0; i < actionButtons.Length; i++) {
                 actionButtons[i].Dock = DockStyle.Fill;
-                actionButtons[i].Margin = new Padding(i == 0 ? 0 : 3, 2, i == 1 ? 0 : 3, 2);
+                actionButtons[i].Margin = new Padding(i == 0 ? 0 : 3, 2, i == 2 ? 0 : 3, 2);
                 actions.Controls.Add(actionButtons[i], i, 0);
             }
             status.Controls.Add(actions, 0, 4);
@@ -4338,7 +4379,7 @@ namespace PokemonTaskbar
             shortcuts.BackColor = Paper; shortcuts.ColumnCount = 3; shortcuts.RowCount = 1;
             for (int i = 0; i < 3; i++) shortcuts.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
             this.homePetsShortcut = this.AddShortcut(shortcuts, 0, "내 포켓몬\r\n목록과 상태 관리     ›", "pets");
-            this.homeShopShortcut = this.AddShortcut(shortcuts, 1, "포켓몬 상점\r\n먹이와 진화 아이템     ›", "shop");
+            this.homeShopShortcut = this.AddShortcut(shortcuts, 1, "포켓몬 상점\r\n먹이와 뽑기     ›", "shop");
             this.homeStockShortcut = this.AddShortcut(shortcuts, 2, "주식시장\r\n내 평가액 확인     ›", "stock");
             layout.Controls.Add(shortcuts, 0, 2);
         }
@@ -4362,7 +4403,7 @@ namespace PokemonTaskbar
             layout.ColumnCount = 1; layout.RowCount = 4;
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 230));
-            // 진화 상태 줄이 들어갈 자리까지 잡는다. 110 이던 시절에는 줄을 더하자
+            // 뽑기 안내 줄이 들어갈 자리까지 잡는다. 110 이던 시절에는 줄을 더하자
             // 버튼 밑동이 잘렸다.
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 146));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); page.Controls.Add(layout);
@@ -4408,9 +4449,11 @@ namespace PokemonTaskbar
             detailLayout.Controls.Add(this.petDrawNote, 0, 2);
             FlowLayoutPanel actions = ActionRow(); actions.Dock = DockStyle.Fill;
             this.petFeed = NewButton("먹이 주기", Red, delegate { this.FeedSelected(); });
+            this.petTrain = NewButton("훈련", Yellow, delegate { this.TrainSelected(); });
+            this.petTrain.ForeColor = Color.FromArgb(75, 57, 0);
             this.petRecall = NewButton("화면 가운데로", Green, delegate { this.RecallSelected(); });
             this.petRelease = NewButton("보내주기…", PanelColor, delegate { this.ReleaseSelected(); });
-            foreach (Button button in new Button[] { this.petFeed, this.petRecall, this.petRelease }) {
+            foreach (Button button in new Button[] { this.petFeed, this.petTrain, this.petRecall, this.petRelease }) {
                 button.Width = 145; button.Height = 56; actions.Controls.Add(button);
             }
             MakeDangerous(this.petRelease);
@@ -4737,8 +4780,8 @@ namespace PokemonTaskbar
                 button.Padding = new Padding(compact ? 7 : 11, 0, 0, 0);
             }
             if (this.income != null) this.income.Width = compact ? 126 : 160;
-            foreach (Button button in new Button[] { this.petFeed, this.petRecall, this.petRelease })
-                if (button != null) button.Width = compact ? 126 : 145;
+            foreach (Button button in new Button[] { this.petFeed, this.petTrain, this.petRecall, this.petRelease })
+                if (button != null) button.Width = compact ? 100 : 116;
             if (this.shopHeadingTitle != null) this.shopHeadingTitle.Width = compact ? 185 : 250;
             if (this.shopInventory != null) this.shopInventory.Width = compact ? 350 : 410;
             if (this.topmostButton != null) this.topmostButton.Width = compact ? 108 : 125;
@@ -4839,7 +4882,8 @@ namespace PokemonTaskbar
                 string rosterName = rosterSprite == null ? pets[i].SpriteKey : rosterSprite.NameKo;
                 roster.Visible = true; roster.Enabled = true;
                 roster.Text = "●  " + rosterName + "  · " + PetWorld.PokemonGrade(pets[i].SpriteKey)
-                    + "\r\n     " + (pets[i].RarityStageValue + 1) + "단계 · 수입 x"
+                    + "\r\n     " + (pets[i].RarityStageValue + 1) + "단계 · 훈련 " + pets[i].Level
+                    + " · 수입 x"
                     + pets[i].IncomeMultiplierValue.ToString("0.##", CultureInfo.InvariantCulture);
                 GameActionButton rosterGame = roster as GameActionButton;
                 if (rosterGame != null) rosterGame.EdgeColor = i == this.selectedIndex ? Red : Line;
@@ -4869,7 +4913,8 @@ namespace PokemonTaskbar
                 // 가장 귀한 조합(초전설 3단계)을 가득으로 두고 견준다.
                 double multiplier = pet.IncomeMultiplierValue;
                 this.rarityText.Metric = "x" + multiplier.ToString("0.##", CultureInfo.InvariantCulture)
-                    + "  ·  " + grade + " " + stage + "단계";
+                    + "  ·  " + grade + " " + stage + "단계  ·  훈련 " + pet.Level
+                    + "/" + PetWorld.TrainLevelCap;
                 this.rarityText.Invalidate();
                 this.rarityProgress.Value = Math.Min(1000, Math.Max(0,
                     (int)Math.Round(multiplier * 1000.0 / PetWorld.BestIncomeMultiplier())));
@@ -4881,6 +4926,15 @@ namespace PokemonTaskbar
             foreach (Button button in new Button[] { this.homeFeed, this.petFeed })
                 this.SetActionButton(button, canFeed, "먹이 주기", feedReason,
                     canFeed ? "포켓푸드 한 개를 사용합니다." : feedReason);
+            bool maxed = pet != null && pet.Level >= PetWorld.TrainLevelCap;
+            bool canTrain = pet != null && !maxed
+                && this.world.Options.Coins >= PetWorld.TrainCost(pet.Level);
+            string trainReason = pet == null ? "포켓몬 없음" : maxed ? "다 올림" : "잔액 부족";
+            string trainHint = pet == null ? "포켓몬이 없습니다."
+                : maxed ? "더 올릴 단계가 없습니다."
+                : "한 단계마다 이 포켓몬의 벌이가 기본값의 5%씩 늘어납니다. 값은 단계마다 1.3배씩 오릅니다.";
+            foreach (Button button in new Button[] { this.homeTrain, this.petTrain })
+                this.SetActionButton(button, canTrain, TrainLabel(pet), trainReason, trainHint, false);
             if (this.petDrawNote != null) {
                 this.petDrawNote.Text = pet == null ? "포켓몬이 없습니다." : this.DrawStatus();
             }
@@ -4994,9 +5048,9 @@ namespace PokemonTaskbar
 
         /// <summary>동작 버튼의 상태를 맞춘다.
         ///
-        /// showReason 이 거짓이면 못 누르는 까닭을 버튼에 적지 않는다. 진화가
-        /// 그렇다 — 버튼 바로 밑에 이유를 적는 줄이 따로 있는데 버튼에도 적으니
-        /// 같은 말이 두 번 나오고, 두 줄로 눌린 글자가 읽기도 나빴다.
+        /// showReason 이 거짓이면 못 누르는 까닭을 버튼에 적지 않는다. 훈련이
+        /// 그렇다 — 글귀가 이미 두 줄(단계와 값)이라, 까닭까지 붙이면 세 줄로
+        /// 눌려 읽기 나쁘다. 값이 보이니 잔액이 모자란 것은 어차피 안다.
         /// </summary>
         private void SetActionButton(Button button, bool enabled, string action, string reason,
             string hint, bool showReason)
@@ -5026,6 +5080,28 @@ namespace PokemonTaskbar
         }
 
         private void FeedSelected() { PetForm pet = this.SelectedPet(); if (pet != null) this.world.Feed(pet); this.RefreshGameState(); }
+
+        private void TrainSelected()
+        {
+            PetForm pet = this.SelectedPet();
+            if (pet == null) return;
+            int cost = PetWorld.TrainCost(pet.Level);
+            if (this.world.TrainPet(pet))
+            {
+                this.SetShopFeedback("훈련 완료 · " + pet.Level + "단계 · "
+                    + PetWorld.FormatWon(cost) + " 사용", true);
+            }
+            this.RefreshGameState();
+        }
+
+        /// <summary>훈련 단추에 적을 글귀. 다 올렸는지, 얼마인지가 한눈에 보여야 한다.</summary>
+        private static string TrainLabel(PetForm pet)
+        {
+            if (pet == null) return "훈련";
+            if (pet.Level >= PetWorld.TrainLevelCap) return "훈련 완료\r\n" + pet.Level + "단계";
+            return "훈련 " + (pet.Level + 1) + "단계\r\n"
+                + PetWorld.FormatWon(PetWorld.TrainCost(pet.Level));
+        }
         private void RecallSelected() { PetForm pet = this.SelectedPet(); if (pet != null) pet.Recall(); }
 
         private void ReleaseSelected()
@@ -5115,6 +5191,19 @@ namespace PokemonTaskbar
         public const int FoodCost = 8000;          // 5분간 늘어나는 수입(16,500원)보다 낮춘 값(원)
         public const int FoodBoostSeconds = 5 * 60;
         public const int LuckyCharmCost = 15000;   // 행운의 부적 한 개 가격(원)
+        // 훈련. 이미 데리고 있는 포켓몬에 돈을 쓰는 길이다.
+        //
+        // 뽑기 말고는 소비처가 없어서, 화면에 늘어놓고 싶은 만큼 모으고 나면
+        // 돈이 쌓이기만 했다. 훈련은 마리마다 따로 쌓이고 값이 1.3배씩 오르므로
+        // 늦게까지 돈을 받아 준다(한 마리를 끝까지 올리는 데 1,890만원).
+        //
+        // 한 단계는 그 포켓몬의 벌이를 기본값의 5%만큼 올린다. 배수에 곱하지
+        // 않고 더하는 것은 먹이와 같은 이유다 — 곱하면 귀한 포켓몬일수록
+        // 훈련이 남는 장사가 되어 격차가 눈덩이처럼 불어난다.
+        public const int TrainLevelCap = 20;       // 다 올리면 벌이가 두 배
+        public const int TrainCostBase = 30000;
+        public const double TrainCostGrowth = 1.30;
+        public const double TrainIncomeStep = 0.05;
         // 뽑기 확률. 등급을 먼저 굴리고, 그 등급 안에서 단계 가중치로 고른다.
         // 부적을 쓰면 귀한 등급과 뒷단계가 함께 잘 나온다.
         private static readonly double[] PlainGradeOdds = { 0.88, 0.10, 0.02 };
@@ -5477,14 +5566,13 @@ namespace PokemonTaskbar
             //
             // 예전 값(1.6 / 2.5)에는 두 가지가 어긋나 있었다.
             //
-            // 하나. 준전설이 열심히 키운 3단계 진화체(2.25배)보다 적게 벌었다.
-            // 준전설은 10% 로 뽑아야 하고 진화도 못 하는데, 일반 포켓몬을
-            // 물방울 네 개(6만원)로 키운 쪽이 더 나은 셈이었다.
+            // 하나. 준전설이 일반 3단계(2.25배)보다 적게 벌었다. 준전설은 10%
+            // 로 뽑아야 하는데, 일반 포켓몬을 키운 쪽이 더 나은 셈이었다.
             //
             // 둘. 초전설(2%)이 준전설(10%)보다 값어치가 낮았다. 늘어난 벌이로
             // 기대 비용을 되찾는 데 준전설 33시간, 초전설 67시간이 걸렸다.
             //
-            // 뽑기로만 만나는 두 등급을 진화의 천장(2.25) 위로 올리고, 귀한
+            // 뒷단계의 천장(2.25) 위로 두 등급을 올리고, 귀한
             // 쪽이 확실히 앞서게 두었다. 본전까지 준전설 10시간, 초전설
             // 25시간이다 — 완전히 같지는 않지만 순서는 바로 섰다.
             return grade == "준전설" ? 3.0 : grade == "초전설" ? 5.0 : 1.0;
@@ -5543,7 +5631,8 @@ namespace PokemonTaskbar
             for (int i = 0; i < options.Species.Count; i++)
             {
                 int boost = i < options.FoodBoostSeconds.Length ? options.FoodBoostSeconds[i] : 0;
-                this.Add(options.Species[i], boost);
+                int level = i < options.PetLevels.Length ? options.PetLevels[i] : 0;
+                this.Add(options.Species[i], boost, level);
             }
             if (this.pets.Count == 0)
             {
@@ -5669,6 +5758,11 @@ namespace PokemonTaskbar
 
         public void Add(string key, int foodBoostSeconds)
         {
+            this.Add(key, foodBoostSeconds, 0);
+        }
+
+        public void Add(string key, int foodBoostSeconds, int level)
+        {
             PokemonSprite sprite = Sprites.Find(key);
             if (sprite == null)
             {
@@ -5677,6 +5771,7 @@ namespace PokemonTaskbar
             }
             PetForm pet = new PetForm(this, sprite);
             pet.SetFoodBoost(foodBoostSeconds);
+            pet.SetLevel(level);
             pet.FormClosed += delegate { this.Forget(pet); };
             this.pets.Add(pet);
             pet.Show();
@@ -5870,7 +5965,8 @@ namespace PokemonTaskbar
             foreach (PokemonSprite sprite in Sprites.All)
             {
                 double value = PokemonIncomeMultiplier(sprite.Key)
-                    * StageIncomeMultiplier(SpeciesStage(sprite.Key));
+                    * StageIncomeMultiplier(SpeciesStage(sprite.Key))
+                    + TrainIncomeStep * TrainLevelCap;
                 if (value > best) { best = value; }
             }
             return best;
@@ -5894,6 +5990,10 @@ namespace PokemonTaskbar
             {
                 this.Options.FoodBoostSeconds[i] = i < this.pets.Count
                     ? this.pets[i].FoodBoostSecondsLeft : 0;
+            }
+            for (int i = 0; i < this.Options.PetLevels.Length; i++)
+            {
+                this.Options.PetLevels[i] = i < this.pets.Count ? this.pets[i].Level : 0;
             }
             if (species.Count == 0)
             {
@@ -5940,6 +6040,35 @@ namespace PokemonTaskbar
             this.Options.Coins -= FoodCost;
             this.Options.Food++;
             this.SaveSettings();
+        }
+
+        /// <summary>이 단계에서 다음 단계로 올리는 데 드는 값.</summary>
+        public static int TrainCost(int level)
+        {
+            if (level >= TrainLevelCap)
+            {
+                return 0;
+            }
+            double cost = TrainCostBase * Math.Pow(TrainCostGrowth, Math.Max(0, level));
+            return (int)Math.Min(PokemonPriceCap, Math.Round(cost, MidpointRounding.AwayFromZero));
+        }
+
+        /// <summary>골라 둔 포켓몬을 한 단계 훈련시킨다.</summary>
+        public bool TrainPet(PetForm pet)
+        {
+            if (pet == null || pet.Level >= TrainLevelCap)
+            {
+                return false;
+            }
+            int cost = TrainCost(pet.Level);
+            if (this.Options.Coins < cost)
+            {
+                return false;
+            }
+            this.Options.Coins -= cost;
+            pet.SetLevel(pet.Level + 1);
+            this.SaveSettings();
+            return true;
         }
 
         /// <summary>다음 뽑기에 쓸 행운의 부적을 한 개 산다.</summary>

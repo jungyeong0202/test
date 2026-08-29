@@ -1070,15 +1070,38 @@ namespace PokemonTaskbar.Tests
                 }
                 int fewest = int.MaxValue;
                 foreach (int n in live) { if (n < fewest) { fewest = n; } }
-                bool fillsTheGap = true;
-                for (int attempt = 0; attempt < 30; attempt++)
+                int intoTheGap = 0;
+                Dictionary<int, int> picks = new Dictionary<int, int>();
+                for (int attempt = 0; attempt < 600; attempt++)
                 {
                     int picked = app.PickRelistingForTest(0);
+                    picks[picked] = 1;
                     int sector = PetWorld.StockSectorsForTest[
                         picked % PetWorld.StockSectorsForTest.Length];
-                    if (live[sector] != fewest) { fillsTheGap = false; }
+                    if (live[sector] == fewest) { intoTheGap++; }
                 }
-                Check.That(fillsTheGap, "새 종목은 가장 비어 있는 업종으로 들어온다");
+                Check.That(intoTheGap > 300, "새 종목은 대개 가장 비어 있는 업종으로 들어온다");
+
+                // 업종만 보고 채우면 조용한 업종의 명단이 굳는다. 흔들림이 작은
+                // 둘이 자리를 잡으면 그 둘은 여간해서 상장폐지되지 않아, 남은
+                // 하나는 영영 상장되지 못한다 — 파이리화력이 144시간 동안
+                // 한 번도 안 나온 적이 있다. 가끔은 업종을 건너뛰어야 한다.
+                Check.That(intoTheGap < 600, "가끔은 업종을 따지지 않고 고른다");
+                bool everyBenchReachable = true;
+                for (int listing = 0; listing < PetWorld.StockNames.Length; listing++)
+                {
+                    bool listed = false;
+                    for (int slot = 1; slot < PetWorld.StockSlotCount; slot++)
+                    {
+                        if (app.Options.StockListingIds[slot] == listing) { listed = true; }
+                    }
+                    if (!listed && listing != app.Options.StockListingIds[0]
+                        && !picks.ContainsKey(listing))
+                    {
+                        everyBenchReachable = false;
+                    }
+                }
+                Check.That(everyBenchReachable, "쉬고 있는 종목은 모두 상장될 수 있다");
                 app.Options.StockDelisted[0] = 0;
             }
 
@@ -1322,10 +1345,10 @@ namespace PokemonTaskbar.Tests
             app.Options.StockBasePrices[2] = 2000;
             app.Options.StockPrices[2] = 2000;
             Check.That(!app.IsStockInCrisis(2), "제 값에서는 위험이 아니다");
-            Check.Equal(app.StockCrisisPrice(2), 800, "위기선은 기준가의 40%다");
+            Check.Equal(app.StockCrisisPrice(2), 880, "위기선은 기준가의 44%다");
             Check.Equal(app.StockDelistPrice(2), 320, "폐지선은 기준가의 16%다");
 
-            app.Options.StockPrices[2] = 799;
+            app.Options.StockPrices[2] = 879;
             Check.That(app.IsStockInCrisis(2), "위기선 밑이면 위험이다");
             Check.That(app.StockCrisisText(2).IndexOf("320원") >= 0,
                 "안내가 폐지선을 알려 준다");

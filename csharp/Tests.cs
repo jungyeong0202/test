@@ -1287,41 +1287,6 @@ namespace PokemonTaskbar.Tests
             TestWorld world = World("-p", "pikachu");
             PetWorld app = world.World;
 
-            // 액면분할: 값이 반, 주식이 두 배. 재산은 그대로여야 한다.
-            app.Options.StockBasePrices[0] = 4000;
-            app.Options.StockPrices[0] = 8000;
-            app.Options.StockShares[0] = 7;
-            app.Options.StockAveragePrices[0] = 6000;
-            long before = (long)app.Options.StockPrices[0] * app.Options.StockShares[0];
-            string said = app.SplitStock(0);
-            long after = (long)app.Options.StockPrices[0] * app.Options.StockShares[0];
-            Check.Equal(app.Options.StockPrices[0], 4000, "액면분할하면 값이 반이 된다");
-            Check.Equal(app.Options.StockShares[0], 14, "액면분할하면 주식이 두 배가 된다");
-            Check.Equal(app.Options.StockAveragePrices[0], 3000, "평균 단가도 반이 된다");
-            Check.Equal((int)after, (int)before, "액면분할로 재산이 늘거나 줄지 않는다");
-            Check.That(said.IndexOf("액면분할") >= 0, "액면분할을 알린다");
-
-            // 공매도도 같이 나뉜다. 진입가만 그대로 두면 값이 반이 된 것이 그대로
-            // 이익으로 잡혀, 아무 일도 없었는데 담보의 절반이 공짜로 붙는다.
-            app.Options.StockShorts[1] = 10;
-            app.Options.StockShortPrices[1] = 1000;
-            app.Options.StockBasePrices[1] = 1000;
-            app.Options.StockPrices[1] = 1000;
-            int shortWorthBefore = app.StockShortValue(1);
-            app.SplitStock(1);
-            Check.Equal(app.Options.StockShorts[1], 20, "액면분할하면 공매도도 두 배가 된다");
-            Check.Equal(app.Options.StockShortPrices[1], 500, "진입가도 반이 된다");
-            Check.Equal(app.StockShortValue(1), shortWorthBefore,
-                "액면분할로 공매도 재산이 늘거나 줄지 않는다");
-            Check.Equal(app.StockShortWipePrice(1), 1000,
-                "강제 청산가도 값을 따라 반이 된다");
-
-            // 기준가도 같이 나뉘어야 한다. 이걸 빠뜨리면 평균 회귀가 분할 전 값으로
-            // 도로 끌어올려, 재산이 그대로여야 할 분할이 공짜 돈이 된다.
-            Check.Equal(app.StockBasePrice(0), 2000, "액면분할하면 기준가도 반이 된다");
-            Check.Equal(app.Options.StockPrices[0] * 100 / app.StockBasePrice(0), 200,
-                "값과 기준가의 사이가 분할 앞뒤로 같다");
-
             // 폐지선·위기선은 금액이 아니라 기준가의 비율이다. 종목마다 뜻이
             // 같아야 하고, 위기선은 폐지선보다 위에 있어야 한다.
             Check.That(PetWorld.StockCrisisRatio > PetWorld.StockDelistRatio,
@@ -1357,12 +1322,12 @@ namespace PokemonTaskbar.Tests
             app.Options.StockBasePrices[2] = 2000;
             app.Options.StockPrices[2] = 2000;
             Check.That(!app.IsStockInCrisis(2), "제 값에서는 위험이 아니다");
-            Check.Equal(app.StockCrisisPrice(2), 1100, "위기선은 기준가의 55%다");
-            Check.Equal(app.StockDelistPrice(2), 600, "폐지선은 기준가의 30%다");
+            Check.Equal(app.StockCrisisPrice(2), 680, "위기선은 기준가의 34%다");
+            Check.Equal(app.StockDelistPrice(2), 280, "폐지선은 기준가의 14%다");
 
-            app.Options.StockPrices[2] = 1099;
+            app.Options.StockPrices[2] = 679;
             Check.That(app.IsStockInCrisis(2), "위기선 밑이면 위험이다");
-            Check.That(app.StockCrisisText(2).IndexOf("600원") >= 0,
+            Check.That(app.StockCrisisText(2).IndexOf("280원") >= 0,
                 "안내가 폐지선을 알려 준다");
             Check.That(app.StockCrisisText(2).IndexOf("사라집니다") >= 0,
                 "안내가 보유 주식이 없어진다고 알려 준다");
@@ -1371,6 +1336,13 @@ namespace PokemonTaskbar.Tests
             Check.That(TextRenderer.MeasureText(app.StockCrisisText(2),
                     new Font("Arial", 10.0f)).Width <= 462,
                 "안내가 카드 한 줄에 들어간다");
+
+            // 위기 구간에서는 오르는 쪽 폭만 좁아진다. 아래쪽은 그대로여야
+            // "내릴 확률이 높아진다" 가 된다.
+            Check.That(PetWorld.StockCrisisUpsideRatio < 1.0,
+                "위기 구간에서는 오르는 폭이 줄어든다");
+            Check.That(PetWorld.StockCrisisUpsideRatio > 0.0,
+                "그래도 오를 수는 있다");
 
             app.Options.StockPrices[2] = 1200;
             Check.That(!app.IsStockInCrisis(2), "값이 올라오면 위험이 풀린다");

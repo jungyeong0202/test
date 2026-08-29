@@ -5429,7 +5429,6 @@ namespace PokemonTaskbar
         // 예고해 두고 나중에 결판나는 사건(루머·실적 발표).
         public const double PendingEventChance = 0.10;
         public const double SpecialEventChance = 0.04;
-        public const int StockSplitLeastPrice = 1000;   // 나눈 뒤에도 이 값은 넘어야 한다
         public const double MarketTickScale = 0.70;
         public const double StockFeeRate = 0.02;
         public const int StockHaltSeconds = 20;
@@ -5447,8 +5446,22 @@ namespace PokemonTaskbar
         // 피카츄전기(시작가 1,000원)는 40%만 빠져도 폐지되고, 뮤테크(3,500원)는
         // 83%가 빠져야 폐지됐다. 정작 위험하라고 만든 고변동성 종목이 구조적으로
         // 가장 안전했다. 비율로 두면 모든 종목이 같은 낙폭에서 위험해진다.
-        public const double StockCrisisRatio = 0.55;    // 기준가의 55% 밑 = 위기
-        public const double StockDelistRatio = 0.30;    // 기준가의 30% 밑 = 상장폐지
+        public const double StockCrisisRatio = 0.34;    // 기준가의 34% 밑 = 위기
+        public const double StockDelistRatio = 0.14;    // 기준가의 14% 밑 = 상장폐지
+        // 위기 구간에서는 오르는 쪽 폭을 이 비율로 줄인다. 지지선이 무너진 종목이
+        // 아무 일 없다는 듯 반등하면 "상장폐지 위험" 이라는 말이 무게를 잃는다.
+        // 1.0 이면 위아래가 같다(예전 방식).
+        //
+        // 이 셋은 함께 움직인다. 200시간씩 돌려 재 본 값이다.
+        //
+        //   반등폭 1.00 · 위기선 .55 · 폐지선 .30 → 0.5시간에 1회, 위기에서 73% 생환
+        //   반등폭 0.60 · 위기선 .55 · 폐지선 .30 → 0.3시간에 1회, 39% 생환
+        //   반등폭 0.60 · 위기선 .34 · 폐지선 .14 → 1.8시간에 1회, 35% 생환  ← 지금
+        //
+        // 반등폭만 낮추면 폐지가 두 배로 잦아진다. 총량은 위기선이 정하므로
+        // (폐지선은 거의 영향이 없다 — 지지가 없는 구간은 어차피 빠르게 내려간다)
+        // 하나를 건드리면 나머지도 다시 재야 한다.
+        public const double StockCrisisUpsideRatio = 0.60;
         // 공매도는 담보를 걸고 반대로 서는 것이다. 값이 내린 만큼 벌고 오른 만큼
         // 잃되, 진입가의 두 배가 되면 담보를 다 잃고 강제 청산된다. 이 상한이
         // 없으면 손실이 끝없이 불어나 게임이 아니라 빚이 된다.
@@ -6638,7 +6651,11 @@ namespace PokemonTaskbar
                     priceGap * pullRate * StockPrimaryReversion[primary]));
             double trend = this.stockTrends[index] * Math.Max(1.0, volatility * 0.16)
                 * StockPrimaryTrend[primary];
-            double noise = this.Random.Next(-volatility, volatility + 1)
+            // 위기 구간에서는 오르는 쪽만 좁힌다. 내리는 폭은 그대로라, 값이
+            // 오를 확률 자체가 낮아진다.
+            int upside = this.Options.StockPrices[index] < this.StockCrisisPrice(index)
+                ? (int)Math.Round(volatility * StockCrisisUpsideRatio) : volatility;
+            double noise = this.Random.Next(-volatility, upside + 1)
                 * StockPrimaryNoise[primary] * StockSecondaryNoise[secondary];
             double market = MarketRegimeDrifts[this.marketRegime]
                 * StockPrimaryMarket[primary] * StockSecondaryMarket[secondary];
@@ -7087,8 +7104,7 @@ namespace PokemonTaskbar
             List<int> pickable = new List<int>();
             foreach (int candidate in active)
             {
-                if (this.stockAlertTicks[candidate] == 0
-                    || this.Options.StockPrices[candidate] >= StockSplitLeastPrice)
+                if (this.stockAlertTicks[candidate] == 0)
                 {
                     pickable.Add(candidate);
                 }
@@ -7098,60 +7114,7 @@ namespace PokemonTaskbar
                 return "";
             }
             int index = pickable[this.Random.Next(pickable.Count)];
-            int price = this.Options.StockPrices[index];
-
-            // 오른 종목만 나눈다. 기준가의 두 배가 조건이라, 나누고 나면 값과
-            // 기준가가 함께 반이 되어 비율이 1 로 돌아간다 — 다시 두 배가 될
-            // 때까지는 또 나뉘지 않는다. 너무 잘게 쪼개지지 않도록 나눈 값이
-            // 최소 금액은 넘게 한다.
-            // 바닥은 값이 아니라 기준가에 건다. 분할은 기준가를 영영 반으로
-            // 만들므로, 값에만 바닥을 걸면 나눌 때마다 기준가가 반씩 줄어
-            // 오래 하면 시세가 세 자리로 내려앉는다(재 보니 91원까지 갔다).
-            if (price >= this.StockBasePrice(index) * 2
-                && this.StockBasePrice(index) / 2 >= StockSplitLeastPrice
-                && this.Random.Next(2) == 0)
-            {
-                return this.SplitStock(index);
-            }
-            if (this.stockAlertTicks[index] > 0)
-            {
-                return "";                                  // 이미 지정돼 있다
-            }
             return this.AlertStock(index, 2 + this.Random.Next(3));
-        }
-
-        /// <summary>액면분할. 값이 반이 되고 주식이 두 배가 된다. 재산은 그대로다.</summary>
-        internal string SplitStock(int index)
-        {
-            string name = this.StockName(index);
-            int shares = this.Options.StockShares[index];
-            // 기준가도 같이 나눈다. 이걸 빠뜨리면 평균 회귀가 분할 전 값으로 도로
-            // 끌어올려, 재산이 그대로여야 할 분할이 오분 만에 1.78배가 된다.
-            this.Options.StockBasePrices[index] = this.StockBasePrice(index) / 2;
-            this.Options.StockPrices[index] = this.Options.StockPrices[index] / 2;
-            this.Options.StockAveragePrices[index] =
-                this.Options.StockAveragePrices[index] / 2;
-            this.Options.StockShares[index] =
-                shares > int.MaxValue / 2 ? int.MaxValue : shares * 2;
-            // 공매도도 똑같이 나눠야 한다. 진입가만 그대로 두면 값이 반이 된 것이
-            // 그대로 이익으로 잡혀, 아무 일도 없었는데 담보의 절반이 공짜로 붙는다.
-            int shorts = this.Options.StockShorts[index];
-            this.Options.StockShortPrices[index] = this.Options.StockShortPrices[index] / 2;
-            this.Options.StockShorts[index] =
-                shorts > int.MaxValue / 2 ? int.MaxValue : shorts * 2;
-            // 차트도 같이 나눠야 반토막 절벽이 생기지 않는다.
-            for (int i = 0; i < this.stockHistory[index].Count; i++)
-            {
-                this.stockHistory[index][i] = this.stockHistory[index][i] / 2;
-            }
-            this.stockSessionOpeningPrices[index] =
-                this.stockSessionOpeningPrices[index] / 2;
-            this.SaveSettings();
-            return name + " 액면분할! 주식 수가 두 배가 되고 값은 반이 됩니다"
-                + (shares > 0
-                    ? "  (보유 " + shares + "주 → "
-                        + this.Options.StockShares[index] + "주)"
-                    : "");
         }
 
         /// <summary>투자경고 종목 지정. 값을 건드리지 않고 "앞으로 얼마나 흔들릴지"

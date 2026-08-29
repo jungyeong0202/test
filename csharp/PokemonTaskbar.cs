@@ -27,7 +27,7 @@ namespace PokemonTaskbar
         public bool OnTaskbar = false;
         public int Coins = 3000;
         public int Food = 0;
-        public int GrowthDrops = 0;
+        public int LuckyCharms = 0;
         // 처음 상장되는 여덟 종목. 네 업종에 둘씩 편다. 예전에는 이름표 앞에서
         // 여섯을 그대로 잘라 써서 에너지 3 · 생활 1 · 기술 2 · 유통 0 이었고,
         // 업종 사건은 둘 이상 있어야 나므로 유통 소식은 영영 나오지 않았다.
@@ -434,11 +434,14 @@ namespace PokemonTaskbar
                             options.Food = whole;
                         }
                         break;
+                    // growth_drops 는 진화가 있던 시절의 이름이다. 예전 설정
+                    // 파일도 그대로 열리도록 같은 값으로 읽어 준다.
                     case "growth_drops":
+                    case "lucky_charms":
                         if (int.TryParse(value, NumberStyles.Integer,
                                 CultureInfo.InvariantCulture, out whole) && whole >= 0)
                         {
-                            options.GrowthDrops = whole;
+                            options.LuckyCharms = whole;
                         }
                         break;
                     case "stock_prices":
@@ -595,7 +598,7 @@ namespace PokemonTaskbar
                 lines.Add("on_taskbar = " + (options.OnTaskbar ? "true" : "false"));
                 lines.Add("coins = " + options.Coins.ToString(CultureInfo.InvariantCulture));
                 lines.Add("food = " + options.Food.ToString(CultureInfo.InvariantCulture));
-                lines.Add("growth_drops = " + options.GrowthDrops.ToString(CultureInfo.InvariantCulture));
+                lines.Add("lucky_charms = " + options.LuckyCharms.ToString(CultureInfo.InvariantCulture));
                 lines.Add("currency_version = " + CurrencyVersion.ToString(CultureInfo.InvariantCulture));
                 lines.Add("stock_prices = " + string.Join(", ", Array.ConvertAll(
                     options.StockPrices, delegate(int value) { return value.ToString(CultureInfo.InvariantCulture); })));
@@ -952,23 +955,6 @@ namespace PokemonTaskbar
         private const double FloatStopChance = 0.004;
         private const double FloatNudge = 30.0;       // 쓰다듬으면 이만큼 위로
 
-        // 진화. 먹이로 올린 친밀도와 함께 걸은 거리를 채운 뒤, 메뉴에서 직접 진화한다.
-        //
-        // 시간이 흘렀다고 저절로 진화하지는 않는다. 아끼던 모습이 예고 없이
-        // 바뀌면 곤란하므로, 진화할지 말지는 플레이어가 메뉴에서 정한다.
-        private static readonly double[] EvolvePetNeeds = { 10.0, 25.0 };
-        // 진화에 필요한 산책 거리(px).
-        //
-        // 서 있는 시간을 늘리면서 걷는 시간이 79%에서 36%로 줄었다. 예전 값을
-        // 그대로 두면 같은 진화에 두 배 넘게 걸린다. 걸리는 시간이 예전과
-        // 비슷하도록 줄였다(기본 속도로 4분쯤).
-        private static readonly double[] EvolveWalkNeeds = { 4500.0, 18000.0 };
-        private static readonly int[] EvolveDropNeeds = { 1, 3 };
-        private static readonly double[] EvolutionIncomeMultipliers = { 1.0, 1.5, 2.25 };
-        private const int EvolveFlashes = 7;           // 두 모습을 번갈아 번쩍이는 횟수
-        private const double EvolveFirstSeconds = 0.30;
-        private const double EvolveLastSeconds = 0.07; // 갈수록 빨라진다
-        private const double EvolveHoldSeconds = 0.55; // 끝에 새하얗게 머무는 시간
         private const double LandDustSpeed = 60.0;    // 이보다 세게 떨어져야 먼지가 인다
         private const double NapChance = 0.18;        // 멈춰 설 때 이 확률로 낮잠
         // 걷다가 멈춰 설 확률(틱마다)과 서 있는 시간.
@@ -1072,21 +1058,11 @@ namespace PokemonTaskbar
         private int turnDirection;
         private readonly bool hops;
         private readonly bool floats;
-        private readonly string nextKey;      // 진화하면 무엇이 되는지
-        private double friendship;
         private double foodBoostLeft;
-        private double walked;                 // 스스로 걸은 거리(px). 끌어다 놓은 거리는 세지 않는다.
-        private bool evolving;
-        private int evolveStep;
-        private double evolveTimer;
-        private Bitmap[][] whiteImages;       // [모습][방향] 하얀 실루엣
-        private int[] whiteOffsetX;
-        private int[] whiteOffsetY;
         private readonly int ownWidth;
         private readonly int ownHeight;
         private readonly int ownOffsetX;
         private readonly int ownOffsetY;
-        private ToolStripMenuItem evolveItem;
         private double floatBase;
         private double floatTarget;
         private double floatTimer;
@@ -1170,24 +1146,8 @@ namespace PokemonTaskbar
 
             this.ownWidth = this.images[0][0].Width;
             this.ownHeight = this.images[0][0].Height;
-            // 진화하면 몸집이 달라진다. 번쩍이는 동안 잘리지 않도록 두 모습이
-            // 모두 들어갈 크기로 창을 잡아 둔다. 그림은 아래쪽에 맞춰 그리므로
-            // 창이 커져도 발은 바닥에 그대로 붙어 있다.
-            this.nextKey = sprite.EvolvesTo;
             this.spriteWidth = this.ownWidth;
             this.spriteHeight = this.ownHeight;
-            if (this.nextKey != null)
-            {
-                // 굳이 그려 보지 않고 크기만 같은 규칙으로 계산한다.
-                PokemonSprite after = Sprites.Find(this.nextKey);
-                Color?[][] afterFrame = SpriteFactory.Frames(after)[0];
-                double afterScale = Math.Max(MinSpriteScale,
-                    world.Options.Scale * after.ScaleFactor);
-                this.spriteWidth = Math.Max(this.spriteWidth, Math.Max(1,
-                    (int)Math.Floor(afterFrame[0].Length * afterScale + 0.5)));
-                this.spriteHeight = Math.Max(this.spriteHeight, Math.Max(1,
-                    (int)Math.Floor(afterFrame.Length * afterScale + 0.5)));
-            }
             this.ownOffsetX = (this.spriteWidth - this.ownWidth) / 2;
             this.ownOffsetY = this.spriteHeight - this.ownHeight;
             this.hop = Math.Max(1, (int)Math.Round(scale));
@@ -1261,7 +1221,7 @@ namespace PokemonTaskbar
             ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
             ToolStripMenuItem randomPet = new ToolStripMenuItem(
                 "랜덤 영입 — " + PetWorld.FormatWon(world.NextPetPrice())
-                    + "  (일반 88% · 준전설 10% · 초전설 2%)", null,
+                    + "  (" + world.DrawOddsText() + ")", null,
                 delegate { world.BuyRandomPet(); });
             randomPet.Enabled = world.Options.Coins >= world.NextPetPrice();
             add.DropDownItems.Add(randomPet);
@@ -1271,7 +1231,7 @@ namespace PokemonTaskbar
                 if (world.ConfirmRelease(this)) { world.Remove(this); }
             });
 
-            // 먹이와 진화 아이템은 모두가 공유한다. 메뉴를 열 때마다 수량을 새로 만든다.
+            // 먹이와 부적은 모두가 공유한다. 메뉴를 열 때마다 수량을 새로 만든다.
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(PetWorld.CreateMenuSection("━━ 생활 · 경제 ━━"));
             ToolStripMenuItem shop = new ToolStripMenuItem(
@@ -1282,59 +1242,24 @@ namespace PokemonTaskbar
                 delegate { world.BuyFood(); });
             buyFood.Enabled = world.Options.Coins >= PetWorld.FoodCost;
             shop.DropDownItems.Add(buyFood);
-            ToolStripMenuItem buyGrowthDrop = new ToolStripMenuItem(
-                string.Format("성장의 물방울 · {0} · 현재 {1}개", PetWorld.FormatWon(PetWorld.GrowthDropCost), world.Options.GrowthDrops), null,
-                delegate { world.BuyGrowthDrop(); });
-            buyGrowthDrop.Enabled = world.Options.Coins >= PetWorld.GrowthDropCost;
-            shop.DropDownItems.Add(buyGrowthDrop);
+            ToolStripMenuItem buyCharm = new ToolStripMenuItem(
+                string.Format("행운의 부적 · {0} · 다음 뽑기에 사용 · 현재 {1}개",
+                    PetWorld.FormatWon(PetWorld.LuckyCharmCost), world.Options.LuckyCharms), null,
+                delegate { world.BuyLuckyCharm(); });
+            buyCharm.Enabled = world.Options.Coins >= PetWorld.LuckyCharmCost;
+            shop.DropDownItems.Add(buyCharm);
             menu.Items.Add(shop);
 
             ToolStripMenuItem feed = new ToolStripMenuItem(
                 string.Format("▶ 먹이 주기 · {0} · {1}개 보유", this.FoodBoostLabel(), world.Options.Food), null,
                 delegate { world.Feed(this); });
-            feed.Enabled = world.Options.Food > 0 && !this.evolving;
+            feed.Enabled = world.Options.Food > 0;
             menu.Items.Add(feed);
 
             menu.Items.Add(string.Format("▶ 주식시장 열기 · 평가액 {0}",
                 PetWorld.FormatWon(world.StockPortfolioValue())), null,
                 delegate { world.OpenStockOverlay(); });
 
-            // 진화하는 포켓몬이면 여기에 진행 상황을 보여 준다.
-            if (this.nextKey != null)
-            {
-                string name = Sprites.Find(this.nextKey).NameKo;
-                this.evolveItem = new ToolStripMenuItem();
-                if (this.evolving)
-                {
-                    this.evolveItem.Enabled = false;
-                    this.evolveItem.Text = "진화하는 중...";
-                }
-                else if (this.CanEvolve())
-                {
-                    this.evolveItem.Text = string.Format("{0}로 진화하기", name);
-                    this.evolveItem.Click += delegate { this.StartEvolving(); };
-                }
-                else
-                {
-                    List<string> needs = new List<string>();
-                    if (this.FoodsLeft() > 0)
-                    {
-                        needs.Add(string.Format("포켓푸드 {0}개 더 필요", this.FoodsLeft()));
-                    }
-                    if (this.WalkLeft() > 0)
-                    {
-                        needs.Add(string.Format("{0}px 더 산책", this.WalkLeft()));
-                    }
-                    if (world.Options.GrowthDrops < this.EvolveDropNeed)
-                    {
-                        needs.Add("성장의 물방울 " + this.EvolveDropNeed + "개");
-                    }
-                    this.evolveItem.Enabled = false;
-                    this.evolveItem.Text = string.Format("{0}까지 {1}", name,
-                        string.Join(" · ", needs.ToArray()));
-                }
-                menu.Items.Add(this.evolveItem);
-            }
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(PetWorld.CreateMenuSection("━━ 움직임 · 설정 ━━"));
 
@@ -1393,12 +1318,6 @@ namespace PokemonTaskbar
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            if (this.evolving)
-            {
-                this.PaintEvolving(e.Graphics);
-                return;
-            }
-
             int frame;
             if (this.dragging)
             {
@@ -1453,10 +1372,6 @@ namespace PokemonTaskbar
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (this.evolving)
-            {
-                return;              // 진화하는 동안에는 건드릴 수 없다
-            }
             if (e.Button == MouseButtons.Left && !this.IsDisposed)
             {
                 // 누른 자리를 기억해 두고 끌기를 시작한다.
@@ -1553,7 +1468,7 @@ namespace PokemonTaskbar
         {
             double dt = TickMs / 1000.0;
             this.ticks++;
-            if (!this.world.Paused && !this.evolving)
+            if (!this.world.Paused)
             {
                 // 먹이는 등급 배수에 곱하지 않고 기본 벌이만큼을 더한다.
                 //
@@ -1585,16 +1500,7 @@ namespace PokemonTaskbar
                 return;
             }
 
-            if (this.evolving)
-            {
-                // 진화하는 동안에는 제자리에서 번쩍이기만 한다.
-                if (this.EvolveTick(dt))
-                {
-                    this.world.FinishEvolving(this);
-                    return;
-                }
-            }
-            else if (this.world.Paused)
+            if (this.world.Paused)
             {
                 // 잠시 멈춤: 제자리에서 가만히
             }
@@ -1642,7 +1548,7 @@ namespace PokemonTaskbar
             }
 
             // 떠 있으면 중력으로 끌어내린다. 떠다니는 포켓몬은 예외다.
-            if (!this.evolving && !this.floats
+            if (!this.floats
                 && (this.lift > 0 || this.verticalSpeed != 0))
             {
                 this.verticalSpeed -= Gravity * dt;
@@ -1682,26 +1588,8 @@ namespace PokemonTaskbar
         /// <summary>어떤 포켓몬인지(설정 저장에 쓴다).</summary>
         public string SpriteKey { get; private set; }
 
-        /// <summary>진화 연출 중인지. 먹이를 줄 수 없게 하는 데 쓴다.</summary>
-        public bool IsEvolving { get { return this.evolving; } }
-
-        /// <summary>진화하면 무엇이 되는지(키). 진화하지 않으면 null.</summary>
-        public string NextKey
-        {
-            get { return this.nextKey; }
-        }
-
-        /// <summary>게임 센터에서 진화 진행도를 표시하기 위한 읽기 전용 상태.</summary>
-        public double FriendshipValue { get { return this.friendship; } }
-        public double FriendshipNeed { get { return this.EvolvePetNeed; } }
-        public double DisplayedFriendshipValue
-        {
-            get { return this.nextKey == null ? this.EvolvePetNeed : this.friendship; }
-        }
-        public double WalkedValue { get { return this.walked; } }
-        public double WalkNeed { get { return this.EvolveWalkNeed; } }
-        public int GrowthDropsNeed { get { return this.EvolveDropNeed; } }
-        public int EvolutionStageValue { get { return this.EvolutionStage(); } }
+        /// <summary>진화 사슬에서 몇 번째인가. 뽑기 확률과 벌이 배수를 정한다.</summary>
+        public int RarityStageValue { get { return this.RarityStage(); } }
         public double IncomeMultiplierValue { get { return this.IncomeMultiplier(); } }
         public Bitmap MenuImage { get { return this.images[0][0]; } }
 
@@ -1761,13 +1649,6 @@ namespace PokemonTaskbar
         internal int SpriteW { get { return this.spriteWidth; } }
         internal int SpriteH { get { return this.spriteHeight; } }
 
-        /// <summary>걸은 거리를 바로 채운다. 테스트가 몇 분씩 기다리지 않게 한다.</summary>
-        internal void SetWalked(double distance)
-        {
-            this.walked = Math.Min(this.EvolveWalkNeed, Math.Max(0.0, distance));
-        }
-
-        /// <summary>진화에 필요한 걷기 거리.</summary>
         /// <summary>테스트용. 지금 걸음 속도와 설정된 최고 속도.</summary>
         internal double WalkSpeedForTest
         {
@@ -1805,11 +1686,6 @@ namespace PokemonTaskbar
             get { return this.idleFrameCount; }
         }
 
-        internal double WalkNeedForTest
-        {
-            get { return this.EvolveWalkNeed; }
-        }
-
         /// <summary>바닥에서 떠 있는 높이(px). 테스트가 들여다본다.</summary>
         internal double Lift
         {
@@ -1822,7 +1698,7 @@ namespace PokemonTaskbar
             this.OnTick(this, EventArgs.Empty);
         }
 
-        /// <summary>보고 있는 방향. 진화한 뒤에도 그대로 이어받는다.</summary>
+        /// <summary>보고 있는 방향.</summary>
         public int Facing
         {
             get { return this.direction; }
@@ -1874,7 +1750,7 @@ namespace PokemonTaskbar
         /// <summary>다른 포켓몬을 만났을 때 인사할 수 있는 상태인지.</summary>
         public bool CanGreet()
         {
-            return this.walking && !this.dragging && !this.evolving
+            return this.walking && !this.dragging
                 && (this.floats || this.lift <= 0) && this.greetingLeft <= 0
                 && this.greetingCooldown <= 0;
         }
@@ -1940,7 +1816,7 @@ namespace PokemonTaskbar
         /// <summary>지금 상황에 맞는 자세 이름. 없으면 null(평소 프레임).</summary>
         private string ChoosePose()
         {
-            if (this.dragging || this.evolving)
+            if (this.dragging)
             {
                 return null;
             }
@@ -2011,54 +1887,9 @@ namespace PokemonTaskbar
         ///
         /// 웅크렸다가(crouch) 튀어올라(air) 앞으로 나아가고, 착지해서 납작해졌다가
         /// (land) 잠시 쉰 뒤(rest) 다시 뛴다. 공중에 있는 동안에만 앞으로 간다.</summary>
-        /// <summary>진화할 때 번갈아 보여 줄 하얀 실루엣 둘.
-        ///
-        /// 지금 모습과 진화한 모습의 윤곽만 새하얗게 칠한 것이다. 한 창 안에서
-        /// 번갈아 보여 주므로, 그림마다 가운데·아래에 맞춰 놓을 위치도 함께 둔다.
-        /// </summary>
-        private void PrepareWhite()
-        {
-            if (this.whiteImages != null || this.nextKey == null)
-            {
-                return;
-            }
-            PokemonSprite before = Sprites.Find(this.SpriteKey);
-            PokemonSprite after = Sprites.Find(this.nextKey);
-            this.whiteImages = new Bitmap[2][];
-            this.whiteOffsetX = new int[2];
-            this.whiteOffsetY = new int[2];
-            PokemonSprite[] forms = { before, after };
-            for (int index = 0; index < 2; index++)
-            {
-                PokemonSprite form = forms[index];
-                double scale = Math.Max(MinSpriteScale,
-                    this.world.Options.Scale * form.ScaleFactor);
-                Color?[][] shape = Silhouette(SpriteFactory.Frames(form)[0]);
-                Bitmap right = SpriteFactory.Render(shape, scale, !form.FacesRight);
-                Bitmap left = SpriteFactory.Render(shape, scale, form.FacesRight);
-                this.whiteImages[index] = new Bitmap[] { right, left };
-                this.whiteOffsetX[index] = (this.spriteWidth - right.Width) / 2;
-                this.whiteOffsetY[index] = this.spriteHeight - right.Height;
-            }
-        }
-
-        /// <summary>윤곽만 남기고 전부 하얗게 칠한 도트.</summary>
-        private static Color?[][] Silhouette(Color?[][] grid)
-        {
-            Color?[][] shape = new Color?[grid.Length][];
-            for (int y = 0; y < grid.Length; y++)
-            {
-                shape[y] = new Color?[grid[y].Length];
-                for (int x = 0; x < grid[y].Length; x++)
-                {
-                    shape[y][x] = grid[y][x] == null ? (Color?)null : Color.White;
-                }
-            }
-            return shape;
-        }
-
-        /// <summary>진화할 준비가 됐는지.</summary>
-        private int EvolutionStage()
+        /// <summary>이 포켓몬이 진화 사슬에서 몇 번째인가. 뽑기 확률과 벌이
+        /// 배수를 정하는 데 쓴다(뒷단계일수록 귀하고 많이 번다).</summary>
+        private int RarityStage()
         {
             int stage = 0;
             string key = this.SpriteKey;
@@ -2082,120 +1913,16 @@ namespace PokemonTaskbar
             }
         }
 
-        private double EvolvePetNeed
-        {
-            get { return EvolvePetNeeds[Math.Min(this.EvolutionStage(), EvolvePetNeeds.Length - 1)]; }
-        }
-
-        private double EvolveWalkNeed
-        {
-            get { return EvolveWalkNeeds[Math.Min(this.EvolutionStage(), EvolveWalkNeeds.Length - 1)]; }
-        }
-
-        private int EvolveDropNeed
-        {
-            get { return EvolveDropNeeds[Math.Min(this.EvolutionStage(), EvolveDropNeeds.Length - 1)]; }
-        }
-
         private double IncomeMultiplier()
         {
-            int stage = Math.Min(this.EvolutionStage(), EvolutionIncomeMultipliers.Length - 1);
-            return PetWorld.PokemonIncomeMultiplier(this.SpriteKey) * EvolutionIncomeMultipliers[stage];
+            return PetWorld.PokemonIncomeMultiplier(this.SpriteKey)
+                * PetWorld.StageIncomeMultiplier(this.RarityStage());
         }
 
-        public bool CanEvolve()
-        {
-            return this.nextKey != null
-                && this.friendship >= this.EvolvePetNeed
-                && this.walked >= this.EvolveWalkNeed
-                && this.world.Options.GrowthDrops >= this.EvolveDropNeed
-                && !this.evolving;
-        }
-
-        /// <summary>진화 친밀도를 채우려면 포켓푸드가 몇 개 더 필요한지.</summary>
-        public int FoodsLeft()
-        {
-            double left = (this.EvolvePetNeed - this.friendship) / PetWorld.FoodFriendship;
-            return Math.Max(0, (int)Math.Ceiling(left));
-        }
-
-        /// <summary>이전 외부 코드와의 호환용 별칭.</summary>
-        public int PetsLeft()
-        {
-            return this.FoodsLeft();
-        }
-
-        /// <summary>진화까지 몇 픽셀을 더 산책해야 하는지.</summary>
-        public int WalkLeft()
-        {
-            return Math.Max(0, (int)Math.Ceiling(this.EvolveWalkNeed - this.walked));
-        }
-
-        /// <summary>진화 연출을 시작한다. 끝나면 세계가 새 포켓몬으로 갈아 끼운다.</summary>
-        public void StartEvolving()
-        {
-            if (!this.CanEvolve())
-            {
-                return;
-            }
-            this.PrepareWhite();
-            this.world.Options.GrowthDrops -= this.EvolveDropNeed;
-            this.world.SaveSettings();
-            this.evolving = true;
-            this.evolveStep = 0;
-            this.evolveTimer = EvolveFirstSeconds;
-            this.dragging = false;
-        }
-
-        /// <summary>번쩍임 간격. 갈수록 짧아져 점점 빨라진다.
-        /// (EvolveFlashes 는 2 이상이어야 한다.)</summary>
-        public static double EvolveFlashSeconds(int step)
-        {
-            double share = Math.Min(1.0, step / (double)(EvolveFlashes - 1));
-            return EvolveFirstSeconds + (EvolveLastSeconds - EvolveFirstSeconds) * share;
-        }
-
-        /// <summary>번쩍임을 한 칸 진행한다. 다 끝났으면 true.</summary>
-        private bool EvolveTick(double dt)
-        {
-            this.evolveTimer -= dt;
-            if (this.evolveTimer > 0)
-            {
-                return false;
-            }
-            this.evolveStep++;
-            if (this.evolveStep > EvolveFlashes)
-            {
-                return true;
-            }
-            this.evolveTimer = this.evolveStep == EvolveFlashes
-                ? EvolveHoldSeconds          // 마지막엔 새하얗게 머문다
-                : EvolveFlashSeconds(this.evolveStep);
-            return false;
-        }
-
-        /// <summary>진화 연출. 지금 모습과 진화한 모습을 번갈아 하얗게 보여 준다.</summary>
-        private void PaintEvolving(Graphics graphics)
-        {
-            // 마지막 한 박자는 진화한 모습으로 새하얗게 머문다.
-            int form = (this.evolveStep % 2 != 0 || this.evolveStep >= EvolveFlashes) ? 1 : 0;
-            int side = this.direction > 0 ? 0 : 1;
-            graphics.DrawImageUnscaled(
-                this.whiteImages[form][side],
-                this.marginX + this.whiteOffsetX[form],
-                this.marginTop + this.hop + this.whiteOffsetY[form]);
-        }
-
-        /// <summary>포켓푸드로 친밀도와, 5분 동안 벌이가 늘어나는 시간을 누적해 준다.</summary>
+        /// <summary>포켓푸드로 5분 동안 벌이가 늘어나는 시간을 누적해 준다.</summary>
         public void Fed()
         {
             this.foodBoostLeft += PetWorld.FoodBoostSeconds;
-            if (this.evolving)
-            {
-                return;
-            }
-            this.friendship = Math.Min(this.EvolvePetNeed,
-                this.friendship + PetWorld.FoodFriendship);
         }
 
         /// <summary>메뉴에서 남은 산책 부스트 시간을 짧게 보여 준다.</summary>
@@ -2227,7 +1954,6 @@ namespace PokemonTaskbar
             this.x = Math.Min(Math.Max(0.0, this.x), this.maxX);
             double actual = Math.Abs(this.x - beforeX);
             this.gaitDistance += actual;
-            this.walked = Math.Min(this.EvolveWalkNeed, this.walked + actual);
             return actual;
         }
 
@@ -4169,15 +3895,13 @@ namespace PokemonTaskbar
         private Label homeName;
         private Label gradeBadge;
         private Label income;
-        private GameMetricLabel friendshipText;
-        private GameMetricLabel walkText;
-        private GameProgressBar friendshipProgress;
-        private GameProgressBar walkProgress;
+        private GameMetricLabel rarityText;
+        private GameProgressBar rarityProgress;
         private Label foodBoost;
-        private Label evolutionNote;
+        private Label drawNote;
         private Label shopInventory;
         private Label shopFoodOwned;
-        private Label shopDropOwned;
+        private Label shopCharmOwned;
         private Label shopDrawOwned;
         private Label shopFeedback;
         private Label stockHeadingHint;
@@ -4188,20 +3912,18 @@ namespace PokemonTaskbar
         private Label stockMarketPreview;
         private Label savedStatus;
         private Button homeFeed;
-        private Button homeEvolve;
         private Button homeRecall;
         private Button homePetsShortcut;
         private Button homeShopShortcut;
         private Button homeStockShortcut;
         private Button petFeed;
-        private Button petEvolve;
-        private Label petEvolutionNote;
+        private Label petDrawNote;
         private Button petRecall;
         private Button petRelease;
         private Button petRecruit;
         private FlowLayoutPanel petRoster;
         private Button shopFood;
-        private Button shopDrop;
+        private Button shopCharm;
         private Button shopDraw;
         private Button pauseButton;
         private Button topmostButton;
@@ -4560,15 +4282,13 @@ namespace PokemonTaskbar
 
             Panel statusCard = Card(); statusCard.Dock = DockStyle.Fill; statusCard.Margin = new Padding(0);
             TableLayoutPanel status = new TableLayoutPanel(); status.Dock = DockStyle.Fill;
-            status.Padding = new Padding(14, 10, 14, 10); status.ColumnCount = 1; status.RowCount = 8;
+            status.Padding = new Padding(14, 10, 14, 10); status.ColumnCount = 1; status.RowCount = 6;
             status.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             status.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
             status.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-            status.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
-            status.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
             status.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
             status.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
-            status.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            status.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             statusCard.Controls.Add(status);
             Panel nameRow = new Panel(); nameRow.Dock = DockStyle.Fill; nameRow.BackColor = PanelColor;
             this.homeName = NewLabel("", nameRow, Ink, 14.0f, FontStyle.Bold);
@@ -4580,41 +4300,36 @@ namespace PokemonTaskbar
             this.income = NewLabel("", nameRow, Green, 9.0f, FontStyle.Bold);
             this.income.Dock = DockStyle.Right; this.income.Width = 160; this.income.TextAlign = ContentAlignment.MiddleRight;
             status.Controls.Add(nameRow, 0, 0);
-            this.friendshipText = new GameMetricLabel(); this.friendshipText.Caption = "친밀도";
-            this.friendshipText.ForeColor = Ink; this.friendshipText.BackColor = PanelColor;
-            this.friendshipText.Font = UiFonts.Create(9.0f, FontStyle.Regular);
-            this.friendshipText.Dock = DockStyle.Fill; status.Controls.Add(this.friendshipText, 0, 1);
-            this.friendshipProgress = new GameProgressBar(); this.friendshipProgress.Maximum = 1000;
-            this.friendshipProgress.BarColor = Blue;
-            this.friendshipProgress.Dock = DockStyle.Fill; status.Controls.Add(this.friendshipProgress, 0, 2);
-            this.walkText = new GameMetricLabel(); this.walkText.Caption = "진화 산책 거리";
-            this.walkText.ForeColor = Ink; this.walkText.BackColor = PanelColor;
-            this.walkText.Font = UiFonts.Create(9.0f, FontStyle.Regular);
-            this.walkText.Dock = DockStyle.Fill; status.Controls.Add(this.walkText, 0, 3);
-            this.walkProgress = new GameProgressBar(); this.walkProgress.Maximum = 1000;
-            this.walkProgress.BarColor = Green;
-            this.walkProgress.Dock = DockStyle.Fill; status.Controls.Add(this.walkProgress, 0, 4);
+            // 친밀도·산책 거리는 진화 조건이었다. 진화가 없어졌으니 그 자리에
+            // "이 포켓몬이 얼마나 귀한가" 를 보여 준다 — 뽑기 게임에서 알고 싶은
+            // 값은 그것이다.
+            this.rarityText = new GameMetricLabel(); this.rarityText.Caption = "희귀도 (벌이 배수)";
+            this.rarityText.ForeColor = Ink; this.rarityText.BackColor = PanelColor;
+            this.rarityText.Font = UiFonts.Create(9.0f, FontStyle.Regular);
+            this.rarityText.Dock = DockStyle.Fill; status.Controls.Add(this.rarityText, 0, 1);
+            this.rarityProgress = new GameProgressBar(); this.rarityProgress.Maximum = 1000;
+            this.rarityProgress.BarColor = Yellow;
+            this.rarityProgress.Dock = DockStyle.Fill; status.Controls.Add(this.rarityProgress, 0, 2);
             GamePillLabel buff = new GamePillLabel(); this.foodBoost = buff;
             buff.FillColor = Color.FromArgb(40, 61, 90); buff.ForeColor = Ink; buff.CornerRadius = 9;
             buff.Font = UiFonts.Create(9.0f, FontStyle.Bold); buff.Dock = DockStyle.Fill;
             buff.TextAlign = ContentAlignment.MiddleCenter; buff.Margin = new Padding(0, 4, 0, 4);
-            status.Controls.Add(buff, 0, 5);
+            status.Controls.Add(buff, 0, 3);
             TableLayoutPanel actions = new TableLayoutPanel(); actions.Dock = DockStyle.Fill;
-            actions.BackColor = PanelColor; actions.ColumnCount = 3; actions.RowCount = 1;
-            for (int i = 0; i < 3; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
+            actions.BackColor = PanelColor; actions.ColumnCount = 2; actions.RowCount = 1;
+            for (int i = 0; i < 2; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             this.homeFeed = NewButton("먹이 주기", Red, delegate { this.FeedSelected(); });
-            this.homeEvolve = NewButton("진화", Blue, delegate { this.EvolveSelected(); });
             this.homeRecall = NewButton("위치 찾기", Blue, delegate { this.RecallSelected(); });
-            Button[] actionButtons = { this.homeFeed, this.homeEvolve, this.homeRecall };
+            Button[] actionButtons = { this.homeFeed, this.homeRecall };
             for (int i = 0; i < actionButtons.Length; i++) {
                 actionButtons[i].Dock = DockStyle.Fill;
-                actionButtons[i].Margin = new Padding(i == 0 ? 0 : 3, 2, i == 2 ? 0 : 3, 2);
+                actionButtons[i].Margin = new Padding(i == 0 ? 0 : 3, 2, i == 1 ? 0 : 3, 2);
                 actions.Controls.Add(actionButtons[i], i, 0);
             }
-            status.Controls.Add(actions, 0, 6);
-            this.evolutionNote = NewLabel("", status, Muted, 8.5f, FontStyle.Regular);
-            this.evolutionNote.Dock = DockStyle.Fill; this.evolutionNote.TextAlign = ContentAlignment.BottomRight;
-            status.Controls.Add(this.evolutionNote, 0, 7);
+            status.Controls.Add(actions, 0, 4);
+            this.drawNote = NewLabel("", status, Muted, 8.5f, FontStyle.Regular);
+            this.drawNote.Dock = DockStyle.Fill; this.drawNote.TextAlign = ContentAlignment.BottomRight;
+            status.Controls.Add(this.drawNote, 0, 5);
             hero.Controls.Add(statusCard, 1, 0);
             layout.Controls.Add(hero, 0, 1);
 
@@ -4686,17 +4401,16 @@ namespace PokemonTaskbar
             manageTitle.Dock = DockStyle.Fill; manageTitle.TextAlign = ContentAlignment.MiddleLeft;
             manageTitle.Padding = new Padding(12, 0, 0, 0);
             detailLayout.Controls.Add(manageTitle, 0, 0);
-            this.petEvolutionNote = NewLabel("", detailLayout, Muted, 9.0f, FontStyle.Regular);
-            this.petEvolutionNote.Dock = DockStyle.Fill;
-            this.petEvolutionNote.TextAlign = ContentAlignment.MiddleLeft;
-            this.petEvolutionNote.Padding = new Padding(13, 0, 0, 0);
-            detailLayout.Controls.Add(this.petEvolutionNote, 0, 2);
+            this.petDrawNote = NewLabel("", detailLayout, Muted, 9.0f, FontStyle.Regular);
+            this.petDrawNote.Dock = DockStyle.Fill;
+            this.petDrawNote.TextAlign = ContentAlignment.MiddleLeft;
+            this.petDrawNote.Padding = new Padding(13, 0, 0, 0);
+            detailLayout.Controls.Add(this.petDrawNote, 0, 2);
             FlowLayoutPanel actions = ActionRow(); actions.Dock = DockStyle.Fill;
             this.petFeed = NewButton("먹이 주기", Red, delegate { this.FeedSelected(); });
-            this.petEvolve = NewButton("진화", Blue, delegate { this.EvolveSelected(); });
             this.petRecall = NewButton("화면 가운데로", Green, delegate { this.RecallSelected(); });
             this.petRelease = NewButton("보내주기…", PanelColor, delegate { this.ReleaseSelected(); });
-            foreach (Button button in new Button[] { this.petFeed, this.petEvolve, this.petRecall, this.petRelease }) {
+            foreach (Button button in new Button[] { this.petFeed, this.petRecall, this.petRelease }) {
                 button.Width = 145; button.Height = 56; actions.Controls.Add(button);
             }
             MakeDangerous(this.petRelease);
@@ -4732,13 +4446,15 @@ namespace PokemonTaskbar
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 184));
             this.shopFood = this.AddShopTile(grid, 0, 0, "●", "포켓푸드",
-                "5분 동안 초당 55원을 더 법니다. 친밀도도 2 올라갑니다.", PetWorld.FoodCost,
+                "5분 동안 초당 55원을 더 법니다.", PetWorld.FoodCost,
                 delegate { this.BuyFoodFromShop(); }, out this.shopFoodOwned);
-            this.shopDrop = this.AddShopTile(grid, 1, 0, "◆", "성장의 물방울",
-                "진화 조건을 모두 채운 포켓몬이 진화할 때 사용합니다.", PetWorld.GrowthDropCost,
-                delegate { this.BuyDropFromShop(); }, out this.shopDropOwned);
+            this.shopCharm = this.AddShopTile(grid, 1, 0, "◆", "행운의 부적",
+                "가지고 있으면 다음 뽑기에 한 개가 쓰이고, 귀한 포켓몬이 나올 확률이 크게 오릅니다.",
+                PetWorld.LuckyCharmCost,
+                delegate { this.BuyCharmFromShop(); }, out this.shopCharmOwned);
             this.shopDraw = this.AddShopTile(grid, 0, 1, "◉", "랜덤 포켓볼",
-                "새로운 포켓몬 한 마리를 무작위로 영입합니다.", this.world.NextPetPrice(),
+                "새로운 포켓몬 한 마리를 무작위로 영입합니다. 뒷단계 포켓몬도 여기서 나옵니다.",
+                this.world.NextPetPrice(),
                 delegate { this.BuyRandom(); }, out this.shopDrawOwned);
             layout.Controls.Add(grid, 0, 2);
         }
@@ -5021,7 +4737,7 @@ namespace PokemonTaskbar
                 button.Padding = new Padding(compact ? 7 : 11, 0, 0, 0);
             }
             if (this.income != null) this.income.Width = compact ? 126 : 160;
-            foreach (Button button in new Button[] { this.petFeed, this.petEvolve, this.petRecall, this.petRelease })
+            foreach (Button button in new Button[] { this.petFeed, this.petRecall, this.petRelease })
                 if (button != null) button.Width = compact ? 126 : 145;
             if (this.shopHeadingTitle != null) this.shopHeadingTitle.Width = compact ? 185 : 250;
             if (this.shopInventory != null) this.shopInventory.Width = compact ? 350 : 410;
@@ -5105,14 +4821,14 @@ namespace PokemonTaskbar
             this.selectedIndex = Math.Min(Math.Max(0, this.selectedIndex), Math.Max(0, pets.Length - 1));
             this.wallet.Text = "◉  " + PetWorld.FormatWon(this.world.Options.Coins);
             this.homePetsShortcut.Text = "내 포켓몬\r\n" + pets.Length + "마리 관리하기  ›";
-            this.homeShopShortcut.Text = "포켓몬 상점\r\n먹이와 진화 아이템  ›";
+            this.homeShopShortcut.Text = "포켓몬 상점\r\n먹이와 뽑기  ›";
             this.shopInventory.Text = "보유 아이템  ·  포켓푸드 " + this.world.Options.Food
-                + "개  ·  성장의 물방울 " + this.world.Options.GrowthDrops + "개";
+                + "개  ·  행운의 부적 " + this.world.Options.LuckyCharms + "개";
             this.shopFoodOwned.Text = "보유 " + this.world.Options.Food + "개";
-            this.shopDropOwned.Text = "보유 " + this.world.Options.GrowthDrops + "개";
+            this.shopCharmOwned.Text = "보유 " + this.world.Options.LuckyCharms + "개";
             this.shopDrawOwned.Text = "보유 " + pets.Length + "마리";
             this.SetPurchaseButton(this.shopFood, this.world.Options.Coins >= PetWorld.FoodCost, "구매");
-            this.SetPurchaseButton(this.shopDrop, this.world.Options.Coins >= PetWorld.GrowthDropCost, "구매");
+            this.SetPurchaseButton(this.shopCharm, this.world.Options.Coins >= PetWorld.LuckyCharmCost, "구매");
             this.SetPurchaseButton(this.shopDraw,
                 this.world.Options.Coins >= this.world.NextPetPrice(), "영입하기");
             PetForm pet = this.SelectedPet();
@@ -5123,7 +4839,7 @@ namespace PokemonTaskbar
                 string rosterName = rosterSprite == null ? pets[i].SpriteKey : rosterSprite.NameKo;
                 roster.Visible = true; roster.Enabled = true;
                 roster.Text = "●  " + rosterName + "  · " + PetWorld.PokemonGrade(pets[i].SpriteKey)
-                    + "\r\n     " + (pets[i].EvolutionStageValue + 1) + "단계 · 수입 x"
+                    + "\r\n     " + (pets[i].RarityStageValue + 1) + "단계 · 수입 x"
                     + pets[i].IncomeMultiplierValue.ToString("0.##", CultureInfo.InvariantCulture);
                 GameActionButton rosterGame = roster as GameActionButton;
                 if (rosterGame != null) rosterGame.EdgeColor = i == this.selectedIndex ? Red : Line;
@@ -5131,7 +4847,7 @@ namespace PokemonTaskbar
             }
             this.petRecruit.Enabled = this.world.Options.Coins >= this.world.NextPetPrice();
             this.petRecruit.Text = "＋  새 포켓몬 영입\r\n     " + PetWorld.FormatWon(this.world.NextPetPrice())
-                + " · 일반 88% · 준전설 10% · 초전설 2%"
+                + " · " + this.world.DrawOddsText()
                 + (this.petRecruit.Enabled ? "" : " · 잔액 부족");
             this.buttonHints.SetToolTip(this.petRecruit, this.petRecruit.Enabled
                 ? "랜덤 확률로 새로운 포켓몬을 영입합니다."
@@ -5140,7 +4856,7 @@ namespace PokemonTaskbar
                 PokemonSprite sprite = Sprites.Find(pet.SpriteKey);
                 string name = sprite == null ? pet.SpriteKey : sprite.NameKo;
                 string grade = PetWorld.PokemonGrade(pet.SpriteKey);
-                int stage = pet.EvolutionStageValue + 1;
+                int stage = pet.RarityStageValue + 1;
                 this.homeName.Text = name;
                 this.gradeBadge.Text = grade;
                 this.gradeBadge.Left = this.homeName.Right + 6;
@@ -5150,35 +4866,23 @@ namespace PokemonTaskbar
                     + pet.IncomeMultiplierValue.ToString("0.##", CultureInfo.InvariantCulture);
                 this.income.Text = "+" + ((int)Math.Round(PetWorld.CoinsPerSecond * pet.IncomeMultiplierValue))
                     .ToString("N0", CultureInfo.InvariantCulture) + "원 / 초";
-                double displayedFriendship = pet.DisplayedFriendshipValue;
-                this.friendshipText.Metric = displayedFriendship.ToString("0", CultureInfo.InvariantCulture)
-                    + " / " + pet.FriendshipNeed.ToString("0", CultureInfo.InvariantCulture);
-                this.friendshipText.Invalidate();
-                this.walkText.Metric = ((int)pet.WalkedValue).ToString("N0", CultureInfo.InvariantCulture)
-                    + " / " + ((int)pet.WalkNeed).ToString("N0", CultureInfo.InvariantCulture) + "px";
-                this.walkText.Invalidate();
-                this.friendshipProgress.Value = Math.Min(1000, Math.Max(0,
-                    (int)Math.Round(displayedFriendship * 1000.0 / Math.Max(1.0, pet.FriendshipNeed))));
-                this.walkProgress.Value = Math.Min(1000, Math.Max(0,
-                    (int)Math.Round(pet.WalkedValue * 1000.0 / Math.Max(1.0, pet.WalkNeed))));
+                // 가장 귀한 조합(초전설 3단계)을 가득으로 두고 견준다.
+                double multiplier = pet.IncomeMultiplierValue;
+                this.rarityText.Metric = "x" + multiplier.ToString("0.##", CultureInfo.InvariantCulture)
+                    + "  ·  " + grade + " " + stage + "단계";
+                this.rarityText.Invalidate();
+                this.rarityProgress.Value = Math.Min(1000, Math.Max(0,
+                    (int)Math.Round(multiplier * 1000.0 / PetWorld.BestIncomeMultiplier())));
                 this.foodBoost.Text = "● 포켓푸드 효과  ·  " + pet.FoodBoostLabel();
-                this.evolutionNote.Text = this.EvolutionStatus(pet);
+                this.drawNote.Text = this.DrawStatus();
             }
-            bool canFeed = pet != null && this.world.Options.Food > 0 && !pet.IsEvolving;
-            bool canEvolve = pet != null && pet.CanEvolve();
-            string feedReason = pet == null ? "포켓몬 없음" : pet.IsEvolving ? "진화 중" : "포켓푸드 없음";
-            string evolveReason = pet == null ? "포켓몬 없음" : pet.NextKey == null
-                ? "다음 진화 없음" : pet.IsEvolving ? "진화 중" : "조건 미달";
+            bool canFeed = pet != null && this.world.Options.Food > 0;
+            string feedReason = pet == null ? "포켓몬 없음" : "포켓푸드 없음";
             foreach (Button button in new Button[] { this.homeFeed, this.petFeed })
                 this.SetActionButton(button, canFeed, "먹이 주기", feedReason,
                     canFeed ? "포켓푸드 한 개를 사용합니다." : feedReason);
-            foreach (Button button in new Button[] { this.homeEvolve, this.petEvolve })
-                this.SetActionButton(button, canEvolve, "진화", evolveReason,
-                    canEvolve ? "준비된 다음 단계로 진화합니다." : (pet == null ? evolveReason : this.EvolutionStatus(pet)),
-                    false);
-            if (this.petEvolutionNote != null) {
-                this.petEvolutionNote.Text = pet == null
-                    ? "포켓몬이 없습니다." : this.EvolutionStatus(pet);
+            if (this.petDrawNote != null) {
+                this.petDrawNote.Text = pet == null ? "포켓몬이 없습니다." : this.DrawStatus();
             }
             this.petRelease.Enabled = pet != null && pets.Length > 1;
             this.petRelease.Text = this.petRelease.Enabled ? "보내주기…" : "보내주기\r\n마지막 포켓몬";
@@ -5312,23 +5016,16 @@ namespace PokemonTaskbar
                 : "산책으로 돈을 더 모아야 합니다.");
         }
 
-        private string EvolutionStatus(PetForm pet)
+        /// <summary>다음 뽑기에 무엇이 걸려 있는지 한 줄로 알려 준다.</summary>
+        private string DrawStatus()
         {
-            if (pet.NextKey == null) return "현재 등록된 다음 진화가 없습니다.";
-            PokemonSprite next = Sprites.Find(pet.NextKey);
-            string name = next == null ? pet.NextKey : next.NameKo;
-            if (pet.IsEvolving) return "진화하는 중입니다…";
-            if (pet.CanEvolve()) return name + "로 진화할 준비가 완료되었습니다!";
-            List<string> needs = new List<string>();
-            if (pet.FoodsLeft() > 0) needs.Add("포켓푸드 " + pet.FoodsLeft() + "개");
-            if (pet.WalkLeft() > 0) needs.Add("산책 " + pet.WalkLeft().ToString("N0", CultureInfo.InvariantCulture) + "px");
-            int dropLeft = Math.Max(0, pet.GrowthDropsNeed - this.world.Options.GrowthDrops);
-            if (dropLeft > 0) needs.Add("성장의 물방울 " + dropLeft + "개");
-            return "진화까지 " + string.Join(" · ", needs.ToArray());
+            string price = PetWorld.FormatWon(this.world.NextPetPrice());
+            return this.world.Options.LuckyCharms > 0
+                ? "다음 뽑기 " + price + " · 행운의 부적이 한 개 쓰입니다"
+                : "다음 뽑기 " + price + " · 행운의 부적을 쓰면 귀한 포켓몬이 잘 나옵니다";
         }
 
         private void FeedSelected() { PetForm pet = this.SelectedPet(); if (pet != null) this.world.Feed(pet); this.RefreshGameState(); }
-        private void EvolveSelected() { PetForm pet = this.SelectedPet(); if (pet != null) pet.StartEvolving(); this.RefreshGameState(); }
         private void RecallSelected() { PetForm pet = this.SelectedPet(); if (pet != null) pet.Recall(); }
 
         private void ReleaseSelected()
@@ -5369,13 +5066,13 @@ namespace PokemonTaskbar
             this.RefreshGameState();
         }
 
-        private void BuyDropFromShop()
+        private void BuyCharmFromShop()
         {
-            int before = this.world.Options.GrowthDrops;
-            this.world.BuyGrowthDrop();
-            this.SetShopFeedback(this.world.Options.GrowthDrops > before
-                ? "성장의 물방울 1개 구매 완료 · 남은 잔액 " + PetWorld.FormatWon(this.world.Options.Coins)
-                : "성장의 물방울을 구매할 잔액이 부족합니다.", this.world.Options.GrowthDrops > before);
+            int before = this.world.Options.LuckyCharms;
+            this.world.BuyLuckyCharm();
+            this.SetShopFeedback(this.world.Options.LuckyCharms > before
+                ? "행운의 부적 1개 구매 완료 · 남은 잔액 " + PetWorld.FormatWon(this.world.Options.Coins)
+                : "행운의 부적을 구매할 잔액이 부족합니다.", this.world.Options.LuckyCharms > before);
             this.RefreshGameState();
         }
 
@@ -5416,9 +5113,16 @@ namespace PokemonTaskbar
         // 값이 int 를 넘지 않게 끊는다. 여기 닿으면 사실상 더 못 산다.
         public const int PokemonPriceCap = 1000000000;
         public const int FoodCost = 8000;          // 5분간 늘어나는 수입(16,500원)보다 낮춘 값(원)
-        public const double FoodFriendship = 2.0;  // 포켓푸드 한 개가 채우는 친밀도
         public const int FoodBoostSeconds = 5 * 60;
-        public const int GrowthDropCost = 15000;   // 성장의 물방울 한 개 가격(원)
+        public const int LuckyCharmCost = 15000;   // 행운의 부적 한 개 가격(원)
+        // 뽑기 확률. 등급을 먼저 굴리고, 그 등급 안에서 단계 가중치로 고른다.
+        // 부적을 쓰면 귀한 등급과 뒷단계가 함께 잘 나온다.
+        private static readonly double[] PlainGradeOdds = { 0.88, 0.10, 0.02 };
+        private static readonly double[] LuckyGradeOdds = { 0.60, 0.30, 0.10 };
+        private static readonly int[] PlainStageWeights = { 100, 25, 6 };
+        private static readonly int[] LuckyStageWeights = { 100, 70, 40 };
+        // 단계별 벌이 배수. 뒷단계일수록 덜 뽑히므로 그만큼 더 번다.
+        private static readonly double[] StageIncomeMultipliers = { 1.0, 1.5, 2.25 };
         public const int MarketUpdateMilliseconds = 10000;
         public const int MarketOpenSeconds = 60 * 60;
         public const int MarketClosedSeconds = 5 * 60;
@@ -5703,8 +5407,8 @@ namespace PokemonTaskbar
         public static ToolStripLabel CreateMenuStatus(Options options)
         {
             ToolStripLabel status = new ToolStripLabel(string.Format(
-                "보유금 {0}  ·  포켓푸드 {1}개  ·  성장 물방울 {2}개",
-                FormatWon(options.Coins), options.Food, options.GrowthDrops));
+                "보유금 {0}  ·  포켓푸드 {1}개  ·  행운의 부적 {2}개",
+                FormatWon(options.Coins), options.Food, options.LuckyCharms));
             status.ForeColor = Color.FromArgb(168, 145, 125);
             status.Margin = new Padding(6, 1, 6, 4);
             return status;
@@ -5923,7 +5627,7 @@ namespace PokemonTaskbar
             menu.Items.Add("▶ 포켓몬 센터 열기", null, delegate { this.OpenGameMenu(); });
             ToolStripMenuItem add = new ToolStripMenuItem("◆ 새 포켓몬 영입");
             ToolStripMenuItem randomPet = new ToolStripMenuItem(
-                "랜덤 영입 — " + FormatWon(this.NextPetPrice()) + "  (일반 88% · 준전설 10% · 초전설 2%)", null,
+                "랜덤 영입 — " + FormatWon(this.NextPetPrice()) + "  (" + this.DrawOddsText() + ")", null,
                 delegate { this.BuyRandomPet(); });
             randomPet.Enabled = this.Options.Coins >= this.NextPetPrice();
             add.DropDownItems.Add(randomPet);
@@ -6043,29 +5747,139 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
-        /// <summary>무작위 포켓몬 한 마리를 산다.</summary>
-        public void BuyRandomPet()
+        /// <summary>뽑기. 무작위 포켓몬 한 마리를 산다.
+        ///
+        /// 포켓몬을 얻는 길은 이것 하나뿐이다. 예전에는 기본 포켓몬만 뽑히고
+        /// 진화체는 키워서 만나야 했는데, 이제 진화체도 여기서 나온다 —
+        /// 대신 뒷단계일수록 뽑힐 확률이 낮다.
+        ///
+        /// 등급을 먼저 굴리고, 그 등급 안에서 단계 가중치로 고른다. 등급 확률을
+        /// 따로 두어야 "준전설 10%" 같은 약속이 단계 수에 흔들리지 않는다.
+        ///
+        /// 행운의 부적이 있으면 한 개를 쓰고 귀한 쪽 확률이 크게 오른다.</summary>
+        public string BuyRandomPet()
         {
             if (this.Options.Coins < this.NextPetPrice())
             {
-                return;
+                return null;         // 못 사면 부적도 쓰지 않는다
             }
-            List<PokemonSprite> choices = Sprites.BaseSpecies();
-            double roll = this.Random.NextDouble();
-            string grade = roll < 0.88 ? "일반" : roll < 0.98 ? "준전설" : "초전설";
-            List<PokemonSprite> gradeChoices = new List<PokemonSprite>();
-            foreach (PokemonSprite sprite in choices)
+            string key = this.DrawSpecies();
+            if (key == null)
             {
-                if (PokemonGrade(sprite.Key) == grade)
+                return null;
+            }
+            this.BuyPet(key);
+            return key;
+        }
+
+        /// <summary>뽑기 한 번. 부적이 있으면 한 개 쓰고 귀한 쪽 확률을 올린다.</summary>
+        private string DrawSpecies()
+        {
+            bool lucky = this.Options.LuckyCharms > 0;
+            if (lucky)
+            {
+                this.Options.LuckyCharms--;
+            }
+            double[] gradeOdds = lucky ? LuckyGradeOdds : PlainGradeOdds;
+            int[] stageWeights = lucky ? LuckyStageWeights : PlainStageWeights;
+            double roll = this.Random.NextDouble();
+            string grade = roll < gradeOdds[0] ? "일반"
+                : roll < gradeOdds[0] + gradeOdds[1] ? "준전설" : "초전설";
+            List<PokemonSprite> choices = new List<PokemonSprite>();
+            List<int> weights = new List<int>();
+            int total = 0;
+            foreach (PokemonSprite sprite in Sprites.All)
+            {
+                if (PokemonGrade(sprite.Key) != grade)
                 {
-                    gradeChoices.Add(sprite);
+                    continue;
+                }
+                int weight = stageWeights[Math.Min(SpeciesStage(sprite.Key), stageWeights.Length - 1)];
+                choices.Add(sprite);
+                weights.Add(weight);
+                total += weight;
+            }
+            if (choices.Count == 0)
+            {
+                return null;
+            }
+            int pick = this.Random.Next(total);
+            for (int i = 0; i < choices.Count; i++)
+            {
+                pick -= weights[i];
+                if (pick < 0)
+                {
+                    return choices[i].Key;
                 }
             }
-            if (gradeChoices.Count == 0)
+            return choices[choices.Count - 1].Key;
+        }
+
+        /// <summary>테스트용. 실제로 사지 않고 어떤 종이 뽑히는지만 굴려 본다.</summary>
+        internal string DrawSpeciesForTest(bool lucky)
+        {
+            int coins = this.Options.Coins;
+            int charms = this.Options.LuckyCharms;
+            this.Options.Coins = int.MaxValue;
+            this.Options.LuckyCharms = lucky ? 1 : 0;
+            string key = this.DrawSpecies();
+            this.Options.Coins = coins;
+            this.Options.LuckyCharms = charms;
+            return key;
+        }
+
+        /// <summary>진화 사슬에서 몇 번째인가. 진화는 없어졌지만 이 순서가
+        /// 그대로 "얼마나 귀한가" 가 된다 — 뒷단계일수록 덜 뽑히고 더 번다.</summary>
+        public static int SpeciesStage(string key)
+        {
+            int stage = 0;
+            while (true)
             {
-                gradeChoices = choices;
+                PokemonSprite previous = null;
+                foreach (PokemonSprite sprite in Sprites.All)
+                {
+                    if (sprite.EvolvesTo == key)
+                    {
+                        previous = sprite;
+                        break;
+                    }
+                }
+                if (previous == null)
+                {
+                    return stage;
+                }
+                stage++;
+                key = previous.Key;
             }
-            this.BuyPet(gradeChoices[this.Random.Next(gradeChoices.Count)].Key);
+        }
+
+        /// <summary>지금 뽑으면 적용될 등급 확률을 한 줄로. 부적이 있으면 그 값이다.</summary>
+        public string DrawOddsText()
+        {
+            double[] odds = this.Options.LuckyCharms > 0 ? LuckyGradeOdds : PlainGradeOdds;
+            string text = string.Format(CultureInfo.InvariantCulture,
+                "일반 {0:0}% · 준전설 {1:0}% · 초전설 {2:0}%",
+                odds[0] * 100, odds[1] * 100, odds[2] * 100);
+            return this.Options.LuckyCharms > 0 ? "행운의 부적 적용 · " + text : text;
+        }
+
+        /// <summary>나올 수 있는 가장 귀한 조합의 벌이 배수. 희귀도 막대의 가득 값.</summary>
+        public static double BestIncomeMultiplier()
+        {
+            double best = 1.0;
+            foreach (PokemonSprite sprite in Sprites.All)
+            {
+                double value = PokemonIncomeMultiplier(sprite.Key)
+                    * StageIncomeMultiplier(SpeciesStage(sprite.Key));
+                if (value > best) { best = value; }
+            }
+            return best;
+        }
+
+        public static double StageIncomeMultiplier(int stage)
+        {
+            return StageIncomeMultipliers[Math.Min(Math.Max(0, stage),
+                StageIncomeMultipliers.Length - 1)];
         }
 
         /// <summary>지금 구성을 설정 파일에 남긴다.</summary>
@@ -6128,22 +5942,22 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
-        /// <summary>진화에 필요한 성장의 물방울을 한 개 산다.</summary>
-        public void BuyGrowthDrop()
+        /// <summary>다음 뽑기에 쓸 행운의 부적을 한 개 산다.</summary>
+        public void BuyLuckyCharm()
         {
-            if (this.Options.Coins < GrowthDropCost)
+            if (this.Options.Coins < LuckyCharmCost)
             {
                 return;
             }
-            this.Options.Coins -= GrowthDropCost;
-            this.Options.GrowthDrops++;
+            this.Options.Coins -= LuckyCharmCost;
+            this.Options.LuckyCharms++;
             this.SaveSettings();
         }
 
         /// <summary>포켓푸드 하나를 골라 둔 포켓몬에게 준다.</summary>
         public void Feed(PetForm pet)
         {
-            if (this.Options.Food <= 0 || pet.IsEvolving)
+            if (this.Options.Food <= 0)
             {
                 return;
             }
@@ -7679,39 +7493,6 @@ namespace PokemonTaskbar
             this.SaveSettings();
         }
 
-        /// <summary>번쩍임이 끝났다. 같은 자리에 진화한 포켓몬을 놓는다.</summary>
-        public void FinishEvolving(PetForm pet)
-        {
-            string key = pet.NextKey;
-            if (key == null || Sprites.Find(key) == null)
-            {
-                return;
-            }
-            double where = pet.Position;
-            int facing = pet.Facing;
-            int boost = pet.FoodBoostSecondsLeft;
-            int index = this.pets.IndexOf(pet);
-
-            this.rebuilding = true;       // 마지막 한 마리여도 프로그램이 끝나지 않게
-            pet.Close();
-            this.pets.Remove(pet);
-            this.rebuilding = false;
-
-            PetForm grown = new PetForm(this, Sprites.Find(key));
-            grown.SetFoodBoost(boost);
-            grown.FormClosed += delegate { this.Forget(grown); };
-            if (index < 0 || index > this.pets.Count)
-            {
-                index = this.pets.Count;
-            }
-            this.pets.Insert(index, grown);
-            grown.Show();
-            grown.Position = where;
-            grown.Facing = facing;
-            Log.Write("  " + key + ": 진화해서 나타남 " + grown.Bounds);
-            this.SaveSettings();
-        }
-
         public void Remove(PetForm pet)
         {
             pet.Close();
@@ -7916,8 +7697,8 @@ namespace PokemonTaskbar
                 options.Species.Add("pikachu");
             }
             Random random = new Random();
-            // 진화해야 만날 수 있는 포켓몬은 무작위로 나눠 주지 않는다.
-            List<PokemonSprite> choices = Sprites.BaseSpecies();
+            // 이제 진화가 없으므로 열세 마리가 모두 뽑기 대상이다.
+            List<PokemonSprite> choices = Sprites.All;
             while (options.Species.Count < options.Count)
             {
                 options.Species.Add(choices[random.Next(choices.Count)].Key);

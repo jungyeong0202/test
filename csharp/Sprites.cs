@@ -58383,8 +58383,9 @@ namespace PokemonTaskbar
             return null;
         }
 
-        /// <summary>진화해야 만날 수 있는 포켓몬인지. 메뉴에는 넣지 않는다.</summary>
-        public static bool IsEvolvedOnly(string key)
+        /// <summary>진화 사슬에서 앞선 모습이 있는가. 진화는 없어졌지만 이 순서가
+        /// 그대로 "얼마나 귀한가" 가 된다 — 뒷단계일수록 덜 뽑히고 더 번다.</summary>
+        public static bool IsLaterForm(string key)
         {
             foreach (PokemonSprite sprite in All)
             {
@@ -58394,20 +58395,6 @@ namespace PokemonTaskbar
                 }
             }
             return false;
-        }
-
-        /// <summary>처음부터 고를 수 있는 포켓몬들(진화체 제외).</summary>
-        public static List<PokemonSprite> BaseSpecies()
-        {
-            List<PokemonSprite> list = new List<PokemonSprite>();
-            foreach (PokemonSprite sprite in All)
-            {
-                if (!IsEvolvedOnly(sprite.Key))
-                {
-                    list.Add(sprite);
-                }
-            }
-            return list;
         }
     }
 }

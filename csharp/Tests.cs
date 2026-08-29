@@ -164,7 +164,7 @@ namespace PokemonTaskbar.Tests
                 ShortSelling();
                 DangerousActions();
                 Lifecycle();
-                Evolution();
+                Draw();
             }
             finally
             {
@@ -194,21 +194,21 @@ namespace PokemonTaskbar.Tests
             Check.That(Parse("--on-taskbar").OnTaskbar, "--on-taskbar 가 켜진다");
             Check.Equal(Parse("--offset", "40").Offset, 40, "--offset 이 그대로 들어간다");
 
-            // 진화체는 진화로만 만나야 한다.
-            bool leaked = false;
+            // 진화가 없어졌으니 열세 마리가 모두 무작위 대상이다.
+            bool sawLaterForm = false;
             for (int round = 0; round < 60; round++)
             {
                 foreach (string key in Parse("--count", "5").Species)
                 {
-                    if (PokemonTaskbar.Sprites.IsEvolvedOnly(key))
+                    if (PokemonTaskbar.Sprites.IsLaterForm(key))
                     {
-                        leaked = true;
+                        sawLaterForm = true;
                     }
                 }
             }
-            Check.That(!leaked, "--count 는 진화체를 나눠 주지 않는다");
+            Check.That(sawLaterForm, "--count 로도 진화체가 나온다");
             Check.Equal(Parse("-p", "wartortle").Species[0], "wartortle",
-                "이름을 직접 대면 진화체도 쓸 수 있다");
+                "이름을 직접 댈 수도 있다");
         }
 
         // --- 설정 파일 ---------------------------------------------------
@@ -317,15 +317,16 @@ namespace PokemonTaskbar.Tests
             }
             Check.That(!usesColorKey, "팔레트에 투명색(#ff00ff)을 쓰지 않는다");
 
-            Check.That(PokemonTaskbar.Sprites.IsEvolvedOnly("wartortle"),
-                "어니부기는 진화로만 만난다");
-            Check.That(!PokemonTaskbar.Sprites.BaseSpecies().Exists(
-                delegate(PokemonSprite s) { return s.Key == "wartortle"; }),
-                "진화체는 처음 고를 수 있는 목록에 없다");
+            // 진화는 없어졌지만 사슬 자체는 남는다 — 뽑기 확률과 벌이 배수를
+            // 정하는 "몇 단계인가" 가 여기서 나온다.
+            Check.That(PokemonTaskbar.Sprites.IsLaterForm("wartortle"),
+                "어니부기는 뒷단계다");
+            Check.That(!PokemonTaskbar.Sprites.IsLaterForm("squirtle"),
+                "꼬부기는 첫단계다");
             Check.Equal(PokemonTaskbar.Sprites.Find("squirtle").EvolvesTo, "wartortle",
-                "꼬부기는 어니부기가 된다");
+                "꼬부기 다음은 어니부기다");
             Check.Equal(PokemonTaskbar.Sprites.Find("pikachu").EvolvesTo, "raichu",
-                "피카츄는 라이츄가 된다");
+                "피카츄 다음은 라이츄다");
             // 세 단계짜리 줄기. 마지막만 더 갈 곳이 없다.
             Check.Equal(PokemonTaskbar.Sprites.Find("bulbasaur").EvolvesTo, "ivysaur",
                 "이상해씨는 이상해풀이 된다");
@@ -810,15 +811,11 @@ namespace PokemonTaskbar.Tests
                 Check.Equal(world.Pets.Count, had + 1, "오른 값을 치르면 늘어난다");
                 Check.That(app.NextPetPrice() > second, "그 다음은 더 비싸다");
 
-                bool evolvedLeaked = false;
                 foreach (PetForm pet in world.Pets)
                 {
-                    if (PokemonTaskbar.Sprites.IsEvolvedOnly(pet.SpriteKey))
-                    {
-                        evolvedLeaked = true;
-                    }
+                    Check.That(PokemonTaskbar.Sprites.Find(pet.SpriteKey) != null,
+                        "뽑힌 포켓몬은 실제로 있는 종이다");
                 }
-                Check.That(!evolvedLeaked, "뽑기로 진화체가 나오지 않는다");
             }
 
             using (TestWorld world = World("-p", "pikachu", "-p", "charmander"))
@@ -1423,58 +1420,102 @@ namespace PokemonTaskbar.Tests
 
         // --- 진화 ---------------------------------------------------------
 
-        private static void Evolution()
+        private static void Draw()
         {
-            Check.Section("진화");
+            Check.Section("뽑기");
 
-            using (TestWorld world = World("-p", "squirtle"))
+            // 포켓몬을 얻는 길은 뽑기 하나뿐이다. 예전에는 기본 포켓몬만 뽑히고
+            // 진화체는 키워서 만나야 했다. 이제 열세 마리가 모두 뽑기에서 나온다.
+            using (TestWorld world = World("-p", "pikachu"))
             {
-                PetForm pet = world.Pets[0];
-                Check.Equal(pet.NextKey, "wartortle", "꼬부기는 어니부기가 된다");
-                Check.That(!pet.CanEvolve(), "처음에는 진화할 수 없다");
-
-                // 먹이만으로는 부족하다.
-                while (pet.FriendshipValue < pet.FriendshipNeed)
+                PetWorld app = world.World;
+                Dictionary<string, int> seen = new Dictionary<string, int>();
+                int stage0 = 0, stage1 = 0, stage2 = 0;
+                for (int i = 0; i < 4000; i++)
                 {
-                    pet.Fed();
+                    app.Options.Coins = 2000000000;
+                    string key = app.DrawSpeciesForTest(false);
+                    if (!seen.ContainsKey(key)) { seen[key] = 0; }
+                    seen[key]++;
+                    int stage = PetWorld.SpeciesStage(key);
+                    if (stage == 0) { stage0++; } else if (stage == 1) { stage1++; } else { stage2++; }
                 }
-                Check.That(!pet.CanEvolve(), "먹이만으로는 진화하지 않는다");
-
-                // 걷기까지 채워도 성장의 물방울이 없으면 안 된다.
-                pet.SetWalked(pet.WalkNeedForTest);
-                world.World.Options.GrowthDrops = 0;
-                Check.That(!pet.CanEvolve(), "성장의 물방울이 없으면 진화하지 않는다");
-
-                world.World.Options.GrowthDrops = 1;
-                Check.That(pet.CanEvolve(), "먹이·걷기·물방울이 모두 차면 진화할 수 있다");
-                Check.That(!pet.IsEvolving, "조건이 차도 스스로 진화하지는 않는다");
-
-                pet.StartEvolving();
-                Check.That(pet.IsEvolving, "직접 고르면 진화가 시작된다");
-                Check.Equal(world.World.Options.GrowthDrops, 0, "물방울을 하나 쓴다");
-
-                double where = pet.Position;
-                for (int i = 0; i < 400 && world.Pets[0].SpriteKey != "wartortle"; i++)
+                bool everySpecies = true;
+                foreach (PokemonSprite sprite in PokemonTaskbar.Sprites.All)
                 {
-                    world.Pets[0].Tick();
+                    if (!seen.ContainsKey(sprite.Key)) { everySpecies = false; }
                 }
-                Check.Equal(world.Pets.Count, 1, "진화한 뒤에도 한 마리다");
-                PetForm grown = world.Pets[0];
-                Check.Equal(grown.SpriteKey, "wartortle", "어니부기가 됐다");
-                Check.Equal(grown.NextKey, "blastoise", "다음은 거북왕이다");
-                Check.Near(grown.Position, where, 2.0, "있던 자리를 지킨다");
+                Check.That(everySpecies, "열세 마리가 모두 뽑힌다");
+                Check.That(stage0 > stage1, "1단계가 2단계보다 자주 나온다");
+                Check.That(stage1 > stage2, "2단계가 3단계보다 자주 나온다");
+                Check.That(stage2 > 0, "3단계도 나오기는 한다");
             }
 
-            // 시간이 흘렀다고 저절로 진화하지는 않는다.
-            using (TestWorld world = World("-p", "squirtle"))
+            // 행운의 부적은 귀한 쪽을 끌어올린다.
+            //
+            // 뒷단계 비율만 보면 안 된다. 부적은 등급(준전설·초전설)도 함께
+            // 끌어올리는데 그 둘은 1단계라, 단계만 세면 효과가 가려진다.
+            // 뽑기가 무엇을 약속하는지는 "얼마나 잘 버는 포켓몬이 나오는가" 이므로
+            // 벌이 배수의 평균으로 잰다.
+            using (TestWorld world = World("-p", "pikachu"))
             {
-                PetForm pet = world.Pets[0];
-                for (int i = 0; i < 750; i++)      // 30초
+                PetWorld app = world.World;
+                double plainWorth = 0.0, luckyWorth = 0.0;
+                int plainRare = 0, luckyRare = 0, plainLater = 0, luckyLater = 0;
+                int rounds = 4000;
+                for (int i = 0; i < rounds; i++)
                 {
-                    pet.Tick();
+                    string plain = app.DrawSpeciesForTest(false);
+                    string lucky = app.DrawSpeciesForTest(true);
+                    plainWorth += PetWorld.PokemonIncomeMultiplier(plain)
+                        * PetWorld.StageIncomeMultiplier(PetWorld.SpeciesStage(plain));
+                    luckyWorth += PetWorld.PokemonIncomeMultiplier(lucky)
+                        * PetWorld.StageIncomeMultiplier(PetWorld.SpeciesStage(lucky));
+                    if (PetWorld.PokemonGrade(plain) != "일반") { plainRare++; }
+                    if (PetWorld.PokemonGrade(lucky) != "일반") { luckyRare++; }
+                    if (PetWorld.SpeciesStage(plain) > 0) { plainLater++; }
+                    if (PetWorld.SpeciesStage(lucky) > 0) { luckyLater++; }
                 }
-                Check.That(!pet.IsEvolving, "가만히 두면 진화하지 않는다");
+                Check.That(luckyWorth > plainWorth * 1.3,
+                    "부적을 쓰면 잘 버는 포켓몬이 나온다");
+                Check.That(luckyRare > plainRare * 2,
+                    "부적을 쓰면 준전설·초전설이 훨씬 자주 나온다");
+                Check.That(luckyLater > plainLater,
+                    "부적을 쓰면 뒷단계도 더 자주 나온다");
             }
+
+            // 부적은 뽑을 때 한 개 쓰인다.
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                app.Options.Coins = 2000000000;
+                app.Options.LuckyCharms = 2;
+                app.BuyRandomPet();
+                Check.Equal(app.Options.LuckyCharms, 1, "뽑으면 부적이 한 개 줄어든다");
+                app.Options.LuckyCharms = 0;
+                int before = app.Options.Coins;
+                app.BuyRandomPet();
+                Check.That(app.Options.Coins < before, "부적이 없어도 뽑을 수는 있다");
+
+                // 돈이 모자라면 부적을 태우지 않는다.
+                app.Options.Coins = 0;
+                app.Options.LuckyCharms = 1;
+                int pets = app.PetsSnapshot().Length;
+                app.BuyRandomPet();
+                Check.Equal(app.Options.LuckyCharms, 1, "못 뽑으면 부적도 그대로다");
+                Check.Equal(app.PetsSnapshot().Length, pets, "못 뽑으면 늘지도 않는다");
+            }
+
+            // 단계는 벌이 배수로 이어진다. 덜 뽑히는 쪽이 더 벌어야 한다.
+            Check.Equal(PetWorld.SpeciesStage("squirtle"), 0, "꼬부기는 1단계다");
+            Check.Equal(PetWorld.SpeciesStage("wartortle"), 1, "어니부기는 2단계다");
+            Check.Equal(PetWorld.SpeciesStage("blastoise"), 2, "거북왕은 3단계다");
+            Check.That(PetWorld.StageIncomeMultiplier(1) > PetWorld.StageIncomeMultiplier(0),
+                "뒷단계가 더 번다");
+            Check.That(PetWorld.StageIncomeMultiplier(2) > PetWorld.StageIncomeMultiplier(1),
+                "3단계가 가장 많이 번다");
+            Check.That(PetWorld.BestIncomeMultiplier() >= PetWorld.StageIncomeMultiplier(2),
+                "희귀도 막대의 가득 값은 실제로 나올 수 있는 최대 배수다");
         }
     }
 }

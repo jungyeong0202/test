@@ -160,6 +160,7 @@ namespace PokemonTaskbar.Tests
                 StockNews();
                 StockSpecialEvents();
                 Relisting();
+                EventSpread();
                 ShortSelling();
                 DangerousActions();
                 Lifecycle();
@@ -1021,6 +1022,80 @@ namespace PokemonTaskbar.Tests
                 "루머 문구가 열 개 이상이다");
 
             world.Dispose();
+        }
+
+        // --- 업종과 소식 고르게 나오기 ---------------------------------------
+
+        private static void EventSpread()
+        {
+            Check.Section("업종과 소식 고르게 나오기");
+
+            // 업종 사건은 그 업종에 둘 이상 있어야 난다. 자리가 넷의 배수가 아니면
+            // 어느 때든 잠기는 업종이 생겨, 그 업종 소식은 영영 안 나온다.
+            Check.Equal(PetWorld.StockSlotCount % PetWorld.SectorNamesForTest.Length, 0,
+                "자리 수가 업종 수로 나누어떨어진다");
+
+            using (TestWorld world = World("-p", "pikachu"))
+            {
+                PetWorld app = world.World;
+                int[] count = new int[PetWorld.SectorNamesForTest.Length];
+                for (int i = 0; i < PetWorld.StockSlotCount; i++)
+                {
+                    count[app.StockSector(i)]++;
+                }
+                bool everySectorLive = true;
+                for (int i = 0; i < count.Length; i++)
+                {
+                    if (count[i] < 2) { everySectorLive = false; }
+                }
+                Check.That(everySectorLive, "처음부터 네 업종이 모두 둘 이상 상장돼 있다");
+
+                // 같은 회사가 두 줄에 나오면 안 된다.
+                bool distinct = true;
+                for (int a = 0; a < PetWorld.StockSlotCount; a++)
+                {
+                    for (int b = a + 1; b < PetWorld.StockSlotCount; b++)
+                    {
+                        if (app.StockName(a) == app.StockName(b)) { distinct = false; }
+                    }
+                }
+                Check.That(distinct, "같은 이름이 두 번 상장되지 않는다");
+
+                // 자리 하나를 비우면 그 자리는 가장 비어 있는 업종으로 채워진다.
+                app.Options.StockDelisted[0] = 1;
+                int[] live = new int[PetWorld.SectorNamesForTest.Length];
+                for (int i = 1; i < PetWorld.StockSlotCount; i++)
+                {
+                    live[app.StockSector(i)]++;
+                }
+                int fewest = int.MaxValue;
+                foreach (int n in live) { if (n < fewest) { fewest = n; } }
+                bool fillsTheGap = true;
+                for (int attempt = 0; attempt < 30; attempt++)
+                {
+                    int picked = app.PickRelistingForTest(0);
+                    int sector = PetWorld.StockSectorsForTest[
+                        picked % PetWorld.StockSectorsForTest.Length];
+                    if (live[sector] != fewest) { fillsTheGap = false; }
+                }
+                Check.That(fillsTheGap, "새 종목은 가장 비어 있는 업종으로 들어온다");
+                app.Options.StockDelisted[0] = 0;
+            }
+
+            // 종목마다 소식이 넉넉해야 한다. 개별 소식이 전체 사건의 절반쯤을
+            // 차지하므로, 종목당 몇 개뿐이면 같은 문구만 되풀이해서 보게 된다.
+            bool enough = true;
+            for (int listing = 0; listing < PetWorld.StockNames.Length; listing++)
+            {
+                foreach (bool positive in new bool[] { true, false })
+                {
+                    if (PetWorld.StockNewsForTest(listing, positive).Length < 6)
+                    {
+                        enough = false;
+                    }
+                }
+            }
+            Check.That(enough, "종목마다 호재·악재가 여섯 개씩 있다");
         }
 
         // --- 상장폐지와 재상장 -----------------------------------------------

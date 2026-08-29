@@ -28,21 +28,24 @@ namespace PokemonTaskbar
         public int Coins = 3000;
         public int Food = 0;
         public int GrowthDrops = 0;
-        public int[] StockPrices = { 1000, 1800, 2700, 1300, 2200, 3500 };
-        public int[] StockShares = { 0, 0, 0, 0, 0, 0 };
-        public int[] StockListingIds = { 0, 1, 2, 3, 4, 5 };
-        public int[] StockPrimaryTraitIds = { 0, 1, 2, 3, 4, 5 };
-        public int[] StockSecondaryTraitIds = { 0, 2, 4, 6, 1, 3 };
-        public int[] StockDelisted = { 0, 0, 0, 0, 0, 0 };
-        public int[] StockRelistSeconds = { 0, 0, 0, 0, 0, 0 };
-        public int[] StockAveragePrices = { 0, 0, 0, 0, 0, 0 };
+        // 처음 상장되는 여덟 종목. 네 업종에 둘씩 편다. 예전에는 이름표 앞에서
+        // 여섯을 그대로 잘라 써서 에너지 3 · 생활 1 · 기술 2 · 유통 0 이었고,
+        // 업종 사건은 둘 이상 있어야 나므로 유통 소식은 영영 나오지 않았다.
+        public int[] StockPrices = { 1000, 1800, 2700, 2400, 2200, 3500, 1600, 1200 };
+        public int[] StockShares = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        public int[] StockListingIds = { 0, 1, 2, 8, 4, 5, 6, 7 };
+        public int[] StockPrimaryTraitIds = { 0, 1, 2, 3, 4, 5, 6, 7 };
+        public int[] StockSecondaryTraitIds = { 0, 2, 4, 6, 1, 3, 5, 7 };
+        public int[] StockDelisted = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        public int[] StockRelistSeconds = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        public int[] StockAveragePrices = { 0, 0, 0, 0, 0, 0, 0, 0 };
         // 공매도한 수량과 그때의 값. 진입가가 담보이자 손익의 기준이 된다.
-        public int[] StockShorts = { 0, 0, 0, 0, 0, 0 };
-        public int[] StockShortPrices = { 0, 0, 0, 0, 0, 0 };
-        public int[] StockHaltSeconds = { 0, 0, 0, 0, 0, 0 };
+        public int[] StockShorts = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        public int[] StockShortPrices = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        public int[] StockHaltSeconds = { 0, 0, 0, 0, 0, 0, 0, 0 };
         // 종목의 기준가. 평균 회귀가 향하는 값이고, 상장폐지선·위기선도 여기에
         // 비율을 곱해 정한다. 0 이면 상장 종목의 시작가로 채운다(예전 설정 파일).
-        public int[] StockBasePrices = { 0, 0, 0, 0, 0, 0 };
+        public int[] StockBasePrices = { 0, 0, 0, 0, 0, 0, 0, 0 };
         public int[] FoodBoostSeconds = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
         public string SettingsPath = null;
         public bool SpeciesFromCommandLine = false;
@@ -2807,7 +2810,7 @@ namespace PokemonTaskbar
                     this.SetTossTradeMode(TossShort); this.tossAction.Focus(); e.Handled = true;
                     return;
                 }
-                if (e.Control && e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D6)
+                if (e.Control && e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D8)
                 {
                     int index = (int)e.KeyCode - (int)Keys.D1;
                     if (index < PetWorld.StockSlotCount)
@@ -2972,12 +2975,12 @@ namespace PokemonTaskbar
             {
                 int rowIndex = i;
                 Panel row = new KeyboardSelectionPanel();
-                row.Location = new Point(6, 42 + i * 74);
-                row.Size = new Size(236, 71);
+                row.Location = new Point(6, 36 + i * 66);
+                row.Size = new Size(236, 63);
                 watch.Controls.Add(row);
                 this.tossRows[i] = row;
                 Panel accent = new Panel(); accent.Location = new Point(0, 0);
-                accent.Size = new Size(4, 71); row.Controls.Add(accent);
+                accent.Size = new Size(4, 63); row.Controls.Add(accent);
                 this.tossRowAccents[i] = accent;
                 this.tossNames[i] = TossLabel(row, new Point(11, 8), new Size(125, 22),
                     ContentAlignment.MiddleLeft, 11.0f, FontStyle.Bold);
@@ -5249,7 +5252,7 @@ namespace PokemonTaskbar
                 return Math.Abs(this.world.StockChangePercent(right)).CompareTo(
                     Math.Abs(this.world.StockChangePercent(left)));
             });
-            // 여섯 종목을 다 적는다. 예전에는 둘만 적어서, 카드 안에 자리가 남는데도
+            // 상장된 종목을 다 적는다. 예전에는 둘만 적어서, 카드 안에 자리가 남는데도
             // "시장 한눈에" 가 시장의 3분의 1만 보여 주었다.
             List<string> lines = new List<string>();
             for (int i = 0; i < indexes.Length; i++)
@@ -5430,10 +5433,13 @@ namespace PokemonTaskbar
         public const double MarketTickScale = 0.70;
         public const double StockFeeRate = 0.02;
         public const int StockHaltSeconds = 20;
-        public const int StockSlotCount = 6;
+        // 여덟 자리다. 업종이 넷이라 자리가 여섯이면 어느 때든 두 업종은 종목이
+        // 하나뿐이라 잠겨 버린다(업종 사건은 둘 이상이어야 난다). 여덟이면
+        // 업종마다 둘씩 들어가 네 업종이 늘 살아 있다.
+        public const int StockSlotCount = 8;
         public const int StockMaxOrderQuantity = int.MaxValue;
         // 상장폐지된 자리에 새 종목이 들어오기까지 걸리는 시간.
-        // 30분이면 여섯 자리 중 하나가 너무 오래 비어 있는다.
+        // 30분이면 자리 하나가 너무 오래 비어 있는다.
         public const int StockRelistSeconds = 10 * 60;
         // 상장폐지선과 위기선은 금액이 아니라 기준가에 대한 비율이다.
         //
@@ -6467,6 +6473,12 @@ namespace PokemonTaskbar
             return (positive ? StockGoodNews : StockBadNews)[listing];
         }
 
+        /// <summary>테스트용. 그 자리에 새로 들일 종목을 골라 본다.</summary>
+        internal int PickRelistingForTest(int index)
+        {
+            return this.PickRelisting(index);
+        }
+
         /// <summary>테스트용. 상장 순번 → 업종 번호 표.</summary>
         internal static int[] StockSectorsForTest
         {
@@ -6477,6 +6489,19 @@ namespace PokemonTaskbar
         internal static string[] SectorNamesForTest
         {
             get { return SectorNames; }
+        }
+
+        /// <summary>테스트용. 시장 전체·업종 소식표의 문구.</summary>
+        internal static string[] BroadNewsTextsForTest(int sector, bool positive)
+        {
+            MarketNews[] table = sector < 0 ? (positive ? WholeMarketGood : WholeMarketBad)
+                : (positive ? SectorGood : SectorBad)[sector];
+            List<string> texts = new List<string>();
+            foreach (MarketNews news in table)
+            {
+                texts.Add(news.Text);
+            }
+            return texts.ToArray();
         }
 
         /// <summary>테스트용. 시장 전체·업종 소식표에 담긴 등락 범위.</summary>
@@ -7249,6 +7274,33 @@ namespace PokemonTaskbar
             }
             bool positive = this.Random.Next(2) == 0;
             bool wholeMarket = this.Random.Next(2) == 0;
+            List<int> sectors = new List<int>();
+            if (!wholeMarket)
+            {
+                // 업종 사건: 그 업종에 속한 종목만 함께 움직인다.
+                //
+                // 한 종목짜리 "업종 사건" 은 개별 사건과 구별되지 않으니 둘 이상
+                // 살아 있는 업종 중에서 고른다. 자리를 여덟으로 둔 것도 이 때문이다
+                // (업종마다 둘씩 들어가야 네 업종이 모두 살아 있다).
+                for (int candidate = 0; candidate < SectorNames.Length; candidate++)
+                {
+                    int count = 0;
+                    foreach (int i in active)
+                    {
+                        if (this.StockSector(i) == candidate)
+                        {
+                            count++;
+                        }
+                    }
+                    if (count >= 2)
+                    {
+                        sectors.Add(candidate);
+                    }
+                }
+                // 쓸 만한 업종이 하나도 없으면 굴림을 버리지 말고 전체 시장으로
+                // 돌린다. 예전에는 여기서 빈 문자열로 끝나 사건이 그만큼 덜 났다.
+                wholeMarket = sectors.Count == 0;
+            }
 
             if (wholeMarket)
             {
@@ -7264,32 +7316,6 @@ namespace PokemonTaskbar
                     + string.Format(CultureInfo.InvariantCulture, "{0:+0;-0;0}%", percent);
             }
 
-            // 업종 사건: 그 업종에 속한 종목만 함께 움직인다.
-            //
-            // 업종을 아무렇게나 고르면 절반은 헛돈다. 열두 이름 중 여섯만 상장돼
-            // 있어서 고른 업종에 살아 있는 종목이 하나뿐인 일이 잦고, 한 종목짜리
-            // "업종 사건" 은 개별 사건과 구별되지 않으니 접을 수밖에 없다.
-            // 그래서 둘 이상 살아 있는 업종 중에서 고른다.
-            List<int> sectors = new List<int>();
-            for (int candidate = 0; candidate < SectorNames.Length; candidate++)
-            {
-                int count = 0;
-                foreach (int i in active)
-                {
-                    if (this.StockSector(i) == candidate)
-                    {
-                        count++;
-                    }
-                }
-                if (count >= 2)
-                {
-                    sectors.Add(candidate);
-                }
-            }
-            if (sectors.Count == 0)
-            {
-                return "";
-            }
             int sector = sectors[this.Random.Next(sectors.Count)];
             List<int> members = new List<int>();
             foreach (int i in active)
@@ -7318,32 +7344,56 @@ namespace PokemonTaskbar
         /// 없어진다.
         /// </summary>
         private static readonly string[][] StockGoodNews = {
-            new string[] { "번개 발전소 증설", "송전망 현대화 수주", "전기 요금 인상 승인" },
-            new string[] { "정수장 장기 계약", "생수 수출 확대", "수질 인증 획득" },
-            new string[] { "친환경 농장 수확", "종자 특허 등록", "유기농 인증 통과" },
-            new string[] { "화력 발전 수요 급증", "열병합 설비 준공", "연료 장기 계약" },
-            new string[] { "변신 연구 특허", "신물질 합성 성공", "국책 과제 선정" },
-            new string[] { "신기술 발표", "초전도 소재 개발", "해외 기술 수출" },
-            new string[] { "신작 컬렉션 완판", "해외 매장 진출", "인기 모델 계약" },
-            new string[] { "물류 허브 확장", "당일 배송 개시", "대형 화주 확보" },
-            new string[] { "건강식 수요 증가", "신약 임상 통과", "병원 공급 계약" },
-            new string[] { "해운 노선 확대", "대형 선박 인도", "운임 상승" },
-            new string[] { "간식 판매 호조", "신제품 대박", "대형 마트 입점" },
-            new string[] { "대형 게임 출시", "동시 접속 최고치", "e스포츠 리그 개막" },
+            new string[] { "번개 발전소 증설", "송전망 현대화 수주", "전기 요금 인상 승인",
+                "야간 요금제 도입", "낙뢰 발전 실증 성공", "산업단지 전력 공급 계약" },
+            new string[] { "정수장 장기 계약", "생수 수출 확대", "수질 인증 획득",
+                "정수 필터 특허", "해수 담수화 수주", "약수터 브랜드 인수" },
+            new string[] { "친환경 농장 수확", "종자 특허 등록", "유기농 인증 통과",
+                "모종 수출 개시", "체험 농장 개장", "비료 자체 생산 성공" },
+            new string[] { "화력 발전 수요 급증", "열병합 설비 준공", "연료 장기 계약",
+                "폐열 회수 설비 도입", "발전소 가동률 최고치", "탄소 배출권 확보" },
+            new string[] { "변신 연구 특허", "신물질 합성 성공", "국책 과제 선정",
+                "세포 배양 성공", "연구소 증설", "해외 학회 최우수상" },
+            new string[] { "신기술 발표", "초전도 소재 개발", "해외 기술 수출",
+                "양자 통신 시연", "대형 데이터센터 수주", "인재 대거 영입" },
+            new string[] { "신작 컬렉션 완판", "해외 매장 진출", "인기 모델 계약",
+                "패션쇼 흥행", "협업 상품 품절", "온라인 매출 급증" },
+            new string[] { "물류 허브 확장", "당일 배송 개시", "대형 화주 확보",
+                "자동 분류 설비 도입", "심야 배송 허가", "물류비 절감 성공" },
+            new string[] { "건강식 수요 증가", "신약 임상 통과", "병원 공급 계약",
+                "예방 접종 사업 수주", "건강검진 센터 개원", "의료기기 인증" },
+            new string[] { "해운 노선 확대", "대형 선박 인도", "운임 상승",
+                "항로 단축 성공", "친환경 선박 전환", "항만 우선 접안권 획득" },
+            new string[] { "간식 판매 호조", "신제품 대박", "대형 마트 입점",
+                "도시락 사업 진출", "학교 급식 계약", "간편식 라인 증설" },
+            new string[] { "대형 게임 출시", "동시 접속 최고치", "e스포츠 리그 개막",
+                "신작 사전예약 신기록", "글로벌 퍼블리싱 계약", "IP 영상화 확정" },
         };
         private static readonly string[][] StockBadNews = {
-            new string[] { "송전탑 고장", "정전 사고 배상", "발전기 화재" },
-            new string[] { "가뭄 경보", "수질 오염 적발", "취수장 폐쇄" },
-            new string[] { "병충해 주의보", "냉해 피해", "농약 잔류 논란" },
-            new string[] { "화산재 공급 차질", "연료비 급등", "배출 규제 강화" },
-            new string[] { "실험 결과 논란", "연구비 삭감", "논문 철회" },
-            new string[] { "연구소 보안 사고", "핵심 인력 이탈", "특허 소송 패소" },
-            new string[] { "유행 변화", "재고 급증", "디자인 표절 시비" },
-            new string[] { "배송 지연", "창고 화재", "기사 파업" },
-            new string[] { "진료비 규제", "부작용 보고", "허가 반려" },
-            new string[] { "폭풍 운항 중단", "좌초 사고", "유가 급등" },
-            new string[] { "원재료 가격 급등", "이물질 논란", "리콜 결정" },
-            new string[] { "서버 장애", "확률 조작 논란", "출시 연기" },
+            new string[] { "송전탑 고장", "정전 사고 배상", "발전기 화재",
+                "송전 손실 급증", "요금 인하 압박", "설비 노후 지적" },
+            new string[] { "가뭄 경보", "수질 오염 적발", "취수장 폐쇄",
+                "수도관 파열", "정수 비용 상승", "물맛 논란" },
+            new string[] { "병충해 주의보", "냉해 피해", "농약 잔류 논란",
+                "일조량 부족", "출하 지연", "종자 분쟁 패소" },
+            new string[] { "화산재 공급 차질", "연료비 급등", "배출 규제 강화",
+                "미세먼지 규제", "발전 정지 명령", "설비 사고" },
+            new string[] { "실험 결과 논란", "연구비 삭감", "논문 철회",
+                "실험체 탈출 소동", "연구 윤리 조사", "장비 도입 지연" },
+            new string[] { "연구소 보안 사고", "핵심 인력 이탈", "특허 소송 패소",
+                "서버 해킹", "기술 표준 탈락", "투자 유치 무산" },
+            new string[] { "유행 변화", "재고 급증", "디자인 표절 시비",
+                "환불 요청 폭주", "매장 임대료 급등", "시즌 재고 처분" },
+            new string[] { "배송 지연", "창고 화재", "기사 파업",
+                "분류 오류 급증", "연료비 상승", "허브 침수" },
+            new string[] { "진료비 규제", "부작용 보고", "허가 반려",
+                "임상 중단", "의료 소송 제기", "보험 수가 인하" },
+            new string[] { "폭풍 운항 중단", "좌초 사고", "유가 급등",
+                "선박 억류", "항만 적체", "보험료 인상" },
+            new string[] { "원재료 가격 급등", "이물질 논란", "리콜 결정",
+                "유통기한 표기 오류", "공장 위생 점검", "원유 값 급등" },
+            new string[] { "서버 장애", "확률 조작 논란", "출시 연기",
+                "동시 접속자 급감", "업데이트 반발", "심의 등급 상향" },
         };
 
         private string StockEventText(int index, bool positive)
@@ -7376,12 +7426,7 @@ namespace PokemonTaskbar
 
         private void RelistStock(int index)
         {
-            int next;
-            do
-            {
-                next = this.Random.Next(StockNames.Length);
-            }
-            while (next == this.Options.StockListingIds[index]);
+            int next = this.PickRelisting(index);
             this.Options.StockListingIds[index] = next;
             List<int> primaryCandidates = new List<int>();
             for (int trait = 0; trait < StockPrimaryTraitNames.Length; trait++)
@@ -7426,6 +7471,60 @@ namespace PokemonTaskbar
             this.stockSessionOpeningPrices[index] = this.Options.StockPrices[index];
             this.AnnounceStockEvent(this.StockName(index) + " 신규 상장! "
                 + this.StockProfile(index));
+        }
+
+        /// <summary>새로 상장할 종목을 고른다.
+        ///
+        /// 지금 가장 비어 있는 업종에서 고른다. 아무렇게나 고르면 업종 구성이
+        /// 한쪽으로 쏠린 채 굳고, 업종 사건은 둘 이상 있어야 나므로 늘 같은
+        /// 업종 소식만 돈다(재 보니 100시간에 에너지 693번, 유통 12번이었다).
+        /// 이미 상장된 이름도 뺀다. 예전에는 같은 회사가 두 줄에 나올 수 있었다.
+        /// </summary>
+        private int PickRelisting(int index)
+        {
+            int[] sectorCount = new int[SectorNames.Length];
+            List<int> taken = new List<int>();
+            for (int slot = 0; slot < StockSlotCount; slot++)
+            {
+                if (slot == index || this.IsStockDelisted(slot))
+                {
+                    continue;
+                }
+                taken.Add(this.Options.StockListingIds[slot] % StockNames.Length);
+                sectorCount[this.StockSector(slot)]++;
+            }
+            int fewest = int.MaxValue;
+            foreach (int count in sectorCount)
+            {
+                if (count < fewest) { fewest = count; }
+            }
+            List<int> best = new List<int>();
+            List<int> rest = new List<int>();
+            for (int listing = 0; listing < StockNames.Length; listing++)
+            {
+                if (listing == this.Options.StockListingIds[index]
+                    || taken.Contains(listing))
+                {
+                    continue;
+                }
+                if (sectorCount[StockSectors[listing % StockSectors.Length]] == fewest)
+                {
+                    best.Add(listing);
+                }
+                else
+                {
+                    rest.Add(listing);
+                }
+            }
+            if (best.Count > 0)
+            {
+                return best[this.Random.Next(best.Count)];
+            }
+            if (rest.Count > 0)
+            {
+                return rest[this.Random.Next(rest.Count)];
+            }
+            return (this.Options.StockListingIds[index] + 1) % StockNames.Length;
         }
 
         private void TickMarketClock()

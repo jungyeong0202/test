@@ -1322,12 +1322,12 @@ namespace PokemonTaskbar.Tests
             app.Options.StockBasePrices[2] = 2000;
             app.Options.StockPrices[2] = 2000;
             Check.That(!app.IsStockInCrisis(2), "제 값에서는 위험이 아니다");
-            Check.Equal(app.StockCrisisPrice(2), 680, "위기선은 기준가의 34%다");
-            Check.Equal(app.StockDelistPrice(2), 280, "폐지선은 기준가의 14%다");
+            Check.Equal(app.StockCrisisPrice(2), 800, "위기선은 기준가의 40%다");
+            Check.Equal(app.StockDelistPrice(2), 320, "폐지선은 기준가의 16%다");
 
-            app.Options.StockPrices[2] = 679;
+            app.Options.StockPrices[2] = 799;
             Check.That(app.IsStockInCrisis(2), "위기선 밑이면 위험이다");
-            Check.That(app.StockCrisisText(2).IndexOf("280원") >= 0,
+            Check.That(app.StockCrisisText(2).IndexOf("320원") >= 0,
                 "안내가 폐지선을 알려 준다");
             Check.That(app.StockCrisisText(2).IndexOf("사라집니다") >= 0,
                 "안내가 보유 주식이 없어진다고 알려 준다");
